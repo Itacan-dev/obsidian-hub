@@ -40,9 +40,6 @@ async function run() {
         assert.equal(await fs.readFile(file,"utf8"),before); assert.equal(stored(wizard.data,date,"shared-project").rating,2);
         await assert.rejects(store.updateProgress(data=>{data.categories=[{id:"unexpected"}]}),/outside progress/);
         assert.equal(await fs.readFile(file,"utf8"),before);
-        const editedFocus=[{projectId:"shared-project",projectName:"Itacan",text:"Explicit next action"}];
-        await saveProgress(wizard,{date,entries:[],focus:editedFocus});
-        disk=JSON.parse(await fs.readFile(file,"utf8"));assert.deepEqual(disk.pendingFocus.items,editedFocus);assert.deepEqual(disk.reportFocusByDate[past],initial.reportFocusByDate[past]);
         // Ordinary shared-state export retains its validation and category ownership boundary.
         const next={...wizard.data, categories:[category]}; const prepared=await store.sharedProjects.prepare(next);
         assert.deepEqual(prepared.shared.categories,[category]);assert.deepEqual(prepared.local.categories,[]);

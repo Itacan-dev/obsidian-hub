@@ -17,11 +17,18 @@ const obsidian={Modal,Component,Notice:class{constructor(text){notices.push(text
 const source=await(await fetch('/main.js')).text(),factories=new Function('require',source.slice(0,source.indexOf('const __hubModuleCache'))+';return __hubModules')(id=>{if(id==='node:crypto')return {randomUUID:()=>crypto.randomUUID()};if(id==='obsidian')return obsidian;throw Error('Unexpected external module: '+id)});
 const cache={};function req(id){if(id==='obsidian')return obsidian;if(cache[id])return cache[id].exports;const m=cache[id]={exports:{}};factories[id](m,m.exports,req);return m.exports}
 const {ProgressEditor,openProgress,mountProgressControl}=req('lib/ui/progress-editor.js');const {localISODate}=req('lib/domain/dates.js');const date=localISODate();let disk={projectWorkRatings:{p:{[date]:2}},projectWorkLogs:{p:{[date]:{summary:'Keep this reflection',timestamp:1}}}},closeCount=0;
+disk.projectWorkRatings.p["2020-01-02"]=1;
+disk.resourceWorkRatings={study:{"2020-01-02":1}};
 const workspaces=[{projectId:'p',name:'Project A',contextKind:'project',status:'active'},{projectId:'q',name:'Project B',contextKind:'project',status:'shelved'}];
 const resources=[{projectId:'resource:study',resourceType:'study',label:'Study',name:'Study',contextKind:'resource'}];
-const wizard={data:disk,...disk,activityLog:[],dailyFocus:{},getProjectRecords:()=>workspaces,getResourceTypes:()=>resources,getProjectById:id=>workspaces.find(w=>w.projectId===id),getResourceById:id=>resources.find(r=>r.resourceType===id),getCategories:()=>[],getFocusContexts:()=>workspaces,getPendingFocus:()=>null,getDailyFocus:()=>[],getProgressReports:()=>[{projectId:'p',date}],taskProgressEvidence:()=>({availability:'current',records:[]})};
+const wizard={data:disk,...disk,activityLog:[],dailyFocus:{},getProjectRecords:()=>workspaces,getResourceTypes:()=>resources,getProjectById:id=>workspaces.find(w=>w.projectId===id),getResourceById:id=>resources.find(r=>r.resourceType===id),getCategories:()=>[],getFocusContexts:()=>workspaces,getPendingFocus:()=>null,getDailyFocus:()=>[],getProgressReports:()=>["p","q","resource:study"].flatMap(projectId=>{
+ const resource=projectId.startsWith("resource:"),key=resource?"study":projectId;
+ const ratings=(resource?disk.resourceWorkRatings:disk.projectWorkRatings)?.[key]??{};
+ const logs=(resource?disk.resourceWorkLogs:disk.projectWorkLogs)?.[key]??{};
+ return [...new Set([...Object.keys(ratings),...Object.keys(logs)])].map(date=>({projectId,date}));
+}),taskProgressEvidence:()=>({availability:'current',records:[]})};
 const store={deviceId:'test',updateProgress:async fn=>{const next=JSON.parse(JSON.stringify(disk));fn(next);if(window.failSave)throw Error('Simulated disk failure');disk=next;return next}};wizard.store=store;
-const plugin={projectWizard:wizard,dataStore:store,app:{keymap,vault:{getAbstractFileByPath:()=>null}},workspaceModes:{currentContext:()=>workspaces[0]},notifyProgressChanged(){},finishWindowClose(){closeCount++},reportEligibility:{state:{},cutoff:(_date,ids=['p'])=>Object.fromEntries(ids.map(id=>[id,1])),pending:()=>['p'],dismiss(){},flush:async()=>{}}};
+const plugin={projectWizard:wizard,dataStore:store,app:{keymap,vault:{getAbstractFileByPath:()=>null}},workspaceModes:{currentContext:()=>workspaces[0]},notifyProgressChanged(){},finishWindowClose(){closeCount++},reportEligibility:{state:{},cutoff:(_date,ids=['p'])=>Object.fromEntries(ids.map(id=>[id,1])),pending:()=>['p','resource:study'],dismiss(){},flush:async()=>{}}};
 store.updatePlan=async fn=>{const next=JSON.parse(JSON.stringify(disk));fn(next);disk=next;return next};
 plugin.app.vault.adapter={getBasePath:()=>"nested-report-fixture"};
 plugin.globalPlan=new(req('lib/services/global-plan.js').GlobalPlanService)(plugin,{storage:localStorage});
@@ -36,7 +43,7 @@ const pluginSource=await(await fetch('/plugin.js')).text();
 const closeStart=pluginSource.indexOf('    async openProjectAdvancementPrompt('),closeEnd=pluginSource.indexOf('    openTaskCreator(',closeStart);
 plugin.openProjectAdvancementPrompt=new Function('require','localISODate','FocusListEditor','ownNoticeColors','Notice','return ({'+pluginSource.slice(closeStart,closeEnd)+'}) .openProjectAdvancementPrompt')(id=>{if(id==='./lib/ui/progress-editor')return req('lib/ui/progress-editor.js');throw Error(id)},localISODate,Focus,()=>{},obsidian.Notice);
 const controls=document.body.createDiv({cls:'hub-oath-statusbar'});const host=controls.createDiv({cls:'hub-oath-control'});
-plugin.register=noop;plugin.addCommand=noop;mountProgressControl(plugin,host,Focus);
+plugin.register=noop;plugin.addCommand=noop;mountProgressControl(plugin,host);
 window.snapshot=()=>JSON.parse(JSON.stringify(disk));window.closeCount=()=>closeCount;openReport();window.testDone=true;
 }catch(e){window.testError=e.stack;window.testDone=true}
 </script>

@@ -9,7 +9,7 @@ const {createTaskRow,mountTaskCardPresentation}=require("./task-card");
 const {taskGroups}=require("../domain/task-planning");
 const {appendRouteSeparator}=require("./route-breadcrumb");
 class PlanPicker extends Modal {
- constructor(plugin,{relink=null}={}){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.relink=relink;this.planId=this.plan.active()?.id;this.selected=new Map();this.category=relink?"file":"task";this.returnFocus=document.activeElement;this.fileInitialized=false;this.invocation=plugin.workspaceModes?.currentContext?.()??null;if(!plugin.workspaceModes?.currentContext){const path=plugin.app.workspace?.getActiveFile?.()?.path;this.invocation=path?plugin.projectWizard.getContextForPath?.(path):null;}this.invocationPath=plugin.app.workspace?.getActiveFile?.()?.path;}
+ constructor(plugin,{relink=null,planId=plugin.globalPlan.active()?.id,returnFocus}={}){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.relink=relink;this.planId=planId;this.selected=new Map();this.category=relink?"file":"task";this.returnFocus=returnFocus??this.contentEl.ownerDocument.activeElement;this.fileInitialized=false;this.invocation=plugin.workspaceModes?.currentContext?.()??null;if(!plugin.workspaceModes?.currentContext){const path=plugin.app.workspace?.getActiveFile?.()?.path;this.invocation=path?plugin.projectWizard.getContextForPath?.(path):null;}this.invocationPath=plugin.app.workspace?.getActiveFile?.()?.path;}
  onOpen(){
   ownModalColors(this);this.modalEl.classList.add("hub-plan-modal","hub-plan-picker");this.contentEl.classList.add("hub-button-scope");this.component=new Component();this.component.load();
   createModalHeader(this.contentEl,{title:this.relink?"Relink file":"Add to plan",icon:"list-plus",subtitle:this.relink?undefined:"Choose what to include in your plan."});
@@ -33,7 +33,7 @@ class PlanPicker extends Modal {
   layoutModal(this,{headerEnd:controls,body:this.body,footer});this.plan.subscribe(this.component,()=>this.render());void this.load();
  }
  async load(){try{this.items=await this.plan.references.candidates();if(this.category==="file")this.ensureFileLocation();if(this.contentEl.isConnected){this.render();if(this.plan.references.taskError)this.error.textContent="Tasks are temporarily unavailable. Files and Workspaces are still available.";}}catch(error){if(this.isOpen)this.error.textContent=error.message;}}
- existing(){return new Set(this.plan.draft.entries.filter(e=>e.id!==this.relink?.id).map(identity));}
+ existing(){return new Set((this.plan.readPlan(this.planId)?.content?.entries??[]).filter(e=>e.id!==this.relink?.id).map(identity));}
  render(){
   if(!this.items)return;this.modalEl.dataset.category=this.category;
   const scroll=this.body.scrollTop,active=this.results.ownerDocument.activeElement,key=active?.dataset.selectionKey;
@@ -88,7 +88,7 @@ class PlanPicker extends Modal {
    row.onclick=toggle;row.onkeydown=e=>{if(["Enter"," "].includes(e.key)){e.preventDefault();toggle();}};
   }
   if(!this.results.children.length)this.results.createDiv({cls:"home-empty",text:"No matching items."});
-  this.add.disabled=!this.selected.size;this.add.textContent=this.relink?"Relink selected":"Add selected ("+this.selected.size+")";this.body.scrollTop=scroll;this.renderReview();
+  this.add.disabled=this.committing||(!this.selected.size&&!this.pendingSave);this.add.textContent=this.pendingSave?"Retry saving":this.relink?"Relink selected":"Add selected ("+this.selected.size+")";this.body.scrollTop=scroll;this.renderReview();
   if(key)[...this.results.querySelectorAll("[data-selection-key]")].find(b=>b.dataset.selectionKey===key)?.focus({preventScroll:true});
  }
  ensureFileLocation(){
@@ -105,7 +105,7 @@ class PlanPicker extends Modal {
  orderTasks(items){
   const owners=this.plan.references.workspaces(),rank=i=>{const n=owners.findIndex(w=>JSON.stringify(refOf(w))===JSON.stringify(i.workspace));return n<0?owners.length:n;};
   const ordered=[...items].sort((a,b)=>rank(a)-rank(b)),oath=this.plugin.oath;
-  const pinned=oath?.active?require("../domain/oath-workspace").oathTaskOrder(oath.current):new Map();
+  const pinned=oath?.active?require("../domain/oath-workspace").oathTaskOrder(oath.focus??oath.current):new Map();
   const key=i=>require("../domain/oath-workspace").taskKey(i.task),ordinary=ordered.filter(i=>!pinned.has(key(i))),groups=taskGroups(ordinary);
   return [...ordered.filter(i=>pinned.has(key(i))).sort((a,b)=>pinned.get(key(a))-pinned.get(key(b))),...groups.active,...groups.future];
  }
@@ -123,16 +123,41 @@ class PlanPicker extends Modal {
   const message=this.selected.size+" selected for plan";if(this.announcement.textContent!==message)this.announcement.textContent=message;
  }
  sharedIn(scope,path){if(scope.type!=="project")return false;const project=this.plan.references.workspace(scope),ids=project?.resourceFolderIds??[];const folders=this.plugin.projectWizard.data.resourceFolders??[];return (Array.isArray(folders)?folders:Object.values(folders)).some(f=>ids.includes(f.id)&&(path===f.path||path.startsWith(f.path+"/")));}
- async commit(){this.add.disabled=true;try{this.plan.assertEditable(this.planId);
-  const current=await this.plan.references.candidates();if(!this.isOpen)return;this.items=current;this.plan.assertEditable(this.planId);
+ async commit(){
+  if(this.committing)return;
+  this.committing=true;
+  this.add.disabled=true;
+  const assertEditable = () => this.plan.assertEditable(this.planId);
+  const save = () => this.plan.flush();
+  try{
+  if(this.pendingSave){await save();this.close();return;}
+  assertEditable();
+  const current=await this.plan.references.candidates();if(!this.isOpen)return;this.items=current;assertEditable();
   const eligible=new Set(current.filter(i=>i.entry.kind!=="task"||!i.completed&&i.task?.nativeReadOnly!==true).map(i=>identity(i.entry))),existing=this.existing();let invalid=false;
   for(const key of this.selected.keys()){if(existing.has(key))this.selected.delete(key);else if(!eligible.has(key)){this.selected.delete(key);invalid=true;}}
   if(invalid){this.render();throw Error("A selected item became completed or unavailable. Review the remaining selection and add again.");}
   if(!this.selected.size){this.render();return;}
-  if(this.relink){const chosen=[...this.selected.values()][0];this.plan.mutate(p=>{const e=p.entries.find(e=>e.id===this.relink.id);if(!e)throw Error("This entry was removed.");if(p.entries.some(x=>x.id!==e.id&&identity(x)===identity(chosen)))throw Error("Already in plan.");e.reference=chosen.reference;e.lastKnownLabel=chosen.lastKnownLabel;delete e.unavailableReason;});}else this.plan.add([...this.selected.values()]);
-  await this.plan.flush();this.close();
- }catch(error){if(this.isOpen){this.error.textContent=error.message;this.add.disabled=!this.selected.size;}}}
- onClose(){if(this.plugin.planPicker===this)this.plugin.planPicker=null;this.component?.unload();this.selected.clear();const target=this.returnFocus?.isConnected?this.returnFocus:this.plugin.planModal?.modalEl;target?.focus?.();}
+  const chosen=[...this.selected.values()];
+  if(this.relink){
+   const relink=p=>{const e=p.entries.find(e=>e.id===this.relink.id);if(!e)throw Error("This entry was removed.");if(p.entries.some(x=>x.id!==e.id&&identity(x)===identity(chosen[0])))throw Error("Already in plan.");e.reference=chosen[0].reference;e.lastKnownLabel=chosen[0].lastKnownLabel;delete e.unavailableReason;};
+   this.plan.mutate(relink,{id:this.planId});
+  }else this.plan.add(chosen,this.planId);
+  this.pendingSave=true;
+  await save();this.close();
+ }catch(error){
+  if(this.isOpen)this.error.textContent=error.message;
+ }finally{
+  this.committing=false;
+  if(this.isOpen)this.render();
+ }}
+ onClose(){
+  if(this.plugin.planPicker===this)this.plugin.planPicker=null;
+  this.component?.unload();
+  this.selected.clear();
+  const trigger=typeof this.returnFocus==="function"?this.returnFocus():this.returnFocus;
+  const target=trigger?.isConnected?trigger:this.plugin.planModal?.heading;
+  target?.focus({preventScroll:true});
+ }
 }
 function openPlanPicker(plugin,options){if(plugin.planPicker?.containerEl?.isConnected){plugin.planPicker.modalEl.focus();return plugin.planPicker;}const modal=new PlanPicker(plugin,options);plugin.planPicker=modal;try{modal.open();return modal;}catch(error){modal.close();plugin.planPicker=null;throw error;}}
 module.exports={PlanPicker,openPlanPicker};

@@ -7,8 +7,11 @@ File observers cannot reject FileOperations. Existing receipts detect lost mappi
 Validation commands:
 - node lib/tests/global-plan.test.js
 - node lib/tests/plan-references.test.js
-- node lib/tests/global-plan-browser.cjs (17 real Obsidian Modal checks)
+- node --test lib/tests/planner.test.js
+- node lib/tests/global-plan-browser.cjs (Planner checks using the installed Obsidian Modal)
+- node lib/tests/plan-files-browser.cjs (picker and file-navigation regression checks)
 - node lib/tests/progress-editor-browser.cjs (75 checks, including nested Plan draft preservation)
+- node lib/tests/run-workspace-explorer-obsidian-test.cjs --planner (full installed Obsidian with a disposable vault)
 - Existing progress storage/shared-boundary/workflow/session/zero/heatmap and Daily Brief suites
 - Native application and file-operation suites, including reference transfer/deletion and observer-failure isolation
 

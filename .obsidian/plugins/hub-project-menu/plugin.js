@@ -1,6 +1,6 @@
 const { ownColorRoot, refreshHostColorReferences, disposeColorSystem } = require("./lib/ui/color-system");
 const { ownMenuColors, ownModalColors, ownNoticeColors } = require("./lib/ui/color-system");
-const { createWindowTitle, setWindowUndertext, layoutModal } = require("./lib/ui/window-title");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators, layoutModal } = require("./lib/ui/window-title");
 const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio");
 const { mountMusicControl } = require("./lib/ui/music");
 const { mountSettingsControl } = require("./lib/ui/settings");
@@ -32,14 +32,14 @@ const {
 } = require("obsidian");
 
 const { queryHistory } = require("./lib/domain/history");
-const { savedReportContext, reportDay } = require("./lib/domain/report-context");
+const { reportDay } = require("./lib/domain/report-context");
 const { mountTransientEffects } = require("./lib/ui/attention");
 const { lockModalControls } = require("./lib/ui/modal-save");
 const { trackTextFieldFocus } = require("./lib/ui/text-field-focus");
 const { installWindowMinimum } = require("./lib/services/window-minimum");
 const { hasKeyboardFocus, focusAfterRowRemoval } = require("./lib/ui/focus-restoration");
 const { renderReportWorkspaceHeader } = require("./lib/ui/report-workspace-header");
-const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = require("./lib/ui/daily-report");
+const { reportTitle, DailyReportModal } = require("./lib/ui/daily-report");
 const { ProjectDeletionModal } = require("./lib/ui/project-deletion");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = require("./lib/ui/prepared-note-rail");
 const { progressRatingOptions } = require('./lib/config');
@@ -565,6 +565,7 @@ class ConfirmModal extends Modal {
         );
 
 
+        mountModalSeparators(this, { footer: actions });
         requestAnimationFrame(() => {
             (confirm.classList.contains("mod-warning") ? cancel : confirm).focus();
         });
@@ -920,777 +921,6 @@ class FocusListEditor {
 
 
         return items;
-    }
-}
-
-
-class ProjectAdvancementModal
-    extends Modal {
-
-    constructor(
-        app,
-        {
-            projects,
-            resources = [],
-            plugin,
-            currentScores,
-            currentSummaries = {},
-            reportContexts = {},
-            getReportContexts = null,
-            showNextFocus = false,
-            currentFocus = [],
-            focusProjects = [],
-            onSave,
-            onSaved,
-            onCancel,
-            title =
-                "Edit progress report",
-            reportDate = null,
-            reportMode = "edit",
-            requireEveryProject = true,
-            requireExplicitRatings = false,
-            allowNoProgress = false,
-            saveLabel = "Save & close",
-            showCancel = false
-        }
-    ) {
-
-        super(app);
-
-
-        this.projects =
-            Array.isArray(projects)
-                ? projects
-                : [];
-
-
-        this.resources =
-            Array.isArray(resources)
-                ? resources
-                : [];
-
-
-        this.requireExplicitRatings = requireExplicitRatings;
-        this.plugin = plugin;
-        this.progressItems = [
-            ...this.projects,
-            ...this.resources
-        ];
-
-
-        this.currentScores =
-            currentScores ?? {};
-
-
-        this.currentSummaries =
-            currentSummaries ?? {};
-        this.getReportContexts = getReportContexts;
-        this.reportContexts = getReportContexts?.() ?? reportContexts;
-
-
-        this.showNextFocus =
-            showNextFocus;
-
-
-        this.currentFocus =
-            Array.isArray(currentFocus)
-                ? currentFocus
-                : [];
-
-
-        this.focusProjects =
-            Array.isArray(focusProjects)
-                ? focusProjects
-                : [];
-
-
-        this.onSave =
-            onSave;
-
-
-        this.onSaved =
-            onSaved;
-
-
-        this.onCancel =
-            onCancel;
-
-
-        this.title =
-            title;
-        this.reportDate = reportDate;
-        this.reportMode = reportMode;
-
-
-        this.requireEveryProject =
-            requireEveryProject;
-
-
-        this.allowNoProgress =
-            allowNoProgress;
-
-
-        this.saveLabel =
-            saveLabel;
-
-
-        this.showCancel =
-            showCancel;
-
-
-        this.selectedScores =
-            new Map();
-
-
-        this.summaryInputs =
-            new Map();
-
-
-        this.settled =
-            false;
-
-
-        this.saving =
-            false;
-
-
-        for (
-            const project
-            of this.progressItems
-        ) {
-
-            const score =
-                this.currentScores[
-                    project.projectId
-                ];
-
-
-            if (
-                Number.isInteger(score) &&
-                score >= 0 &&
-                score <= 4
-            ) {
-
-                this.selectedScores.set(
-                    project.projectId,
-                    score
-                );
-            }
-        }
-    }
-
-
-    onOpen() { ownModalColors(this);
-        this.evidenceRows = new Map();
-        this.evidenceComponents = new Map();
-        this.renderEvidence = (parent, context, id) => {
-            this.evidenceComponents.get(id)?.unload();
-            const component = new Component();
-            component.load();
-            this.evidenceComponents.set(id, component);
-            const markdown = createHubMarkdown({ app: this.app, component });
-            const evidence = renderReportEvidence(parent, context, markdown, component);
-            if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "", markdown);
-            return evidence;
-        };
-        this.ratingRows = new Map();
-        if (this.requireExplicitRatings) this.ratingEffects = mountTransientEffects(this.contentEl);
-        this.refreshEvidence = () => {
-            if (!this.getReportContexts) return;
-            this.reportContexts = this.getReportContexts();
-            for (const [id, previous] of this.evidenceRows) {
-                const context = this.reportContexts[id];
-                if (!context) continue;
-                const evidence = this.renderEvidence(previous.parentElement, context, id);
-                previous.replaceWith(evidence);
-                this.evidenceRows.set(id, evidence);
-            }
-        };
-        if (this.getReportContexts) { document.addEventListener("hub-task-progress-evidence-changed", this.refreshEvidence); }
-
-
-        this.contentEl.addClass(
-            "hub-project-advancement-modal", "hub-button-scope"
-        );
-
-
-        const heading = createWindowTitle(this.contentEl, this.title,
-            this.reportMode === "complete" ? "clipboard-plus" : "clipboard-pen", {
-                date: this.reportDate ? { value: this.reportDate,
-                    label: formatDate(parseLocalISODate(this.reportDate), "full") } : null
-            });
-
-
-        const guidance = this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted", text:
-            this.reportMode === "complete"
-                ? "Review your activity and rate your work in each project or resource"
-                : this.reportMode === "update"
-                    ? "New activity has been recorded since your last report. Review your ratings"
-                    : "Review activity and adjust the significance of work recorded for this date" });
-        setWindowUndertext(heading, guidance);
-        this.ratingTooltips?.dispose();
-        this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
-
-
-        this.contentEl.createDiv({
-            cls:
-                "hub-project-advancement-divider"
-        });
-
-
-        // ---------- PROJECTS ----------
-
-        const rows =
-            this.contentEl.createDiv({
-                cls:
-                    "hub-project-advancement-projects"
-            });
-
-
-        for (
-            let index = 0;
-            index < this.progressItems.length;
-            index++
-        ) {
-
-            if (
-                index === this.projects.length &&
-                this.projects.length > 0 &&
-                this.resources.length > 0
-            ) {
-                rows.createDiv({
-                    cls:
-                        "hub-project-advancement-divider is-context-divider"
-                });
-            }
-
-
-            const project =
-                this.progressItems[index];
-            const ratingOptions = progressRatingOptions(project);
-            const bindRatingTooltip = (button, score) => {
-                const option = ratingOptions.find(option => option.score === score);
-                this.ratingTooltips.bind(button, {
-                    title: `${option.score} · ${option.title}`, description: option.description
-                });
-            };
-
-            const row =
-                rows.createDiv({
-                    cls:
-                        "hub-project-advancement-row"
-                });
-
-
-            row.dataset.projectId =
-                project.projectId;
-
-
-            renderReportWorkspaceHeader(row, project, this.plugin);
-
-
-            const context = this.reportContexts[project.projectId];
-            if (context) {
-                const evidence = this.renderEvidence(row, context, project.projectId);
-                this.evidenceRows.set(project.projectId, evidence);
-            }
-
-            const ratingSection =
-                row.createDiv({
-                    cls:
-                        "hub-project-advancement-choices"
-                });
-
-
-            const choices = ratingSection.createDiv({ cls: "hub-project-advancement-rating-buttons" });
-            choices.setAttribute("role", "group");
-            choices.setAttribute("aria-label", `Rating for ${project.name}`);
-            this.ratingRows.set(project.projectId, choices);
-
-            if (this.allowNoProgress) {
-
-                const noProgressButton =
-                    choices.createEl(
-                        "button",
-                        {
-                            cls:
-                                "hub-project-advancement-score",
-
-                            text:
-                                "0"
-                        }
-                    );
-
-
-                noProgressButton.dataset.score =
-                    "0";
-
-
-                bindRatingTooltip(noProgressButton, 0);
-
-
-                if (
-                    this.selectedScores.get(
-                        project.projectId
-                    ) === 0
-                ) {
-
-                    noProgressButton.addClass(
-                        "is-selected"
-                    );
-                }
-
-
-                noProgressButton.setAttribute(
-                    "aria-pressed",
-                    String(
-                        this.selectedScores.get(
-                            project.projectId
-                        ) === 0
-                    )
-                );
-
-
-                noProgressButton.addEventListener(
-                    "click",
-                    () => {
-
-                        this.selectScore(
-                            row,
-                            project.projectId,
-                            0
-                        );
-                    }
-                );
-            }
-
-
-            for (
-                const option
-                of PROJECT_ADVANCEMENT_OPTIONS
-            ) {
-
-                const button =
-                    choices.createEl(
-                        "button",
-                        {
-                            cls:
-                                "hub-project-advancement-score",
-
-                            text:
-                                String(
-                                    option.score
-                                )
-                        }
-                    );
-
-
-                button.dataset.score =
-                    String(
-                        option.score
-                    );
-
-
-                bindRatingTooltip(button, option.score);
-
-
-                if (
-                    this.selectedScores.get(
-                        project.projectId
-                    ) ===
-                        option.score
-                ) {
-
-                    button.addClass(
-                        "is-selected"
-                    );
-                }
-
-
-                button.setAttribute(
-                    "aria-pressed",
-                    String(
-                        this.selectedScores.get(
-                            project.projectId
-                        ) ===
-                            option.score
-                    )
-                );
-
-
-                button.addEventListener(
-                    "click",
-                    () => {
-
-                        this.selectScore(
-                            row,
-                            project.projectId,
-                            option.score
-                        );
-                    }
-                );
-            }
-
-
-            const summaryField =
-                row.createDiv({
-                    cls:
-                        "hub-project-advancement-summary"
-                });
-
-
-            const summaryInput =
-                summaryField.createEl(
-                    "textarea",
-                    {
-                        attr: {
-                            rows: "3",
-                            maxlength: "1000",
-                            "aria-label": `Comments for ${project.name}`,
-                            placeholder:
-                                "Comments\u2026"
-                        }
-                    }
-                );
-
-
-            summaryInput.value =
-                String(
-                    this.currentSummaries[
-                        project.projectId
-                    ] ?? ""
-                );
-
-
-            this.summaryInputs.set(
-                project.projectId,
-                summaryInput
-            );
-        }
-
-
-        if (this.showNextFocus) {
-
-            this.contentEl.createDiv({
-                cls:
-                    "hub-project-advancement-divider"
-            });
-
-
-            const focusSection =
-                this.contentEl.createDiv({
-                    cls:
-                        "hub-project-advancement-focus"
-                });
-
-
-            focusSection.createEl(
-                "h3",
-                {
-                    text:
-                        "What will you focus on next time?"
-                }
-            );
-
-
-            this.focusList =
-                focusSection.createDiv({
-                    cls:
-                        "hub-project-advancement-focus-list"
-                });
-
-
-            this.focusEditor =
-                new FocusListEditor(
-                    this.focusList,
-                    this.focusProjects,
-                    this.currentFocus,
-                    "Next focus"
-                );
-        }
-
-
-        this.contentEl.addClass("hub-report-footer-layout");
-
-        // ---------- ACTIONS ----------
-
-        const actions =
-            this.contentEl.createDiv({
-                cls:
-                    "hub-project-advancement-actions"
-            });
-        layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
-
-
-        if (this.showCancel) {
-
-            const cancelButton =
-                actions.createEl(
-                    "button",
-                    {
-                        text:
-                            "Cancel"
-                    }
-                );
-
-
-            cancelButton.addEventListener(
-                "click",
-                () => {
-
-                    this.close();
-                }
-            );
-        }
-
-
-        this.saveButton =
-            actions.createEl(
-                "button",
-                {
-                    text:
-                        this.saveLabel
-                }
-            );
-
-
-        this.saveButton.addClass(
-            "mod-cta"
-        );
-
-
-        this.saveButton.addEventListener(
-            "click",
-            () => {
-
-                this.save();
-            }
-        );
-
-
-        this.updateSaveButton();
-    }
-
-
-    selectScore(
-        row,
-        projectId,
-        score
-    ) {
-        if (score !== null) {
-            const choices = this.ratingRows.get(projectId);
-            this.ratingEffects?.cancel(choices);
-            choices?.removeAttribute("aria-invalid");
-        }
-
-        if (score === null) {
-
-            this.selectedScores.delete(
-                projectId
-            );
-
-        } else {
-
-            this.selectedScores.set(
-                projectId,
-                score
-            );
-        }
-
-
-        row.querySelectorAll(
-            ".hub-project-advancement-score"
-        )
-            .forEach(
-                button => {
-
-                    button.toggleClass(
-                        "is-selected",
-
-                        (
-                            button.dataset.score ===
-                                ""
-                                ? null
-                                : Number(
-                                    button.dataset.score
-                                )
-                        ) === score
-                    );
-
-
-                    button.setAttribute(
-                        "aria-pressed",
-                        String(
-                            (
-                                button.dataset.score ===
-                                    ""
-                                    ? null
-                                    : Number(
-                                        button.dataset.score
-                                    )
-                            ) === score
-                        )
-                    );
-                }
-            );
-
-
-        this.updateSaveButton();
-    }
-
-
-    updateSaveButton() {
-
-        if (!this.saveButton) {
-            return;
-        }
-
-
-        if (this.requireExplicitRatings) {
-            this.saveButton.addClass("hub-guided-submit");
-            this.saveButton.setAttribute("aria-disabled", String(this.saving ||
-                this.progressItems.some(item => !this.selectedScores.has(item.projectId))));
-        }
-
-        this.saveButton.disabled =
-            this.saving ||
-            (
-                this.requireEveryProject && !this.requireExplicitRatings &&
-                this.selectedScores.size !==
-                    this.progressItems.length
-            );
-    }
-
-
-    async save() {
-        if (!this.saving && this.requireExplicitRatings) {
-            const missing = this.progressItems.filter(item => !this.selectedScores.has(item.projectId));
-            for (const item of missing) {
-                const choices = this.ratingRows.get(item.projectId);
-                choices.setAttribute("aria-invalid", "true");
-                this.ratingEffects.run(choices, "hub-attention");
-            }
-            if (missing.length) {
-                this.ratingEffects.reveal(this.ratingRows.get(missing[0].projectId), this.contentEl.querySelector(".hub-report-scroll"));
-                return;
-            }
-        }
-
-        if (
-            this.saving ||
-            (
-                this.requireEveryProject && !this.requireExplicitRatings &&
-                this.selectedScores.size !==
-                    this.progressItems.length
-            )
-        ) {
-            return;
-        }
-
-
-        const scores =
-            Object.fromEntries(
-                [...this.selectedScores]
-            );
-
-
-        const summaries =
-            Object.fromEntries(
-                [...this.summaryInputs]
-                    .map(
-                        ([projectId, input]) => [
-                            projectId,
-                            input.value.trim()
-                        ]
-                    )
-            );
-
-
-        let focus;
-
-
-        try {
-            focus =
-                this.focusEditor
-                    ?.getValue() ?? [];
-
-        } catch (error) {
-
-            ownNoticeColors(new Notice(
-                error.message
-            ));
-
-            return;
-        }
-
-
-        this.saving = true;
-        const restoreControls = lockModalControls(this);
-        this.updateSaveButton();
-
-        try {
-
-            await this.onSave({
-                scores,
-                summaries,
-                focus
-            });
-
-
-            this.settled =
-                true;
-
-            this.saving = false;
-            restoreControls();
-
-            this.close();
-
-
-            this.onSaved?.();
-
-
-        } catch (error) {
-
-            console.error(
-                "Could not save progress report:",
-                error
-            );
-
-
-            this.saving =
-                false;
-
-            restoreControls();
-
-            this.updateSaveButton();
-
-
-            ownNoticeColors(new Notice(
-                "Could not save progress report."
-            ));
-        }
-    }
-
-
-    close() { if (!this.saving) super.close(); }
-
-    onClose() {
-        this.focusEditor?.destroy();
-        this.evidenceComponents?.forEach(component => component.unload());
-        this.evidenceComponents?.clear();
-        if (this.refreshEvidence) document.removeEventListener("hub-task-progress-evidence-changed", this.refreshEvidence);
-
-        this.ratingTooltips?.dispose();
-        this.ratingEffects?.destroy();
-        this.contentEl.empty();
-
-
-        if (
-            !this.settled
-        ) {
-
-            this.onCancel?.();
-        }
     }
 }
 
@@ -5539,8 +4769,8 @@ class ProjectWizardService {
         });
     }
 
-    async replaceProjectProgress(date, projectIds, scores, summaries, focusUpdate = null) {
-        return this.replaceCombinedProgress(date, projectIds, [], scores, summaries, focusUpdate);
+    async replaceProjectProgress(date, projectIds, scores, summaries) {
+        return this.replaceCombinedProgress(date, projectIds, [], scores, summaries);
     }
 
     async replaceResourceProgress(date, resourceId, score, summary) {
@@ -5548,12 +4778,12 @@ class ProjectWizardService {
         return this.replaceCombinedProgress(date, [], [id], { ["resource:" + id]: score ?? null }, { ["resource:" + id]: summary });
     }
 
-    async replaceCombinedProgress(date, projectIds, resourceIds, scores, summaries, focusUpdate = null) {
+    async replaceCombinedProgress(date, projectIds, resourceIds, scores, summaries) {
         const { saveProgress, stored } = require("./lib/services/progress-report");
         const ids = [...projectIds, ...resourceIds.map(id => "resource:" + id)];
         return saveProgress(this, { date, entries: ids.map(id => ({
             id, expected: stored(this.data, date, id), rating: scores?.[id] ?? null, summary: summaries?.[id] ?? ""
-        })), ...(focusUpdate ? { focus: focusUpdate.items } : {}) });
+        })) });
     }
 
     async setDailyFocus(
@@ -10973,6 +10203,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
     async onload() {
+        require("./lib/ui/startup-snapshot").keepStartupSnapshotUnfocusable(document);
         this.reportSessionBaseline = null;
         this.taskStartupClock = performance.now();
         this.register(disposeColorSystem);
@@ -11477,6 +10708,8 @@ module.exports = class HubProjectMenu extends Plugin {
                 this.projectWizard
                     .getProjectCardOrder();
 
+        window.hubGetRecentWorkspaceIds = () => this.workspaceModes.navigationHistory.recentWorkspaceIds();
+
         window.hubSetProjectCardOrder =
             (
                 status,
@@ -11632,14 +10865,30 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
 
 
-        window.hubOpenStatistics = () => {
+        window.hubOpenStatistics = initialWorkspace => {
             if (this.statisticsModal) return;
             this.statisticsModal = new StatisticsModal(this.app, this, {
                 onClose: () => { this.statisticsModal = null; },
-                completionFeed: this.nativeTaskHost?.completionFeed
+                completionFeed: this.nativeTaskHost?.completionFeed,
+                initialWorkspace
             });
             this.statisticsModal.open();
         };
+        const { createIconAction, createPanelAction, bindChoiceMenu, projectStatusLabels, sizeDashboardButton } = require("./lib/ui/controls");
+        window.hubCreateIconAction = createIconAction;
+        window.hubCreatePanelAction = createPanelAction;
+        window.hubProjectStatusLabels = projectStatusLabels;
+        window.hubSizeDashboardButton = sizeDashboardButton;
+        window.hubBindChoiceMenu = bindChoiceMenu;
+        window.hubLogProgress = () => require("./lib/ui/progress-editor").openProgress(this);
+        this.register(() => {
+            delete window.hubCreateIconAction;
+            delete window.hubCreatePanelAction;
+            delete window.hubProjectStatusLabels;
+            delete window.hubSizeDashboardButton;
+            delete window.hubBindChoiceMenu;
+            delete window.hubLogProgress;
+        });
         window.hubSetIcon = require("./lib/ui/icons").setHubIcon;
         this.homeCovers = new HomeCovers(this);
         window.hubGetHomeTimePeriod = homeTimePeriod;
@@ -11681,8 +10930,12 @@ module.exports = class HubProjectMenu extends Plugin {
 
         window.hubCreateDashboardUi =
             createDashboardUi;
+        window.hubMountExpansionHost = require("./lib/ui/expanded-panels").mountExpansionHost;
+        window.hubMountProgressHistory = options => require("./lib/ui/progress-history").mountProgressHistory({ ...options, plugin: this });
 
-        window.hubMountWorkspaceExplorer = require("./lib/ui/workspace-explorer").mountWorkspaceExplorer;
+        window.hubMountWorkspaceExplorer = options => require("./lib/ui/workspace-explorer")
+            .mountWorkspaceExplorer({ ...options, planRelevance: this.planRelevance });
+        window.hubMountFilePreview = options => require("./lib/ui/file-preview").mountFilePreview({ ...options, app: this.app, oath: this.oath });
         window.hubExplorerHost = require("./lib/ui/workspace-explorer-menu").createExplorerHost(this, {
             FolderPicker: ProjectFolderPickerModal, confirm: confirmAction
         });
@@ -11704,16 +10957,27 @@ module.exports = class HubProjectMenu extends Plugin {
         if (strictOath?.setColors) this.appearance.connectDock(payload => strictOath.setColors(payload), document);
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
-            createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
+            createWorkspaceCards({ app: this.app, root, component, renderImage, categories,
+                oath: this.oath, planRelevance: this.planRelevance });
         window.hubCreateTaskRow = require("./lib/ui/tasks").createTaskRow;
         window.hubRunNativeTaskToggle = require("./lib/ui/task-operation").runNativeTaskToggle;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit, actions = {}) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate,
-            editTask: actions.editTask,
+            app: this.app, component, body, onEdit, oath: this.oath, plan: this.globalPlan, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate,
+            editTask: actions.editTask, planRelevance: this.planRelevance,
             createTask: options => this.openTaskCreator(options)
         });
+        const { queryCalendarEvents, renderCalendarEvent } = require("./lib/ui/calendar-events");
+        window.hubQueryCalendarEvents = queryCalendarEvents;
+        window.hubRenderCalendarEvent = renderCalendarEvent;
+        window.hubMountDashboardCalendar = options => require("./lib/ui/dashboard-calendar").mountDashboardCalendar({ ...options, plugin: this });
+        this.register(() => {
+            delete window.hubQueryCalendarEvents;
+            delete window.hubRenderCalendarEvent;
+            delete window.hubMountDashboardCalendar;
+        });
+        window.hubMountExpandedTasks = options => require("./lib/ui/expanded-tasks").mountExpandedTasks({ ...options, plugin: this });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.planning = new (require("./lib/services/project-planning").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => require("./lib/ui/full-view-layout").mountFullViewLayout({ root, component, app: this.app });
@@ -11733,23 +10997,29 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubFileOperations = this.fileOperations;
         this.globalPlan = new (require("./lib/services/global-plan").GlobalPlanService)(this);
         this.globalPlan.references = new (require("./lib/services/plan-references").PlanReferences)(this, this.globalPlan);
+        this.planRelevance = new (require("./lib/services/plan-relevance").PlanRelevance)(this);
         this.globalPlan.start();
         window.hubPlan = {
+            relevance: this.planRelevance,
             read: () => this.globalPlan.read(),
             status: () => this.globalPlan.status,
             subscribe: (component, fn) => this.globalPlan.subscribe(component, fn),
-            open: () => require("./lib/ui/plan").openPlan(this),
+            open: planId => require("./lib/ui/plan").openPlan(this, planId),
+            openPlanner: context => require("./lib/ui/plan").openPlanner(this, context),
             pick: async () => { await this.globalPlan.ensureLifecycle(); if(!this.globalPlan.active()) await this.globalPlan.createPlan(); return require("./lib/ui/plan-picker").openPlanPicker(this); },
             add: entries => this.globalPlan.directAdd(entries),
             task: task => this.globalPlan.references.taskEntry(task),
             files: (paths, context) => this.globalPlan.directAdd(paths.map(path => this.app.vault.getAbstractFileByPath(path)).filter(f => f && !Array.isArray(f.children)).map(f => this.globalPlan.references.fileEntry(f, context))),
             workspace: context => this.globalPlan.directAdd([this.globalPlan.references.workspaceEntry(context)]),
             mountPresentation: (root, component) => require("./lib/ui/plan-home").mountPlanHome({root,component,plugin:this}),
+            mountPlans: (root, header, component, plannerButton) => require("./lib/ui/plan").mountPlans({
+                root, header, component, plugin: this, plannerButton, visible: false
+            }),
             mount: (root, component) => require("./lib/ui/plan-list").mountPlanList({root,component,plan:this.globalPlan})
         };
-        this.addCommand({id:"open-global-plan",name:"Open Plan",callback:()=>window.hubPlan.open()});
+        this.addCommand({id:"open-global-plan",name:"Open Planner",callback:()=>window.hubPlan.openPlanner()});
         void this.nativeTaskHost.ready.then(()=>this.globalPlan.references.audit()).catch(error=>console.error("Plan references unavailable",error));
-        this.registerEvent(this.app.workspace.on("quit", tasks => tasks.add(async () => { await this.fileOperations.close(); if (!await this.globalPlan.closeSafe()) { require("./lib/ui/plan").openPlan(this); throw Error("Plan draft needs recovery before closing."); } })));
+        this.registerEvent(this.app.workspace.on("quit", tasks => tasks.add(async () => { await this.fileOperations.close(); if (!await this.globalPlan.closePlanner().catch(error => { ownNoticeColors(new Notice(error.message)); return false; })) { require("./lib/ui/plan").openPlan(this); throw Error("Plan changes need recovery before closing."); } })));
         this.register(() => { clearTimeout(this.globalPlan.timer); this.globalPlan.checkpoint(); delete window.hubPlan; });
 
         this.fileOperationNotice = message => ownNoticeColors(new Notice(message, 15000));
@@ -11788,7 +11058,7 @@ module.exports = class HubProjectMenu extends Plugin {
             this.oathControl = mountOathControl(this, this.oath);
             this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
-            require("./lib/ui/progress-editor").mountProgressControl(this, this.oathControl.item, FocusListEditor);
+            require("./lib/ui/progress-editor").mountProgressControl(this, this.oathControl.item, window.hubLogProgress);
             require("./lib/services/report-eligibility-hooks").installReportEligibilityHooks(this);
             this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
@@ -11971,15 +11241,19 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubWatchTooltips;
         delete window.hubMountHeaderImage;
         delete window.hubCreateDashboardUi;
+        delete window.hubMountExpansionHost;
+        delete window.hubMountProgressHistory;
         this.homeCoverModal?.close();
         this.homeCovers?.destroy();
         delete window.hubGetHomeTimePeriod;
         delete window.hubGetHomeCover;
         delete window.hubMountHomeCover;
         delete window.hubMountWorkspaceExplorer;
+        delete window.hubMountFilePreview;
         delete window.hubExplorerHost;
         delete window.hubCreateFileDomain;
         delete window.hubCreateTaskUi;
+        delete window.hubMountExpandedTasks;
         delete window.hubCreateTaskPanelRead;
         delete window.hubCreateHomeTaskRead;
         delete window.hubCreateTaskHistoryRead;
@@ -11994,6 +11268,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubGetProjectResourceFolders;
         delete window.hubDetachResourceFolder;
         delete window.hubGetProjectCardOrder;
+        delete window.hubGetRecentWorkspaceIds;
         delete window.hubSetProjectCardOrder;
         delete window.hubGetWorkProgress;
         delete window.hubGetAppShortcuts;
@@ -12858,7 +12133,7 @@ module.exports = class HubProjectMenu extends Plugin {
             await this.reportEligibility.flush().catch(error => console.error("Could not flush reporting eligibility", error));
             const date = localISODate();
             if (!this.reportEligibility.pending(date, { currentSession: true }).length) { this.finishWindowClose(closeButton); return; }
-            require("./lib/ui/progress-editor").openProgress(this, { date, closeButton, FocusEditor: FocusListEditor });
+            require("./lib/ui/progress-editor").openProgress(this, { date, closeButton });
         } catch (error) {
             ownNoticeColors(new Notice("Could not check reporting state. Keep working or try closing again."));
             console.error(error);
@@ -14126,7 +13401,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
     openProgressEditor(date, scope = null) {
         if (!parseLocalISODate(date) || date > localISODate()) return;
-        return require("./lib/ui/progress-editor").openProgress(this, { date, scope, FocusEditor: FocusListEditor });
+        return require("./lib/ui/progress-editor").openProgress(this, { date, scope });
     }
 
     enableProgressCalendarEditing(

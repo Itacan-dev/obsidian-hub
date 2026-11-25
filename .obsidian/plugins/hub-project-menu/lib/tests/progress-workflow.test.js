@@ -58,9 +58,9 @@ async function run() {
     eligibility.observe("p","content"); assert.deepEqual(eligibility.pending(today),["p"],"New revisions exceed recovered receipt");
     await eligibility.flush();
     const oldDate="2020-01-02";
-    await saveProgress(wizard,{date:oldDate,entries:[{id:"q",rating:1}],cutoffs:{q:10},focus:[]});
+    await saveProgress(wizard,{date:oldDate,entries:[{id:"q",rating:1}],cutoffs:{q:10}});
     assert.deepEqual(eligibility.pending(today),["p"],"Past report cannot acknowledge today's work");
-    assert.equal(disk.pendingFocus,undefined,"Past Focus edits do not replace live pending Focus");
+    assert.equal(disk.pendingFocus,undefined,"Report saves leave standalone Focus intact");
     const snapshot=clone(stored(disk,oldDate,"q").log.context);
     wizard.activityLog=[{projectId:"q",action:"edited",title:"later",timestamp:Date.now()}];
     await saveProgress(wizard,{date:oldDate,entries:[{id:"q",summary:"revised"}]});

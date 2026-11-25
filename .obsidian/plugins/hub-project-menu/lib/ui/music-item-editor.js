@@ -45,6 +45,7 @@ class MusicItemModal extends CaptureModal {
         const footer = form.createDiv({ cls: "hub-capture-actions" });
         action(footer, "Cancel", null, () => this.close());
         const save = footer.createEl("button", { cls: "mod-cta", text: this.item ? "Save" : "Add music", attr: { type: "submit" } });
+        this.mountSeparators(footer);
         form.addEventListener("submit", event => {
             event.preventDefault();
             if (!form.reportValidity()) return;

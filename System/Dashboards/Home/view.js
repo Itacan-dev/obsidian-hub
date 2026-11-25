@@ -130,7 +130,6 @@ const {
     historyHeading,
     makeActionableRow,
     historyKind,
-    createHistoryPager,
     historyDate,
     formatDate,
     formatTime,
@@ -549,15 +548,16 @@ const focusHeader =
     );
 
 
-const editFocusButton =
-    focusHeader.createEl(
+const planActions = focusHeader.createDiv({ cls: "hub-plan-header-controls" });
+const plansButton =
+    planActions.createEl(
         "button",
         {
             cls:
                 "home-focus-edit hub-panel-action",
 
             text:
-                "Edit"
+                "Planner"
         }
     );
 
@@ -572,7 +572,10 @@ const focusBody =
     });
 
 
-window.hubPlan?.mountPresentation(focusBody, dv.component);
+const plansLifecycle = { register: dispose => frame.signal.addEventListener("abort", dispose, { once: true }) };
+window.hubPlan?.mountPresentation(focusBody, plansLifecycle);
+let plans;
+plansButton.onclick = () => window.hubPlan?.openPlanner({ returnFocus: plansButton });
 
 // ---------- Tasks to Do ----------
 
@@ -606,6 +609,7 @@ const upcomingBody =
 let homeTaskDisposed = false, homeTaskGeneration = 0, homeTaskStatus = null;
 let homeTaskRefreshPending = false, homeTaskCountComplete = false, homeTaskLoading = true;
 const homeTaskDocument = upcomingBody.ownerDocument;
+let expandedTasks = null;
 function deferHomeTaskInteraction() {
     const interaction = homeTaskRead?.availability ? ".menu, .modal-container form" : ".menu, .modal-container";
     if (!homeTaskDocument.querySelector(interaction)) return false;
@@ -642,12 +646,9 @@ function reconcileHomeTaskEdit(edit) {
 upcomingBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, upcomingBody, reconcileHomeTaskEdit, homeTaskRead?.actions);
 const addTaskButton = upcomingBody.hubTaskUi?.addButton(upcomingHeader, { locationWorkspace: null });
 
-function renderTasksToDo(
-    activeProjectTasks,
-    activeResourceTasks = []
-) {
+function renderTasksToDo(projectItems, resourceItems = []) {
 
-    if (upcomingBody.hubTaskUi && !upcomingBody.hubTaskUi.beginRender(() => renderTaskContext())) return;
+    if (upcomingBody.hubTaskUi && !upcomingBody.hubTaskUi.beginRender(() => renderTaskContext(false))) return;
     const focused = homeTaskDocument.activeElement;
     const focusedRow = focused?.closest(".home-task-row");
     const focusKey = focusedRow?.homeTaskKey;
@@ -658,19 +659,9 @@ function renderTasksToDo(
     upcomingBody.empty();
 
 
-    /*
-     * Stable concatenation supplies the source-order tie-breaker for the
-     * shared date-first and Necessity ordering.
-     */
-    const activeTasks = [
-        ...activeProjectTasks,
-        ...activeResourceTasks
-    ];
-
-
-    const oathPlan = upcomingBody.hubTaskUi?.partitionOath?.(activeTasks, task => ({ task,
-        owner: activeTasks.find(item => item.task.nativeReference.authorityId===task.nativeReference.authorityId&&item.task.id===task.id)?.owner ?? {} }));
-    const ordinaryTasks = oathPlan?.ordinary ?? activeTasks;
+    const homeTasks = [...projectItems, ...resourceItems];
+    const { prioritized, ordinary: ordinaryTasks } = upcomingBody.hubTaskUi?.partitionPlan?.(homeTasks)
+        ?? { prioritized: [], ordinary: homeTasks };
     const groups = upcomingBody.hubTaskUi?.groups(ordinaryTasks) ?? window.hubTaskGroups?.(ordinaryTasks);
     const openTasks = groups?.active ?? ordinaryTasks.filter(item => !item.task.completed);
     const futureTasks = groups?.future ?? [];
@@ -687,7 +678,7 @@ function renderTasksToDo(
 
     if (
         openTasks.length === 0 &&
-        completedTasks.length === 0 && futureTasks.length === 0 && !oathPlan?.oath
+        completedTasks.length === 0 && futureTasks.length === 0 && !prioritized.length
     ) {
         el(
             upcomingBody,
@@ -711,7 +702,9 @@ function renderTasksToDo(
         if (upcomingBody.hubTaskUi?.reuseRow(target, task)) return;
         const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed, { variant: "home" });
         row.homeTaskKey = JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]);
-        upcomingBody.hubTaskUi?.bind(row, textEl, task, () => "", { sourceLabel: owner.name, locationWorkspace: null });
+        upcomingBody.hubTaskUi?.bind(row, textEl, task, () => "", {
+            sourceLabel: owner.name, locationWorkspace: null, inPlanSection: target !== upcomingBody
+        });
         row.querySelector(".home-task-location")?.setAttribute("aria-disabled", "true");
 
 
@@ -735,7 +728,7 @@ function renderTasksToDo(
     }
 
 
-    if (oathPlan) upcomingBody.hubTaskUi.renderOath(oathPlan, renderTask);
+    upcomingBody.hubTaskUi?.renderPlan?.(upcomingBody, prioritized, (section, item) => renderTask(item, false, section));
 
     // Open tasks first
 
@@ -816,25 +809,8 @@ const calendarTodayButton =
     );
 
 
-// Each action sizes from the same complete set of intrinsic labels (including
-// Task's icon). CSS overlays them; font/theme/zoom changes need no measurement.
-const topRowActions = [calendarTodayButton, editFocusButton, addTaskButton].filter(Boolean);
-const topRowLabels = topRowActions.map(action => {
-    action.classList.add("hub-compact-panel-action");
-    const label = document.createElement("span");
-    label.className = "hub-compact-panel-action-label";
-    label.append(...Array.from(action.childNodes));
-    action.append(label);
-    return label;
-});
-for (const action of topRowActions) {
-    for (const label of topRowLabels) {
-        const sizer = label.cloneNode(true);
-        sizer.className = "hub-compact-panel-action-sizer";
-        sizer.setAttribute("aria-hidden", "true");
-        sizer.setAttribute("inert", "");
-        action.append(sizer);
-    }
+for (const action of [calendarTodayButton, plansButton, addTaskButton]) {
+    window.hubSizeDashboardButton?.(action, "top-actions");
 }
 
 calendarTodayButton.setAttribute(
@@ -852,14 +828,15 @@ const gcal =
     ];
 
 
+const calendarScroll = calendar.createDiv({ cls: "home-calendar-scroll hub-scrollbar" });
 const calendarBody =
-    calendar.createDiv({
+    calendarScroll.createDiv({
         cls:
             "home-calendar-body"
     });
 
 
-calendar.setAttribute(
+calendarScroll.setAttribute(
     "aria-label",
     "Scrollable weekly calendar"
 );
@@ -878,11 +855,13 @@ let calendarHasPositionedToday = false;
 // the same component. Separate leaves retain their own Calendar and clock.
 dv.container.hubCalendarClockDispose?.();
 let calendarClock = null;
+let dashboardCalendar, panelExpansion;
 const calendarResizeObserver = new ResizeObserver(() => {
-    if (frame.current()) updateCalendarTodayButton();
+    if (frame.current()) {
+        updateCalendarTodayButton();
+    }
 });
-calendarResizeObserver.observe(calendar);
-calendarResizeObserver.observe(calendarHeader);
+calendarResizeObserver.observe(calendarScroll);
 const disposeCalendarClock = () => {
     clearInterval(calendarClock);
     calendarResizeObserver.disconnect();
@@ -897,7 +876,7 @@ function updateCalendarDates() {
     const now = moment();
     const todayDate = now.format("YYYY-MM-DD");
     const tomorrowDate = now.clone().add(1, "days").format("YYYY-MM-DD");
-    const scrollTop = calendar.scrollTop;
+    const scrollTop = calendarScroll.scrollTop;
 
     for (const group of calendarBody.querySelectorAll(".home-calendar-day")) {
         const date = group.dataset.calendarDate;
@@ -912,7 +891,7 @@ function updateCalendarDates() {
     }
 
     // Relative labels can change height at midnight. Preserve the reader's position.
-    calendar.scrollTop = scrollTop;
+    calendarScroll.scrollTop = scrollTop;
     updateCalendarTodayButton();
 }
 
@@ -928,6 +907,7 @@ async function refreshCalendarDates() {
 }
 
 function updateCalendarTodayButton() {
+    if (calendarScroll.hidden || calendar.closest(".hub-expansion-moving")) return;
     const heading = calendarBody.querySelector(
         ".home-calendar-day.is-today .home-calendar-day-heading"
     );
@@ -936,13 +916,10 @@ function updateCalendarTodayButton() {
         return;
     }
 
-    const calendarRect = calendar.getBoundingClientRect();
-    const headerRect = calendarHeader.getBoundingClientRect();
+    const scrollRect = calendarScroll.getBoundingClientRect();
     const todayRect = heading.getBoundingClientRect();
-    const scale = calendarRect.height / calendar.offsetHeight || 1;
     calendarTodayButton.disabled =
-        todayRect.top >= headerRect.bottom &&
-        todayRect.bottom <= calendarRect.bottom - calendar.clientTop * scale;
+        todayRect.top >= scrollRect.top && todayRect.bottom <= scrollRect.bottom;
 }
 
 function scrollCalendarToToday(behavior = "auto") {
@@ -951,68 +928,19 @@ function scrollCalendarToToday(behavior = "auto") {
     );
     if (!heading) return;
 
-    const calendarRect = calendar.getBoundingClientRect();
-    const headerRect = calendarHeader.getBoundingClientRect();
+    const scrollRect = calendarScroll.getBoundingClientRect();
     const todayRect = heading.getBoundingClientRect();
-    const scale = calendarRect.height / calendar.offsetHeight || 1;
-    const targetTop = calendar.scrollTop + (todayRect.top - headerRect.bottom) / scale - 4;
-    calendar.scrollTo({ top: Math.max(0, targetTop), behavior });
+    const scale = calendarScroll.currentCSSZoom || 1;
+    const targetTop = calendarScroll.scrollTop + (todayRect.top - scrollRect.top) / scale - 4;
+    calendarScroll.scrollTo({ top: Math.max(0, targetTop), behavior });
     updateCalendarTodayButton();
 }
 
 calendarTodayButton.addEventListener("click", () => {
+    if (calendarScroll.hidden) { dashboardCalendar?.today(); return; }
     updateCalendarDates();
     scrollCalendarToToday();
 });
-
-function renderCalendarEvent(
-    parent,
-    event
-) {
-
-    const row =
-        parent.createDiv({
-            cls:
-                "home-calendar-row"
-        });
-
-
-    const time =
-        event.allDay
-            ? "All day"
-            : formatTime(event.start);
-
-
-    el(
-        row,
-        "span",
-        "home-calendar-time",
-        time
-    );
-
-
-    const info =
-        row.createDiv({
-            cls:
-                "home-calendar-info"
-        });
-
-
-    info.createEl("span", {
-        cls: "home-calendar-title",
-        text: event.title,
-        attr: { title: event.title }
-    });
-
-    if (event.location) {
-        info.createDiv({
-            cls: "home-calendar-location",
-            text: event.location,
-            attr: { title: event.location }
-        });
-    }
-}
-
 
 function renderCalendarWeek(
     weekStart,
@@ -1102,7 +1030,7 @@ function renderCalendarWeek(
                         b.start.valueOf()
                 )
                 .forEach(event =>
-                    renderCalendarEvent(
+                    window.hubRenderCalendarEvent?.(
                         dayGroup,
                         event
                     )
@@ -1196,49 +1124,8 @@ async function loadNextCalendarWeek() {
             weekStart.clone()
                 .add(6, "days");
 
-        const query = {
-            from:
-                weekStart.clone()
-                    .startOf("day"),
-
-            to:
-                weekEnd.clone()
-                    .endOf("day"),
-
-            view: "agenda",
-            group: "none",
-
-            calendars: [],
-            excludeCalendars: [],
-            accounts: [],
-            excludeAccounts: [],
-
-            fields: ["time", "title"],
-            columns: ["date", "time", "title"],
-
-            limit: 100,
-
-            hiddenTitles: [],
-            allDay: "include",
-
-            hideDeclined: true,
-            hideCancelled: true,
-
-            use24HourTime: true,
-
-            dateHeadingFormat: "dddd, D MMMM YYYY",
-            tableDateFormat: "DD/MM/YYYY",
-
-            descriptionLength: 0,
-            emptyMessage: "Nothing scheduled.",
-
-            refresh: 0,
-            showRefreshButton: false
-        };
-
-
-        const result =
-            await gcal.runQuery(query);
+        const result = await window.hubQueryCalendarEvents?.(gcal, weekStart, weekEnd);
+        if (!result) return;
         if (!frame.current()) return;
 
 
@@ -1347,16 +1234,16 @@ async function loadNextCalendarWeek() {
 }
 
 
-calendar.addEventListener(
+calendarScroll.addEventListener(
     "scroll",
     () => {
 
         updateCalendarTodayButton();
 
         const distanceFromBottom =
-            calendar.scrollHeight -
-            calendar.scrollTop -
-            calendar.clientHeight;
+            calendarScroll.scrollHeight -
+            calendarScroll.scrollTop -
+            calendarScroll.clientHeight;
 
 
         if (distanceFromBottom <= 72) {
@@ -1371,7 +1258,7 @@ calendar.addEventListener(
 
 
 frame.defer(() => {
-    void loadNextCalendarWeek().then(() => refreshCalendarDates());
+    void loadNextCalendarWeek().then(refreshCalendarDates);
     calendarClock = setInterval(() => { void refreshCalendarDates(); }, 60000);
 });
 // ---------- PROJECTS ----------
@@ -1421,8 +1308,27 @@ const projectTabButtons = projectTabs.createDiv({
 const projectStatusSelectors = projectTabButtons.createDiv({ cls: 'hub-panel-selectors' });
 projectStatusSelectors.setAttribute('role', 'group');
 projectStatusSelectors.setAttribute('aria-label', 'Project status');
+const projectSorts = [
+    ["custom", "Custom"],
+    ["recent", "Recently accessed"],
+    ["name", "Alphabetical A–Z"],
+    ["category", "Category"]
+];
+const savedSort = sessionStorage.getItem("obsidian-hub::home-project-sort");
+let projectSort = projectSorts.some(([value]) => value === savedSort) ? savedSort : "custom";
+const sortButton = window.hubCreateIconAction(projectTabButtons, "Sort projects", "arrow-up-down");
+const sortMenu = window.hubBindChoiceMenu(sortButton, {
+    options: projectSorts, selected: () => projectSort,
+    choose: value => {
+        projectSort = value;
+        sessionStorage.setItem("obsidian-hub::home-project-sort", value);
+        renderProjects(currentProjectStatus);
+    }
+});
+dv.component.register(sortMenu);
 
-const projectRail = projectPanel.createDiv({
+const workspacesBody = projectPanel.createDiv({ cls: "home-workspaces-body" });
+const projectRail = workspacesBody.createDiv({
     cls: "home-project-rail"
 });
 
@@ -1466,11 +1372,11 @@ const renderCardImage = window.hubCreateCardImageRenderer?.(root, dv.component)
         element.style.backgroundImage = `url(${JSON.stringify(url)})`;
     });
 
-const resourceSection = projectPanel.createDiv({
+const resourceSection = workspacesBody.createDiv({
     cls: "home-resource-section"
 });
 
-heading(
+const resourceHeading = heading(
     resourceSection,
     "home-resource-heading",
     "Resources",
@@ -1478,7 +1384,26 @@ heading(
 );
 
 const resourceGrid = resourceSection.createDiv({
-    cls: "home-resource-grid"
+    cls: "home-resource-grid", attr: { id: "hub-home-resources-" + (dv.container.id || crypto.randomUUID()) }
+});
+
+const resourceToggle = resourceHeading.createEl("button", { cls: "home-resource-toggle hub-panel-action", attr: {
+    type: "button", "aria-controls": resourceGrid.id
+} });
+function setResourcesCollapsed(collapsed) {
+    cancelProjectCardDrag?.();
+    stopProjectEdgeScroll();
+    resourceGrid.hidden = collapsed;
+    projectPanel.classList.toggle("is-resources-collapsed", collapsed);
+    resourceToggle.setAttribute("aria-expanded", String(!collapsed));
+    resourceToggle.setAttribute("aria-label", collapsed ? "Show Resources" : "Hide Resources");
+    resourceToggle.empty();
+    window.hubSetIcon?.(resourceToggle, collapsed ? "chevron-right" : "chevron-down");
+}
+resourceToggle.addEventListener("click", () => {
+    const collapsed = !resourceGrid.hidden;
+    sessionStorage.setItem("obsidian-hub::home-resources-collapsed", String(collapsed));
+    setResourcesCollapsed(collapsed);
 });
 
 const workspaceCards = window.hubCreateWorkspaceCards(root, dv.component, renderCardImage, () => projectCategories);
@@ -1505,32 +1430,35 @@ const projectViews = [
 ];
 
 const projectViewButtons = new Map();
+const projectCountPeers = [];
 
 
 function renderProjectTabCounts() {
-
-    for (const view of projectViews) {
-
-        const button =
-            projectViewButtons.get(view.status);
-
-        if (!button) continue;
-
-
-        const count = projects.filter(project =>
-            !project.deleted &&
-            project.status === view.status
-        ).length;
-
-
-        button.textContent =
-            `${view.label} (${count})`;
-    }
+    const labels = window.hubProjectStatusLabels?.(projects);
+    projectViews.forEach((view, index) => {
+        const button = projectViewButtons.get(view.status);
+        if (!button) return;
+        const count = projects.filter(project => !project.deleted && project.status === view.status).length;
+        const label = button.querySelector(".hub-button-width-label") ?? button;
+        label.textContent = labels?.[index] ?? `${view.label} (${count})`;
+        window.hubSizeDashboardButton?.(button, "project-progress", projects);
+    });
+    for (const action of projectCountPeers) window.hubSizeDashboardButton?.(action, "project-progress", projects);
 }
 
 // ---------- RENDER PROJECTS ----------
 
 let currentProjectStatus = "active";
+let visiblePlanTiers = "";
+function planTier(project, snapshot = window.hubPlan?.relevance?.snapshot) {
+    return snapshot?.workspaceRank({ type: "project", id: project.projectId }) ?? 2;
+}
+
+function projectPlanTiers(status, snapshot) {
+    return JSON.stringify(projects.filter(project => !project.deleted && project.status === status)
+        .map(project => [projectCardKey(project), planTier(project, snapshot)]));
+}
+const projectSortCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 const suppressedProjectCardClicks =
     new WeakSet();
 
@@ -1638,7 +1566,16 @@ function rememberProjectCardOrder(
 }
 
 function renderProjects(status) {
+    cancelProjectCardDrag?.();
+    stopProjectEdgeScroll();
+    const scroll = status === currentProjectStatus ? [projectGrid.scrollLeft, projectGrid.scrollTop] : [0, 0];
+    const focusedProject = projectGrid.contains(projectGrid.ownerDocument.activeElement)
+        ? projectGrid.ownerDocument.activeElement.closest(".home-project-card")?.dataset.projectId : null;
     currentProjectStatus = status;
+    for (const [key, button] of projectViewButtons) button.setAttribute("aria-pressed", String(key === status));
+    const mode = projectSort;
+    visiblePlanTiers = projectPlanTiers(status);
+    projectGrid.classList.toggle("is-custom-sort", mode === "custom");
 
     projectGrid.empty();
 
@@ -1662,59 +1599,24 @@ function renderProjects(status) {
         );
 
 
-    visibleProjects.sort((a, b) => {
-
-        const aPosition =
-            savedPositions.get(
-                projectCardKey(a)
-            );
-
-        const bPosition =
-            savedPositions.get(
-                projectCardKey(b)
-            );
-
-
-        if (
-            aPosition === undefined &&
-            bPosition === undefined
-        ) {
-            return 0;
-        }
-
-
-        if (aPosition === undefined) {
-            return 1;
-        }
-
-
-        if (bPosition === undefined) {
-            return -1;
-        }
-
-
-        return aPosition - bPosition;
-    });
-
-
-    const visibleProjectIds =
-        visibleProjects.map(
-            projectCardKey
-        );
-
-
-    rememberProjectCardOrder(
-        status,
-        [
-            ...savedOrder,
-            ...visibleProjectIds.filter(
-                projectId =>
-                    !savedPositions.has(
-                        projectId
-                    )
-            )
-        ]
-    );
+    const rank = (positions, project) => positions.get(projectCardKey(project)) ?? Number.MAX_SAFE_INTEGER;
+    // Custom order is also the stable tie-breaker for automatic sorts.
+    visibleProjects.sort((a, b) => rank(savedPositions, a) - rank(savedPositions, b));
+    if (mode === "custom") {
+        const newIds = visibleProjects.map(projectCardKey).filter(id => !savedPositions.has(id));
+        if (newIds.length) rememberProjectCardOrder(status, [...savedOrder, ...newIds]);
+    } else if (mode === "recent") {
+        const recent = new Map((window.hubGetRecentWorkspaceIds?.() ?? []).map((id, index) => [id, index]));
+        visibleProjects.sort((a, b) => rank(recent, a) - rank(recent, b));
+    } else {
+        const byName = (a, b) => projectSortCollator.compare(displayProjectName(a.name), displayProjectName(b.name));
+        const categoryName = project => projectCategory(project.categoryId)?.name ?? project.categoryId ?? "";
+        visibleProjects.sort(mode === "category" ? (a, b) => {
+            const first = categoryName(a), second = categoryName(b);
+            return Number(!first) - Number(!second) || projectSortCollator.compare(first, second) || byName(a, b);
+        } : byName);
+    }
+    visibleProjects.sort((a, b) => planTier(a) - planTier(b));
 
     if (visibleProjects.length === 0) {
         projectGrid.scrollLeft = 0;
@@ -1736,6 +1638,8 @@ function renderProjects(status) {
     for (const project of visibleProjects) {
 
         const card = workspaceCards.render(projectGrid, project);
+        card.dataset.planTier = String(planTier(project));
+        if (card.dataset.projectId === focusedProject) card.focus({ preventScroll: true });
 
         // Open project
 
@@ -1784,6 +1688,7 @@ function renderProjects(status) {
 
     }
 
+    projectGrid.scrollTo({ left: scroll[0], top: scroll[1], behavior: "instant" });
     requestAnimationFrame(
         updateProjectOverflowIndicators
     );
@@ -1792,296 +1697,86 @@ function renderProjects(status) {
 
 // ---------- PROJECT EDGE SCROLL ----------
 
-const PROJECT_EDGE_SCROLL_ZONE =
-    96;
+const PROJECT_EDGE_SCROLL_ZONE = 96;
+const PROJECT_EDGE_SCROLL_MAX_SPEED = 16;
+const projectGridWindow = projectGrid.ownerDocument.defaultView;
+const projectReducedMotion = projectGridWindow.matchMedia("(prefers-reduced-motion: reduce)");
+const projectScrollAxes = [
+    { offset: "scrollLeft", extent: "scrollWidth", visible: "clientWidth", edge: "left", size: "width", pointer: "clientX", speed: 0 },
+    { offset: "scrollTop", extent: "scrollHeight", visible: "clientHeight", edge: "top", size: "height", pointer: "clientY", speed: 0 }
+];
+let projectEdgeScrollFrame = null;
+let projectEdgeScrollTime = null;
+let projectDragPointer = null;
 
-const PROJECT_EDGE_SCROLL_MAX_SPEED =
-    16;
-
-let projectEdgeScrollTarget =
-    0;
-
-let projectEdgeScrollVelocity =
-    0;
-
-let projectEdgeScrollFrame =
-    null;
-
-let projectEdgeScrollTimestamp =
-    null;
-
+function isWorkspacesExpanded() {
+    return projectPanel.classList.contains("hub-panel-expanded");
+}
 
 function updateProjectOverflowIndicators() {
+    const max = projectGrid.scrollWidth - projectGrid.clientWidth;
+    projectOverflowLeft.toggleClass("is-visible", !isWorkspacesExpanded() && projectGrid.scrollLeft > 1);
+    projectOverflowRight.toggleClass("is-visible", !isWorkspacesExpanded() && projectGrid.scrollLeft < max - 1);
+}
+projectGrid.addEventListener("scroll", updateProjectOverflowIndicators, { passive: true });
+const projectRailResizeObserver = new ResizeObserver(updateProjectOverflowIndicators);
+projectRailResizeObserver.observe(projectGrid);
+frame.signal.addEventListener("abort", () => {
+    projectRailResizeObserver.disconnect();
+    stopProjectEdgeScroll();
+}, { once: true });
 
-    const maxScroll =
-        Math.max(
-            0,
-            projectGrid.scrollWidth -
-                projectGrid.clientWidth
-        );
-
-    const hasOverflow =
-        maxScroll > 1;
-
-
-    projectOverflowLeft.toggleClass(
-        "is-visible",
-        hasOverflow &&
-            projectGrid.scrollLeft > 1
-    );
-
-    projectOverflowRight.toggleClass(
-        "is-visible",
-        hasOverflow &&
-            projectGrid.scrollLeft <
-                maxScroll - 1
-    );
+function stopProjectEdgeScroll() {
+    if (projectEdgeScrollFrame !== null) projectGridWindow.cancelAnimationFrame(projectEdgeScrollFrame);
+    projectEdgeScrollFrame = projectEdgeScrollTime = null;
+    projectScrollAxes.forEach(axis => { axis.speed = 0; });
 }
 
-
-projectGrid.addEventListener(
-    "scroll",
-    updateProjectOverflowIndicators,
-    {
-        passive: true
-    }
-);
-
-
-if (typeof ResizeObserver !== "undefined") {
-    const projectRailResizeObserver =
-        new ResizeObserver(() => {
-            if (!root.isConnected) {
-                projectRailResizeObserver.disconnect();
-                return;
-            }
-
-            updateProjectOverflowIndicators();
-        });
-
-    projectRailResizeObserver.observe(
-        projectGrid
-    );
-}
-
-
-function animateProjectEdgeScroll(
-    timestamp
-) {
-
-    if (!root.isConnected || projectGrid.querySelector(".is-placement-editing")) {
-        projectEdgeScrollFrame = null;
-        projectEdgeScrollTimestamp = null;
-        projectEdgeScrollTarget = 0;
-        projectEdgeScrollVelocity = 0;
-        return;
-    }
-
-
-    const elapsed =
-        Math.min(
-            32,
-            Math.max(
-                0,
-                projectEdgeScrollTimestamp === null
-                    ? 16.67
-                    : timestamp - projectEdgeScrollTimestamp
-            )
-        );
-
-
-    projectEdgeScrollTimestamp =
-        timestamp;
-
-
-    const smoothing =
-        1 - Math.exp(-elapsed / 85);
-
-
-    projectEdgeScrollVelocity +=
-        (
-            projectEdgeScrollTarget -
-            projectEdgeScrollVelocity
-        ) * smoothing;
-
-
-    const maxScroll =
-        Math.max(
-            0,
-            projectGrid.scrollWidth -
-                projectGrid.clientWidth
-        );
-
-
-    if (maxScroll <= 0) {
-        projectEdgeScrollTarget = 0;
-        projectEdgeScrollVelocity = 0;
-    } else {
-        const nextScroll =
-            Math.max(
-                0,
-                Math.min(
-                    maxScroll,
-                    projectGrid.scrollLeft +
-                        projectEdgeScrollVelocity *
-                        elapsed / 16.67
-                )
-            );
-
-
-        projectGrid.scrollLeft =
-            nextScroll;
-
-
-        const pushingPastStart =
-            nextScroll <= 0 &&
-            projectEdgeScrollVelocity < 0;
-
-
-        const pushingPastEnd =
-            nextScroll >= maxScroll &&
-            projectEdgeScrollVelocity > 0;
-
-
-        if (
-            pushingPastStart ||
-            pushingPastEnd
-        ) {
-            projectEdgeScrollTarget = 0;
-            projectEdgeScrollVelocity = 0;
-        }
-    }
-
-
-    if (
-        Math.abs(projectEdgeScrollTarget) > 0.01 ||
-        Math.abs(projectEdgeScrollVelocity) > 0.03
-    ) {
-        projectEdgeScrollFrame =
-            requestAnimationFrame(
-                animateProjectEdgeScroll
-            );
-        return;
-    }
-
-
+function animateProjectEdgeScroll(timestamp) {
     projectEdgeScrollFrame = null;
-    projectEdgeScrollTimestamp = null;
-    projectEdgeScrollVelocity = 0;
+    if (!frame.current() || projectPanel.inert || projectGrid.querySelector(".is-placement-editing")) {
+        stopProjectEdgeScroll();
+        return;
+    }
+    const elapsed = Math.min(32, Math.max(0, timestamp - (projectEdgeScrollTime ?? timestamp - 16.67)));
+    projectEdgeScrollTime = timestamp;
+    let moved = false;
+    for (const axis of projectScrollAxes) {
+        const before = projectGrid[axis.offset];
+        projectGrid[axis.offset] += axis.speed * elapsed / 16.67;
+        const after = projectGrid[axis.offset];
+        moved ||= after !== before;
+        if (axis.speed < 0 && after <= 0 || axis.speed > 0 && after >= projectGrid[axis.extent] - projectGrid[axis.visible] - 1) {
+            axis.speed = 0;
+        }
+    }
+    if (moved) projectDragPointer?.();
+    if (projectScrollAxes.some(axis => axis.speed)) projectEdgeScrollFrame = projectGridWindow.requestAnimationFrame(animateProjectEdgeScroll);
+    else projectEdgeScrollTime = null;
 }
 
-
-function setProjectEdgeScrollTarget(
-    target
-) {
-
-    projectEdgeScrollTarget =
-        target;
-
-
-    if (
-        projectEdgeScrollFrame === null &&
-        (
-            Math.abs(projectEdgeScrollTarget) > 0.01 ||
-            Math.abs(projectEdgeScrollVelocity) > 0.03
-        )
-    ) {
-        projectEdgeScrollFrame =
-            requestAnimationFrame(
-                animateProjectEdgeScroll
-            );
+function updateProjectEdgeScroll(event, dragging = false) {
+    const rect = projectGrid.getBoundingClientRect();
+    for (const [index, axis] of projectScrollAxes.entries()) {
+        const length = rect[axis.size];
+        const zone = Math.min(PROJECT_EDGE_SCROLL_ZONE, length * .22);
+        const start = event[axis.pointer] - rect[axis.edge];
+        const end = length - start;
+        const canScroll = projectGrid[axis.extent] > projectGrid[axis.visible];
+        axis.speed = 0;
+        if (!zone || !canScroll || !dragging && (index === 1 || isWorkspacesExpanded())) continue;
+        if (start >= 0 && start < zone) axis.speed = -PROJECT_EDGE_SCROLL_MAX_SPEED * (1 - start / zone) ** 2;
+        else if (end >= 0 && end < zone) axis.speed = PROJECT_EDGE_SCROLL_MAX_SPEED * (1 - end / zone) ** 2;
+    }
+    if (projectScrollAxes.some(axis => axis.speed) && projectEdgeScrollFrame === null) {
+        projectEdgeScrollFrame = projectGridWindow.requestAnimationFrame(animateProjectEdgeScroll);
     }
 }
 
-
-projectGrid.addEventListener(
-    "pointermove",
-    event => {
-
-        if (
-            (
-                event.pointerType &&
-                event.pointerType !== "mouse"
-            ) ||
-            projectGrid.hasClass(
-                "is-reordering"
-            )
-        ) {
-            setProjectEdgeScrollTarget(0);
-            return;
-        }
-
-
-        const maxScroll =
-            projectGrid.scrollWidth -
-            projectGrid.clientWidth;
-
-
-        if (maxScroll <= 0) {
-            setProjectEdgeScrollTarget(0);
-            return;
-        }
-
-
-        const rect =
-            projectGrid.getBoundingClientRect();
-
-
-        const zone =
-            Math.min(
-                PROJECT_EDGE_SCROLL_ZONE,
-                rect.width * 0.22
-            );
-
-
-        const fromLeft =
-            event.clientX - rect.left;
-
-
-        const fromRight =
-            rect.right - event.clientX;
-
-
-        let target = 0;
-
-
-        if (
-            fromLeft >= 0 &&
-            fromLeft < zone
-        ) {
-            const proximity =
-                1 - fromLeft / zone;
-
-            target =
-                -PROJECT_EDGE_SCROLL_MAX_SPEED *
-                proximity * proximity;
-
-        } else if (
-            fromRight >= 0 &&
-            fromRight < zone
-        ) {
-            const proximity =
-                1 - fromRight / zone;
-
-            target =
-                PROJECT_EDGE_SCROLL_MAX_SPEED *
-                proximity * proximity;
-        }
-
-
-        setProjectEdgeScrollTarget(
-            target
-        );
-    }
-);
-
-
-projectGrid.addEventListener(
-    "pointerleave",
-    () => {
-        setProjectEdgeScrollTarget(0);
-    }
-);
+projectGrid.addEventListener("pointermove", event => {
+    if ((!event.pointerType || event.pointerType === "mouse") && !projectDragPointer) updateProjectEdgeScroll(event);
+});
+projectGrid.addEventListener("pointerleave", () => { if (!projectDragPointer) stopProjectEdgeScroll(); });
 
 
 const projectCardSwapAnimations =
@@ -2137,8 +1832,7 @@ function positionDraggedProjectCard(
 
 function projectDropIsValid(state, event) {
     const row = projectGrid.getBoundingClientRect();
-    // One card-height above/below the row; no hit-testing against other cards.
-    const verticalMargin = state.initialRect.height;
+    const verticalMargin = isWorkspacesExpanded() ? 0 : state.initialRect.height;
     const horizontalMargin = Math.min(80, state.initialRect.width / 2);
     return event.clientY >= row.top - verticalMargin &&
         event.clientY <= row.bottom + verticalMargin &&
@@ -2147,22 +1841,26 @@ function projectDropIsValid(state, event) {
 }
 
 function updateProjectInsertion(state, event) {
-    const valid = projectDropIsValid(state, event);
-    state.card.classList.toggle("is-invalid-drop", !valid);
-    if (!valid) return;
-    const row = projectGrid.getBoundingClientRect();
-    const center = state.initialRect.left + event.clientX - state.startX +
-        state.initialRect.width / 2 - row.left + projectGrid.scrollLeft;
-    const slots = state.slotCenters;
-    let index = state.targetIndex;
-    const tolerance = Math.min(8, state.initialRect.width * 0.025);
-    while (index < slots.length - 1 &&
-        center > (slots[index] + slots[index + 1]) / 2 + tolerance) index++;
-    while (index > 0 &&
-        center < (slots[index - 1] + slots[index]) / 2 - tolerance) index--;
-    if (index === state.targetIndex) return;
-    state.targetIndex = index;
-    insertProjectCard(state, projectCardsInVisualOrder()[index], event);
+    if (!projectDropIsValid(state, event)) {
+        state.card.classList.add("is-invalid-drop");
+        return false;
+    }
+    const gridBounds = projectGrid.getBoundingClientRect();
+    const scale = projectGrid.currentCSSZoom || 1;
+    const x = state.initialRect.left + event.clientX - state.startX + state.initialRect.width / 2
+        - gridBounds.left + projectGrid.scrollLeft * scale;
+    const y = state.initialRect.top + event.clientY - state.startY + state.initialRect.height / 2
+        - gridBounds.top + projectGrid.scrollTop * scale;
+    const distances = state.slots.map(slot => Math.hypot(slot.x - x, slot.y - y));
+    const index = distances.indexOf(Math.min(...distances));
+    const sameTier = state.originalOrder[index]?.dataset.planTier === state.tier;
+    state.card.classList.toggle("is-invalid-drop", !sameTier);
+    if (!sameTier) return false;
+    if (index !== state.targetIndex && distances[index] + 6 < distances[state.targetIndex]) {
+        state.targetIndex = index;
+        insertProjectCard(state, projectCardsInVisualOrder()[index], event);
+    }
+    return true;
 }
 
 function insertProjectCard(
@@ -2228,7 +1926,7 @@ function insertProjectCard(
 
     for (const card of cards) {
 
-        if (
+        if (projectReducedMotion.matches ||
             card === state.card ||
             !card.animate
         ) {
@@ -2303,14 +2001,16 @@ function insertProjectCard(
 
 
 let cancelProjectCardDrag = null;
-dv.component.register(() => cancelProjectCardDrag?.());
+frame.signal.addEventListener("abort", () => cancelProjectCardDrag?.(), { once: true });
 
 projectGrid.addEventListener(
     "pointerdown",
     event => {
 
         if (
+            projectSort !== "custom" ||
             event.button !== 0 ||
+            event.target.closest(".hub-image-placement-controls") ||
             (
                 event.pointerType &&
                 event.pointerType !== "mouse"
@@ -2337,6 +2037,7 @@ projectGrid.addEventListener(
         cancelProjectCardDrag?.();
         const state = {
             card,
+            tier: card.dataset.planTier,
             pointerId:
                 event.pointerId,
             startX:
@@ -2363,6 +2064,7 @@ projectGrid.addEventListener(
             ) {
                 return;
             }
+            if (projectPanel.inert) { cancelProjectCardDrag?.(); return; }
 
 
             const distance =
@@ -2398,10 +2100,14 @@ projectGrid.addEventListener(
                 });
                 card.ownerDocument.body.appendChild(state.ghost);
                 card.addClass("is-drop-placeholder");
-                const rowRect = projectGrid.getBoundingClientRect();
-                state.slotCenters = state.originalOrder.map(item => {
+                const gridBounds = projectGrid.getBoundingClientRect();
+                const scale = projectGrid.currentCSSZoom || 1;
+                state.slots = state.originalOrder.map(item => {
                     const rect = item.getBoundingClientRect();
-                    return (rect.left + rect.right) / 2 - rowRect.left + projectGrid.scrollLeft;
+                    return {
+                        x: (rect.left + rect.right) / 2 - gridBounds.left + projectGrid.scrollLeft * scale,
+                        y: (rect.top + rect.bottom) / 2 - gridBounds.top + projectGrid.scrollTop * scale
+                    };
                 });
                 state.targetIndex = state.originalOrder.indexOf(card);
                 projectGrid.addClass(
@@ -2424,6 +2130,8 @@ projectGrid.addEventListener(
 
 
             updateProjectInsertion(state, moveEvent);
+            projectDragPointer = () => updateProjectInsertion(state, moveEvent);
+            updateProjectEdgeScroll(moveEvent, true);
         };
 
 
@@ -2438,11 +2146,12 @@ projectGrid.addEventListener(
             }
 
 
-            const validDrop = state.dragging && finishEvent.type === "pointerup" &&
-                projectDropIsValid(state, finishEvent);
-            if (validDrop) updateProjectInsertion(state, finishEvent);
+            const validDrop = state.dragging && !projectPanel.inert && finishEvent.type === "pointerup" &&
+                updateProjectInsertion(state, finishEvent);
             state.finished = true;
             cancelProjectCardDrag = null;
+            projectDragPointer = null;
+            stopProjectEdgeScroll();
 
 
             window.removeEventListener(
@@ -2521,7 +2230,7 @@ projectGrid.addEventListener(
 
 
             if (
-                releaseTranslate &&
+                releaseTranslate && !projectReducedMotion.matches &&
                 card.animate
             ) {
                 const releaseAnimation =
@@ -2565,19 +2274,16 @@ projectGrid.addEventListener(
             );
 
 
-            if (!validDrop || state.originalOrder.every((item, index) =>
-                projectCardsInVisualOrder()[index] === item)) return;
+            if (!validDrop) return;
+            const tierCards = cards => cards.filter(item => item.dataset.planTier === state.tier);
+            const reordered = tierCards(projectCardsInVisualOrder());
+            if (tierCards(state.originalOrder).every((item, index) => reordered[index] === item)) return;
 
             rememberProjectCardOrder(
                 state.status,
                 mergeVisibleProjectCardOrder(
                     state.status,
-                    projectCardsInVisualOrder()
-                        .map(
-                            projectCard =>
-                                projectCard.dataset
-                                    .projectId
-                        )
+                    reordered.map(item => item.dataset.projectId)
                 )
             );
         };
@@ -2674,6 +2380,7 @@ root.addEventListener("hub-project-rename", event => {
     project.root = folderPath(newPath);
     project.name = name;
 
+    renderProjects(currentProjectStatus);
     renderActiveContext();
 });
 
@@ -2820,6 +2527,7 @@ for (const view of projectViews) {
         renderProjects(view.status);
     });
 
+    button.setAttribute("aria-pressed", String(view.status === "active"));
     if (view.status === "active") {
         button.classList.add("is-active");
     }
@@ -2827,47 +2535,19 @@ for (const view of projectViews) {
 
 renderProjectTabCounts();
 
-const newProjectButton =
-    projectTabButtons.createEl(
-        "button",
-        {
-            cls: "home-project-create hub-panel-action hub-panel-action-icon hub-panel-add"
-        }
-    );
+projectCountPeers.push(window.hubCreatePanelAction(projectTabButtons, "Project", () => {
+    window.hubOpenProjectWizard?.(root, currentProjectStatus);
+}));
 
-const newProjectIcon =
-    newProjectButton.createSpan({
-        cls: "home-project-create-icon"
-    });
-
-window.hubSetIcon?.(
-    newProjectIcon,
-    "plus"
-);
-
-newProjectButton.setAttribute(
-    "aria-label",
-    "New project"
-);
-
-newProjectButton.addEventListener(
-    "click",
-    () => {
-
-        if (!window.hubOpenProjectWizard) {
-            console.error(
-                "Project wizard is unavailable."
-            );
-            return;
-        }
-
-        window.hubOpenProjectWizard(
-            root,
-            currentProjectStatus
-        );
+dv.component.registerEvent(app.workspace.on("hub:workspace-history", () => {
+    if (frame.current() && projectSort === "recent") renderProjects(currentProjectStatus);
+}));
+window.hubPlan?.relevance?.subscribe(dv.component, snapshot => {
+    if (frame.current() && projectPlanTiers(currentProjectStatus, snapshot) !== visiblePlanTiers) {
+        renderProjects(currentProjectStatus);
     }
-);
-
+});
+setResourcesCollapsed(sessionStorage.getItem("obsidian-hub::home-resources-collapsed") === "true");
 renderProjects("active");
 
 // RECENT ACTIVITY
@@ -2990,14 +2670,11 @@ const progressHeader =
     );
 
 
-const progressHeaderControls = progressHeader.createDiv({ cls: 'home-progress-header-controls' });
+const progressHeaderControls = progressHeader.createDiv({ cls: 'home-progress-header-controls hub-progress-header-actions' });
 
-const statisticsButton = progressHeaderControls.createEl('button', {
-    cls: 'hub-panel-action hub-panel-action-icon hub-statistics-trigger',
-    attr: { type: 'button', 'aria-label': 'Open Statistics', title: 'Statistics' }
-});
-window.hubSetIcon?.(statisticsButton, 'chart-no-axes-column');
-statisticsButton.addEventListener('click', () => window.hubOpenStatistics?.());
+projectCountPeers.push(window.hubCreatePanelAction(progressHeaderControls, "Report", () => window.hubLogProgress?.()));
+renderProjectTabCounts();
+
 
 const progressToolbar = root.ownerDocument.createElement("div");
 
@@ -3291,7 +2968,7 @@ nextYear.addEventListener(
     }
 );
 
-frame.beforePaint(() => { refreshWorkProgress(); refreshProgressYears(); renderProgressYear(); syncRecentActivityHeight(); });
+frame.beforePaint(() => { refreshWorkProgress(); refreshProgressYears(); renderProgressYear(); });
 
 
 root.addEventListener(
@@ -3306,79 +2983,28 @@ root.addEventListener(
 
         renderProgressYear();
 
-        if (
-            progressView === "reports"
-        ) {
-            renderActiveProgressView();
-        }
+        progressHistory.refresh("reports");
     }
 );
 
 
-const progressTabs =
-    recent.createDiv({
-        cls:
-            "home-progress-tabs hub-panel-selectors"
-    });
-
+const progressTabs = recent.createDiv({ cls: "home-progress-tabs hub-progress-history-heading" });
 historyHeading(progressTabs);
-const historySelectors = progressTabs.createDiv({
-    cls: "hub-history-selectors hub-panel-selectors"
+const historyGrid = recent.createDiv();
+const progressHistory = window.hubMountProgressHistory({
+    root, panel: recent, heatmap: progressCalendar, toolbar: progressTabs, container: historyGrid,
+    bodyClass: "home-progress-history-body home-progress-activity-body", signal: frame.signal,
+    storageKey: "obsidian-hub::home-progress-view",
+    renderers: { reports: renderRecentReports, activity: renderRecentActivity, tasks: renderCompletedTaskHistory },
+    onLayout: scheduleRecentActivityHeight,
+    onViewChange: () => {
+        stopRecentScrollAnimation();
+        recentBody = progressHistory.body(progressHistory.category);
+        recentScrollTarget = recentBody.scrollTop;
+        if (progressHistory.isVisible("tasks")) void refreshCompletedTaskHistory();
+    }
 });
-
-const reportsTab =
-    historySelectors.createEl(
-        "button",
-        {
-            text:
-                "Reports"
-        }
-    );
-
-
-const activityTab =
-    historySelectors.createEl(
-        "button",
-        {
-            text:
-                "Activity"
-        }
-    );
-
-
-const tasksTab =
-    historySelectors.createEl(
-        "button",
-        {
-            text:
-                "Tasks"
-        }
-    );
-
-
-const savedProgressView =
-    sessionStorage.getItem(
-        "obsidian-hub::home-progress-view"
-    );
-
-
-let progressView =
-    [
-        "reports",
-        "activity",
-        "tasks"
-    ].includes(savedProgressView)
-        ? savedProgressView
-        : "reports";
-
-
-const recentBody =
-    recent.createDiv({
-        cls:
-            "home-progress-history-body home-progress-activity-body hub-scrollbar"
-    });
-recentBody.hubMarkdown = window.hubCreateMarkdown?.(dv.component);
-const historyPager = createHistoryPager(recentBody, dv.component);
+let recentBody = progressHistory.body(progressHistory.category);
 let historyReadDisposed = false, historyReadGeneration = 0, historyReadStatus = null;
 const completedHistoryRead = window.hubCreateTaskHistoryRead?.({ component: dv.component, changed: () => queueMicrotask(() => { if (!historyReadDisposed && root.isConnected) void refreshCompletedTaskHistory(); }) });
 dv.component.register(() => { historyReadDisposed = true; historyReadGeneration++; });
@@ -3391,6 +3017,10 @@ let recentActivityHeightFrame =
 
 
 function syncRecentActivityHeight() {
+    if (recent.classList.contains("hub-dashboard-panel") || recent.classList.contains("is-progress-expanded")) {
+        historyGrid.style.removeProperty("height");
+        return;
+    }
 
     if (
         !recent.isConnected
@@ -3404,10 +3034,7 @@ function syncRecentActivityHeight() {
             .getBoundingClientRect();
 
 
-    const bodyRect =
-        recentBody
-            .getBoundingClientRect();
-
+    const bodyRect = historyGrid.getBoundingClientRect();
 
     const panelStyle =
         getComputedStyle(
@@ -3438,7 +3065,7 @@ function syncRecentActivityHeight() {
         );
 
 
-    recentBody.style.height =
+    historyGrid.style.height =
         `${Math.floor(
             availableHeight
         )}px`;
@@ -3589,9 +3216,10 @@ function animateRecentScroll() {
 }
 
 
-recentBody.addEventListener(
+for (const body of progressHistory.bodies) body.addEventListener(
     "scroll",
     () => {
+        if (body !== recentBody) return;
 
         /*
          * Native/manual scrolling keeps
@@ -3612,6 +3240,7 @@ recentBody.addEventListener(
 recent.addEventListener(
     "wheel",
     event => {
+        if (recent.classList.contains("is-progress-expanded") || event.target.closest("select, button")) return;
 
         /*
          * Directly over history:
@@ -3847,7 +3476,8 @@ function activityIcon(action) {
 }
 
 
-function renderRecentReports() {
+function renderRecentReports(recentBody) {
+    const historyPager = recentBody.hubHistoryPager;
     historyPager.reset();
 
     recentBody.hubMarkdown?.clear();
@@ -4003,23 +3633,24 @@ async function refreshCompletedTaskHistory(render = true) {
         if (!completedHistoryRead) throw new Error("Recorded task History reader is unavailable.");
         const result = await completedHistoryRead.read(() => historyReadDisposed || ticket !== historyReadGeneration || !root.isConnected);
         if (!result || historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
+        const recovering = !!historyReadStatus;
         historyReadStatus?.remove(); historyReadStatus = null;
         completedTaskHistory = result.records;
         completedHistoryRead.accept(result);
-        if (render && result.changed && progressView === "tasks") {
-            completedHistoryRead.preserve(recentBody, renderCompletedTaskHistory);
+        if (render && (result.changed || recovering)) {
+            completedHistoryRead.preserve(progressHistory.body("tasks"), () => progressHistory.refresh("tasks"));
             scheduleRecentActivityHeight();
         }
     } catch (error) {
         if (historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
-        if (!historyReadStatus) historyReadStatus = recentBody.parentElement.createDiv({ cls: "home-empty", text: homeTaskRead?.availability?.() === "loading" ? "Loading task History..." : "Task History is temporarily unavailable. Existing History is retained." });
+        if (!historyReadStatus) historyReadStatus = progressHistory.body("tasks").parentElement.createDiv({ cls: "home-empty hub-progress-task-status", text: homeTaskRead?.availability?.() === "loading" ? "Loading task History..." : "Task History is temporarily unavailable. Existing History is retained." });
         historyReadStatus.setAttribute("role", "status"); historyReadStatus.setAttribute("data-task-history-status", "");
-        historyReadStatus.hidden = progressView !== "tasks";
         if (homeTaskRead?.availability?.() !== "loading") console.error("Recorded task History read failed", error);
     }
 }
 
-function renderCompletedTaskHistory() {
+function renderCompletedTaskHistory(recentBody) {
+    const historyPager = recentBody.hubHistoryPager;
     if (historyReadStatus && completedTaskHistory.length === 0) return;
     historyPager.reset();
 
@@ -4204,83 +3835,12 @@ function renderCompletedTaskHistory() {
 
 
 function renderActiveProgressView() {
-    if (historyReadStatus) historyReadStatus.hidden = progressView !== "tasks";
-
-    reportsTab.toggleClass(
-        "is-active",
-        progressView === "reports"
-    );
-
-    activityTab.toggleClass(
-        "is-active",
-        progressView === "activity"
-    );
-
-    tasksTab.toggleClass(
-        "is-active",
-        progressView === "tasks"
-    );
-
-
-    if (progressView === "reports") {
-        renderRecentReports();
-    } else if (progressView === "activity") {
-        renderRecentActivity();
-    } else {
-        renderCompletedTaskHistory();
-    }
-
-
+    for (const key of ["reports", "activity", "tasks", "plans", "oaths"]) progressHistory.refresh(key);
     scheduleRecentActivityHeight();
 }
 
-
-reportsTab.addEventListener(
-    "click",
-    () => {
-        progressView = "reports";
-        sessionStorage.setItem(
-            "obsidian-hub::home-progress-view",
-            progressView
-        );
-        recentBody.scrollTop = 0;
-        recentScrollTarget = 0;
-        renderActiveProgressView();
-    }
-);
-
-
-activityTab.addEventListener(
-    "click",
-    () => {
-        progressView = "activity";
-        sessionStorage.setItem(
-            "obsidian-hub::home-progress-view",
-            progressView
-        );
-        recentBody.scrollTop = 0;
-        recentScrollTarget = 0;
-        renderActiveProgressView();
-    }
-);
-
-
-tasksTab.addEventListener(
-    "click",
-    () => {
-        progressView = "tasks";
-        sessionStorage.setItem(
-            "obsidian-hub::home-progress-view",
-            progressView
-        );
-        recentBody.scrollTop = 0;
-        recentScrollTarget = 0;
-        renderActiveProgressView();
-        if (historyReadStatus) void refreshCompletedTaskHistory();
-    }
-);
-
-function renderRecentActivity() {
+function renderRecentActivity(recentBody) {
+    const historyPager = recentBody.hubHistoryPager;
     historyPager.reset();
 
     recentBody.hubMarkdown?.clear();
@@ -4627,11 +4187,7 @@ root.addEventListener(
             ?? [];
 
 
-        if (
-            progressView === "activity"
-        ) {
-            renderActiveProgressView();
-        }
+        progressHistory.refresh("activity");
     }
 );
 
@@ -4704,15 +4260,14 @@ async function loadSecondaryData() {
 }
 
 
-function renderTaskContext() {
+function homeTaskItems() {
+    const relevance = window.hubPlan?.relevance?.snapshot;
+    return [...projectTasks.filter(item => isActiveProject(item.owner) ||
+        (!item.owner.deleted && relevance?.task(item.task))), ...resourceTasks];
+}
 
-    const activeProjectTasks =
-        projectTasks.filter(item =>
-            isActiveProject(item.owner)
-        );
-
-
-    const homeTasks = [...activeProjectTasks, ...resourceTasks];
+function renderTaskContext(refreshExpanded = true) {
+    const homeTasks = homeTaskItems();
     homeTaskCount = homeTaskCountComplete ? (window.hubTaskGroups?.(homeTasks).active ?? homeTasks.filter(item => !item.task.completed)).length : null;
 
 
@@ -4720,10 +4275,9 @@ function renderTaskContext() {
     else updateHomeContext();
 
 
-    renderTasksToDo(
-        activeProjectTasks,
-        resourceTasks
-    );
+    renderTasksToDo(homeTasks);
+    if (refreshExpanded) expandedTasks?.render();
+    dashboardCalendar?.render();
 }
 
 function renderActiveContext() {
@@ -4757,6 +4311,64 @@ if (window.hubGetHomeProjects && app.metadataCache?.on) {
     }));
 }
 renderTaskContext();
+frame.beforePaint(() => {
+    if (!homeTaskRead) return;
+    expandedTasks = window.hubMountExpandedTasks?.({
+        panel: upcoming, compactBody: upcomingBody, signal: frame.signal, stateOwner: dv.container, stateKey: "home",
+        readItems: homeTaskItems,
+        availability: () => homeTaskCountComplete ? "current" : homeTaskLoading ? "loading" : "unavailable",
+        reader: homeTaskRead, onEdit: reconcileHomeTaskEdit
+    });
+});
+frame.beforePaint(() => {
+    let plansRoot;
+    if (window.hubPlan?.mountPlans) {
+        plansRoot = glance.createDiv({ attr: { hidden: "" } });
+        plans = window.hubPlan.mountPlans(plansRoot, focusHeader, plansLifecycle, plansButton);
+    }
+    if (homeTaskRead) dashboardCalendar = window.hubMountDashboardCalendar?.({
+        panel: calendar, compact: calendarScroll, signal: frame.signal, readItems: homeTaskItems,
+        availability: () => homeTaskCountComplete ? "current" : homeTaskLoading ? "loading" : "unavailable",
+        reader: homeTaskRead, onEdit: reconcileHomeTaskEdit, openTasks: () => panelExpansion?.open("Tasks")
+    });
+    panelExpansion = window.hubMountExpansionHost?.({
+    host: grid,
+    signal: frame.signal,
+    stateOwner: dv.container,
+    panels: [
+        { element: calendar, header: calendarHeader, title: "Calendar", icon: "calendar-days",
+            actions: [calendarTodayButton], scrollOwners: [calendarScroll],
+            onLayout: expanded => {
+                dashboardCalendar?.setExpanded(expanded);
+                if (expanded && dashboardCalendar) calendarTodayButton.disabled = false;
+                else updateCalendarTodayButton();
+            } },
+        { element: glance, header: focusHeader, title: "Plan", icon: "goal", actions: [planActions],
+            center: focusHeader.querySelector(".hub-plan-browser-modes"),
+            transitionBodies: plansRoot && { compact: focusBody, expanded: plansRoot },
+            onExpandedChange: active => {
+                if (!plans) return;
+                focusBody.hidden = active;
+                plans.setVisible(active);
+            } },
+        { element: upcoming, header: upcomingHeader, title: "Tasks", icon: "list-todo",
+            actions: [addTaskButton], scrollOwners: [upcomingBody],
+            transitionBodies: expandedTasks && { compact: upcomingBody, expanded: expandedTasks.host },
+            onExpandedChange: active => expandedTasks?.setExpanded(active) },
+        { element: projectPanel, header: projectTabs, title: "Workspaces", icon: "folder-kanban",
+            navigationLabel: "Projects",
+            actions: [projectTabButtons], scrollOwners: [workspacesBody, projectGrid],
+            onLayout: () => { cancelProjectCardDrag?.(); stopProjectEdgeScroll(); updateProjectOverflowIndicators(); } },
+        { element: recent, header: progressHeader, title: "Progress", icon: "rocket", actions: [progressHeaderControls],
+            onExpandedChange: active => progressHistory.setExpanded(active), onLayout: scheduleRecentActivityHeight }
+    ].map(panel => ({
+        ...panel,
+        compactHeading: [...panel.header.children].filter(child =>
+            child.matches(".home-heading-icon, .hub-panel-heading-label, .home-project-heading"))
+    }))
+    });
+    syncRecentActivityHeight();
+});
 frame.defer(() => { refreshHomeProjects(); void loadSecondaryData(); });
 frame.commit();
 window.hubEnterDashboard?.(root);

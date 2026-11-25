@@ -105,23 +105,29 @@ function lifecycleFixture() {
     const task = { id: "task", text: "Synthetic task", completed: false,
         nativeReference: { authorityId: "fixture", taskId: "task", taskRevision: 1, owner } };
     const context = { projectId: "a", name: "A", root: "Projects/A", path: "Projects/A/A.md", status: "active" };
-    let releases = 0;
+    let releases = 0, enters = 0, fullscreenEnters = 0, fullscreenExits = 0;
     const strict = new StrictOathCoordinator({ createReminder: async () => ({ start() {}, dispose() {} }), enabled: true, now: () => now,
-        host: { identity: {}, enter: async () => {}, release: async () => releases++, focus() {} },
+        host: { identity: {}, enter: async () => enters++, release: async () => releases++, focus() {} },
         observer: { listWindows: async () => observation } });
     const data = {};
+    const plan = { id: "plan", endsAt: new Date(now + 86400000).toISOString(), content: { entries: [
+        { id: "planned-task", kind: "task", reference: { authorityId: "fixture", taskId: task.id, ownerHint: owner }, lastKnownLabel: task.text },
+        { id: "planned-workspace", kind: "workspace", reference: owner, lastKnownLabel: "A" }
+    ] } };
     const runtime = { list: async () => ({ tasks: [task] }), info: () => ({ authority: { authorityId: "fixture" } }) };
     const plugin = { app: { vault: { getAbstractFileByPath: () => ({ path: context.path }) } },
         register() {}, dataStore: { deviceId: "test", save: async () => { if (failedSave) throw Error("Disk unavailable"); } },
         projectWizard: { data, getProjectById: () => context, getProjectRecords: () => [context] },
+        globalPlan: { active: () => plan, withOathPlan: (_id, work) => work(plan) },
         nativeTaskHost: { matches: () => true, runtime: () => runtime,
             nativeTasks: { owners: [owner], availability: () => "current", createPanelRead: () => ({ snapshot: () => ({ availability: "current", tasks: [task] }) }) } } };
-    const full = { restore() {}, destroy() {}, enter: async () => true, isFull: () => true, exit: async () => {} };
+    const full = { restore() {}, destroy() {}, enter: async () => { fullscreenEnters++;return true; }, isFull: () => true, exit: async () => fullscreenExits++ };
     const service = new HubOathService(plugin, full, { strict, now: () => now, notice() {} });
-    return { service, task, data, strict, get releases() { return releases; },
+    return { service, task, data, strict, plan, get releases() { return releases; },
+        fullscreenCalls:()=>[enters,releases,fullscreenEnters,fullscreenExits],
         advance: ms => now += ms, fail: value => failedSave = value, observe: value => observation = value,
         async draft(extra = {}) {
-            const value = { mode: "strict", start: "now", workspace: owner, durationMs: 60000, tasks: [task], ...extra };
+            const value = { mode: "strict", start: "now", workspace: owner, durationMs: 60000, tasks: [task], planId: plan.id, ...extra };
             return { ...value, strictConfirmation: (await service.reviewStrict(value)).confirmation };
         }, async dispose() { await strict.release(strict.current?.id); service.destroy(); } };
 }
@@ -149,7 +155,8 @@ test("scheduled blockers delay actual start, permit due cancellation and do not 
         await f.service.take(await f.draft({ start: "scheduled", scheduledAt: 1003000 }));
         f.advance(7000); f.observe(snapshot([row()])); await f.service.refresh();
         assert.equal(f.service.current.state, "active"); assert.equal(f.service.current.startedAt, 1009000);
-        f.task.completed = true; await f.service.refresh(); assert(f.service.fulfilled);
+        f.task.completed = true; await f.service.refresh(); assert.equal(f.service.fulfilled, false);
+        f.advance(60000); await f.service.refresh(); assert(f.service.fulfilled);
         await f.service.end(f.service.current.id); assert.equal(f.service.bucket.history.length, 1);
     } finally { await f.dispose(); }
 });
@@ -179,6 +186,70 @@ test("ordinary Oath can still end explicitly before fulfillment", async () => {
         assert.equal(await f.service.end(f.service.current.id, "broken"), "ended");
         assert.equal(f.service.current.state, "broken"); assert.equal(f.releases, 0);
     } finally { await f.dispose(); }
+});
+test("Oath requires the active Plan and stores an explicit non-task commitment", async () => {
+    const f = lifecycleFixture();
+    try {
+        const draft = { planId: f.plan.id, start: "now", workspace: { type: "project", id: "a" },
+            mode: "ordinary", durationMs: 60000, tasks: [], planEntryIds: ["planned-workspace"] };
+        await assert.rejects(f.service.take({ ...draft, planId: "stale-plan" }), /active Plan/i);
+        await assert.rejects(f.service.take({ ...draft, planEntryIds: ["unplanned"] }), /selection/i);
+        f.service.plugin.nativeTaskHost = null;
+        await f.service.take(draft);
+        assert.equal(f.service.current.planId, f.plan.id);
+        assert.deepEqual(f.service.current.planItems.map(item => item.id), ["planned-workspace"]);
+        assert.equal(f.service.fulfilled, false);
+        f.advance(60000); await f.service.refresh(); assert.equal(f.service.fulfilled, true);
+        await f.service.end(f.service.current.id);
+        assert.equal(f.service.bucket.history[0].planId, f.plan.id);
+        f.plan.content.entries = [{
+            id: "planned-file", kind: "file", reference: { path: "Projects/A/Notes.md" }, lastKnownLabel: "Notes"
+        }];
+        await f.service.take({ ...draft, planEntryIds: ["planned-file"] });
+        assert.deepEqual(f.service.current.planItems, [{ id: "planned-file", kind: "file", label: "Notes" }]);
+    } finally { await f.dispose(); }
+});
+for(const mode of ["ordinary","strict"])test(`${mode} Oath enforces the next Plan and keeps its fulfilled record through multi-workspace focus handoff`,async()=>{
+    const f=lifecycleFixture(),wizard=f.service.plugin.projectWizard,plans=f.service.plugin.globalPlan;
+    try{
+        const resource={contextKind:"resource",resourceType:"research",root:"Resources/Research",path:"Resources/Research/Research.md",name:"Research"};
+        const project=wizard.getProjectById();
+        const unrelated={projectId:"other",root:"Projects/Other",path:"Projects/Other/Other.md",name:"Other"};
+        wizard.getProjectById=id=>id===project.projectId?project:id==="other"?unrelated:null;
+        wizard.getResourceById=id=>id===resource.resourceType?resource:null;
+        wizard.getResourceForPath=path=>path?.startsWith(resource.root)?resource:null;
+        wizard.getProjectForPath=path=>path?.startsWith(unrelated.root)?unrelated:path?.startsWith(project.root)?project:null;
+        const file={id:"other-file",kind:"file",reference:{path:resource.root+"/Note.md",sourceWorkspace:{type:"resource",id:"research"}},lastKnownLabel:"Note"};
+        const workspace={id:"resource",kind:"workspace",reference:{type:"resource",id:"research"},lastKnownLabel:"Research"};
+        f.plan.content.entries.push(file,workspace);
+        plans.nextScheduledTime=()=>1060000;
+        const draft={planId:f.plan.id,start:"now",mode,durationMs:60000,planEntryIds:["planned-task","other-file","resource"]};
+        await assert.rejects(f.service.take({...draft,durationMs:120000}),/next scheduled Plan/);
+        const confirmed=mode==="strict"?{...draft,strictConfirmation:(await f.service.reviewStrict(draft)).confirmation}:draft;
+        await f.service.take(confirmed);
+        assert.equal(f.service.active,true);
+        assert.deepEqual(f.service.focusWorkspaces,[{type:"project",id:"a"},{type:"resource",id:"research"}]);
+        assert.deepEqual(f.service.current.tasks.map(task=>task.id),["task"]);
+        assert.equal(f.service.canOpen(resource.root+"/Note.md",false),true);
+        assert.equal(f.service.canOpen(unrelated.path,false),false);
+        f.task.completed=true;
+        await f.service.refresh();
+        assert.equal(f.service.fulfilled,false);
+        f.advance(60000);
+        await f.service.refresh();
+        const original=structuredClone(f.service.current),calls=f.fullscreenCalls();
+        plans.focusHandoff=()=>({planId:"next-plan",entries:[workspace,file]});
+        f.service.focusChanged();
+        assert.equal(f.service.focus.planId,"next-plan");
+        assert.deepEqual(f.service.focus.planItems.map(item=>item.id),["resource","other-file"]);
+        assert.deepEqual(f.service.focus.tasks,[]);
+        assert.deepEqual(f.service.current,original);
+        assert.deepEqual(f.fullscreenCalls(),calls);
+        assert.equal(f.service.canOpen(project.path,false),false);
+        await f.service.end(f.service.current.id);
+        assert.equal(f.service.bucket.history[0].planId,original.planId);
+        assert.equal(f.service.bucket.history[0].fulfilledAt,original.fulfilledAt);
+    }finally{await f.dispose();}
 });
 test("changing permitted defaults does not change an active confirmed policy", async () => {
     const f = lifecycleFixture();

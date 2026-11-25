@@ -61,27 +61,25 @@ const listeners = new Map(), calls = [], window = {
     hubGetProgressReports(scope) { assert.deepEqual(scope, { kind: "all" }); return wizard.getProgressReports(scope); }
 };
 const refresh = source.slice(source.indexOf('root.addEventListener(\n    "hub-progress-changed"'), source.indexOf("const progressTabs ="));
-const state = new Function("window", "root", "refreshProgressYears", "renderProgressYear", "renderActiveProgressView", `
-    let workRatings={},workContributors={},progressReports=[],progressView='reports';
+const state = new Function("window", "root", "refreshProgressYears", "renderProgressYear", "progressHistory", `
+    let workRatings={},workContributors={},progressReports=[];
     ${getters}\n${refresh}
-    return {snapshot:()=>({workRatings,workContributors,progressReports}),tab:value=>progressView=value};
+    return {snapshot:()=>({workRatings,workContributors,progressReports})};
 `)(window, { addEventListener: (name, callback) => listeners.set(name, callback) },
-    () => calls.push("years"), () => calls.push("heatmap"), () => calls.push("history"));
+    () => calls.push("years"), () => calls.push("heatmap"), { refresh: key => calls.push(key) });
 wizard.resourceWorkRatings.study[day] = 4;
 listeners.get("hub-progress-changed")();
 assert.equal(state.snapshot().workRatings[day], 4);
 assert.equal(state.snapshot().progressReports[0].score, 2);
-assert.deepEqual(calls, ["years", "heatmap", "history"]);
-state.tab("tasks"); calls.length = 0; listeners.get("hub-progress-changed")();
-assert.deepEqual(calls, ["years", "heatmap"], "Progress refresh does not reset Tasks History");
+assert.deepEqual(calls, ["years", "heatmap", "reports"], "Report updates refresh only their own History column");
 assert.doesNotMatch(source, /progressScope|home-progress-scope|getScopedProgressReports/);
 const activityRefresh = source.slice(source.indexOf('root.addEventListener(\n    "hub-activity-changed"'), source.indexOf("async function loadTaskData("));
-new Function("window", "root", "renderActiveProgressView", `
-    let recentItems=[],progressView='activity';${activityRefresh}
+new Function("window", "root", "progressHistory", `
+    let recentItems=[];${activityRefresh}
 ` )({ hubGetActivityLog: () => [{ projectId: "p" }, { projectId: "resource:study" }] },
-    { addEventListener: (name, callback) => listeners.set(name, callback) }, () => calls.push("activity"));
+    { addEventListener: (name, callback) => listeners.set(name, callback) }, { refresh: key => calls.push(key) });
 listeners.get("hub-activity-changed")();
-assert.equal(calls.at(-1), "activity", "Activity change notification still refreshes the active tab");
+assert.equal(calls.at(-1), "activity", "Activity changes refresh their own History column");
 
 async function taskRefresh() {
     const { createTaskHistoryRead } = require("../services/task-history-read");

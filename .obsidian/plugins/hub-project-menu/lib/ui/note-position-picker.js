@@ -3,6 +3,7 @@ const { ownMenuColors, ownModalColors } = require("./color-system");
 
 const { Modal, Menu } = require("obsidian");
 const { preparePicker, listen } = require("./capture-pickers");
+const { mountModalSeparators } = require("./window-title");
 const { mountCaptureLocationTree } = require("./capture-tree");
 const { setHubIcon } = require("./icons");
 const { setHubTooltip } = require("./tooltips");
@@ -26,6 +27,7 @@ function openNotePositionPicker(service, { workspace, selectedLocation, onSelect
             this.use = actions.createEl("button", { text: "Use this position", cls: "mod-cta", attr: { type: "button" } });
             this.use.disabled = true;
             this.use.onclick = () => { void this.commit(); };
+            mountModalSeparators(this, { footer: actions });
             this.selection = noteLocation(selectedLocation); this.path = this.selection?.path ?? null;
             this.request = 0; this.closed = false;
             this.positionLabelId = this.modalEl.getAttribute("aria-labelledby") + "-position";

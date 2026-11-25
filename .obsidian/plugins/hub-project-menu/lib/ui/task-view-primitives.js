@@ -37,7 +37,7 @@ function date(host, task, key = "dueDate", now = new Date()) {
 }
 function source(host, task, context) {
     const label = context.locationLabel(task);
-    const native = require("../domain/native-task-location").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId });
+    const native = require("../domain/native-task-location").locationBreadcrumb(task, taskLocationScope(context));
     const el = button(host, "", async event => {
         event.stopPropagation();
         try { await context.openSource(task); }
@@ -47,8 +47,11 @@ function source(host, task, context) {
     el.title = native?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
     el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title);
 }
+function taskLocationScope(context) {
+    return context.locationScope !== undefined ? context.locationScope : { type: "project", id: context.workspace.projectId };
+}
 function bindTask(row, title, checkbox, task, context, options = {}) {
-    context.ui.bind(row, title, task, () => "", { dates: false, steps: false, locationWorkspace: { type: "project", id: context.workspace.projectId }, ...options });
+    context.ui.bind(row, title, task, () => task.path || "", { dates: false, steps: false, locationWorkspace: taskLocationScope(context), ...options });
     row.classList.toggle("is-completed", !!task.completed);
     const key = JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]);
     checkbox.checked = !!task.completed; checkbox.disabled = !!(task.nativeReadOnly || task.nativeLocationUnavailable) || !!context.unavailable || context.pending.has(key);
@@ -59,19 +62,19 @@ function bindTask(row, title, checkbox, task, context, options = {}) {
         {
             let uncertain = false; context.pending.add(key);
             try { await require("./task-operation").runNativeTaskToggle({ checkbox, task, completed,
-                run: completed => context.toggle({ ...task, completed }), onEdit: context.apply,
+                run: completed => context.toggleTask ? context.toggleTask(task, completed) : context.toggle({ ...task, completed }), onEdit: context.apply,
                 report: error => { uncertain = error.outcome?.status === "uncertain"; ownNoticeColors(new Notice(error.message || "Could not update task.")); } }); }
             finally { if (!uncertain) context.pending.delete(key); context.render(); }
             return;
         }
     });
 }
-function taskCard(host, task, context, compact = false) {
+function taskCard(host, task, context, compact = false, { inPlanSection = false } = {}) {
     const { row, checkbox, textEl, info } = createTaskRow(host, task);
     row.classList.add("hub-full-task-card");
     if (compact) row.classList.add("is-calendar-task");
     info.querySelector(".project-task-location").remove();
-    bindTask(row, textEl, checkbox, task, context, { steps: !compact });
+    bindTask(row, textEl, checkbox, task, context, { steps: !compact, inPlanSection, compactPlanMarker: compact });
     textEl.title = task.text;
     if (!compact) {
         const metadata = info.createDiv({ cls: "hub-full-card-context" });

@@ -1,13 +1,14 @@
 "use strict";
 
-const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = require("../domain/workspace-explorer");
+const { workspaceTree, filterWorkspaceTree, displayedPlanNodes, sortExplorerChildren, rewriteExplorerPaths } = require("../domain/workspace-explorer");
 const { availableDefaultItemPath } = require("../domain/files");
 const { fileIcon } = require("./file-icons");
 const { formatDateTime } = require("../domain/dates");
+const { paintPlanMarker, describePlanMarker } = require("./plan-marker");
 
-function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descriptors, getByPath,
+function mountWorkspaceExplorer({ parent, workspacePath, workspaceRef, dashboardPath, descriptors, getByPath,
     states, persist, setIcon, openFile, createItem, renameItem = null, clipboard = null, contextMenu, showMenu = () => {}, canSelect = () => true, canCreateNote = path => path !== workspacePath, decorateRow = () => {},
-    selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(),
+    selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(), planRelevance,
     decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => formatDateTime(new Date(value)) }) {
     const doc = parent.ownerDocument;
     function el(parent, tag, cls, text) {
@@ -76,11 +77,13 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     let model, filtered, currentPath = null, activePath = null, focusPath = null;
     let query = "", editing = null, disposed = false, repainting = false, creating = false;
     let renameCommit = null;
+    let previewSelection = null;
     let selectionPane = null, selectionAnchor = null, detailFocusPath = null;
     const events = new doc.defaultView.AbortController();
     // currentPath belongs to Full-view; activePath only describes the open Note file.
     let noteView = isNoteView(), rememberedFolder = false;
     const searchCollapsed = new Set();
+    const treeRows = new Map();
     const activeQuery = () => isNoteView() ? query : "";
     const ui = path => states()[path] ?? {};
     const fullState = () => ui(workspacePath).fullExplorer ?? {};
@@ -107,7 +110,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             if (modifier && selectedPaths.has(node.path)) selectedPaths.delete(node.path); else selectedPaths.add(node.path);
             selectionAnchor = node.path;
         }
-        syncSelection();
+        syncSelection(node.folder ? null : node.path);
     }
     function focusDetail(path) {
         detailFocusPath = path;
@@ -196,6 +199,31 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             el(text, "span", "hub-explorer-origin", origin);
             row.title = `${node.name}\n${origin}`;
         } else row.title = node.path;
+        if (planRelevance) {
+            const marker = el(row, "span", "hub-explorer-plan-marker");
+            marker.setAttribute("aria-hidden", "true");
+        }
+    }
+    function paintRowPlan(row, relevance) {
+        const marker = row.querySelector(".hub-explorer-plan-marker");
+        if (marker) paintPlanMarker(marker, relevance, setIcon);
+        describePlanMarker(row.closest("[role=treeitem]") ?? row, relevance);
+    }
+    function paintTreePlan(snapshot) {
+        if (!snapshot) return;
+        const marked = displayedPlanNodes(treeRows.keys(), snapshot.locations, { rootFilesOnly: isNoteView() });
+        const workspace = workspaceRef && snapshot.workspace(workspaceRef);
+        for (const [node, row] of treeRows) {
+            const relevance = workspace?.level === "direct" && !node.parent && node.path === workspacePath
+                ? workspace : snapshot.path(node.path);
+            paintRowPlan(row, relevance?.level === "direct" || marked.has(node) ? relevance : null);
+        }
+    }
+    function paintDetailsPlan(snapshot) {
+        if (!snapshot) return;
+        for (const row of contents.querySelectorAll("[data-path]")) {
+            paintRowPlan(row, snapshot.path(row.dataset.path));
+        }
     }
     function bindRow(row, node, kind) {
         row.dataset.path = node.path;
@@ -238,6 +266,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     function renderTree(restoreFocus = false) {
         const scrollTop = tree.scrollTop;
         tree.replaceChildren();
+        treeRows.clear();
         const visiblePaths = [];
         function branch(parent, node, depth, index, count) {
             if (!filtered.visible.has(node.path)) return;
@@ -263,6 +292,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
                 });
             } else el(row, "span", "hub-explorer-disclosure-space").setAttribute("aria-hidden", "true");
             nameContent(row, node, true);
+            treeRows.set(node, row);
             bindRow(row, node, "tree");
             row.removeAttribute("tabindex");
             row.setAttribute("role", "presentation");
@@ -277,6 +307,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
         const roots = model.roots.filter(node => filtered.visible.has(node.path));
         roots.forEach((node, index) => branch(tree, node, 0, index, roots.length));
+        paintTreePlan(planRelevance?.snapshot);
         if (!roots.length) el(tree, "div", "hub-explorer-empty", activeQuery() ? "No matching files or folders." : "No workspace folders yet.");
         if (!visiblePaths.includes(focusPath)) focusPath = visiblePaths.includes(currentPath) ? currentPath : visiblePaths[0];
         for (const item of tree.querySelectorAll("[role=treeitem]")) item.tabIndex = item.dataset.treePath === focusPath ? 0 : -1;
@@ -331,6 +362,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             row.tabIndex = 0;
         }
         if (!children.length) el(contents, "div", "hub-explorer-empty", activeQuery() ? "No matching items in this folder." : "This folder is empty.");
+        paintDetailsPlan(planRelevance?.snapshot);
         syncSelection(); contents.scrollTop = scrollTop;
     }
     function contextualFolder() {
@@ -341,8 +373,9 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         if (disposed || noteView === isNoteView()) return;
         noteView = isNoteView();
         cancelDraft(); clearFullSelection(); selectionPane = null; refresh({ restore: !noteView });
+        shell.dispatchEvent(new doc.defaultView.Event("hub-explorer-mode-change", { bubbles: true }));
     }
-    function syncSelection() {
+    function syncSelection(preferredFile) {
         const inNoteView = isNoteView();
         for (const row of shell.querySelectorAll("[data-path]")) {
             const selected = selectedPaths.has(row.dataset.path) && (inNoteView || row.closest(".hub-explorer-tree,.hub-explorer-contents") === selectionPane);
@@ -355,6 +388,17 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             semantic.setAttribute("aria-selected", String(selected || currentFolder || activeFile));
             if (activeFile) semantic.setAttribute("aria-current", "true");
             else semantic.removeAttribute("aria-current");
+        }
+        const selectedFile = path => {
+            const node = model.byPath.get(path);
+            return node && !node.folder && selectedPaths.has(path) && node.parent?.path === currentPath;
+        };
+        const nextFile = inNoteView ? null : [preferredFile, previewSelection, ...[...selectedPaths].reverse()].find(selectedFile) ?? null;
+        if (nextFile !== previewSelection) {
+            previewSelection = nextFile;
+            shell.dispatchEvent(new doc.defaultView.CustomEvent("hub-explorer-file-selection", {
+                bubbles: true, detail: { path: nextFile }
+            }));
         }
     }
     function render() {
@@ -579,13 +623,21 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         });
         repainting = previousRepaint;
     }
-    let preferredWidth = null, dragWidth = null;
+    let preferredWidth = null, dragWidth = null, compactWidth = 0;
     function applyWidth() {
-        if (isNoteView()) return;
-        const available = body.clientWidth || 600;
+        if (isNoteView() || parent.closest(".hub-expansion-moving")) return;
+        const fullWidth = body.clientWidth || 600;
+        const pane = body.querySelector(".hub-file-preview:not([hidden])");
+        const sidePane = pane && Number(body.ownerDocument.defaultView.getComputedStyle(pane).gridColumnStart) === 4;
+        const available = fullWidth - (sidePane ? pane.offsetWidth : 0);
+        const expanded = parent.classList.contains("hub-panel-expanded");
+        if (!expanded && body.clientWidth) compactWidth = available;
+        // Give the extra width primarily to file details, while avoiding a
+        // narrower tree when the compact explorer already spans a narrow leaf.
+        const defaultWidth = expanded ? Math.max(fullWidth / 4, Math.min(fullWidth, compactWidth) / 3) : fullWidth / 3;
         const minimum = Math.min(160, available * .4), maximum = Math.max(minimum, available - 165);
         const stored = fullState().treeWidth;
-        const value = Math.min(maximum, Math.max(minimum, preferredWidth ?? (Number.isFinite(stored) ? stored : available / 3)));
+        const value = Math.min(maximum, Math.max(minimum, preferredWidth ?? (Number.isFinite(stored) ? stored : defaultWidth)));
         body.style.setProperty("--hub-explorer-tree-width", value + "px");
         splitter.setAttribute("aria-valuemin", String(Math.round(minimum)));
         splitter.setAttribute("aria-valuemax", String(Math.round(maximum)));
@@ -670,7 +722,11 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         if (mod && event.shiftKey && event.key.toLowerCase() === "n") {
             event.preventDefault(); event.stopPropagation(); beginCreate("folder"); return;
         }
-        if (event.key === "Escape") { clearFullSelection(); event.preventDefault(); event.stopPropagation(); return; }
+        if (event.key === "Escape") {
+            if (parent.classList.contains("hub-panel-expanded") &&
+                (!selectedPaths.size || event.target.closest(".hub-expanded-header"))) return;
+            clearFullSelection(); event.preventDefault(); event.stopPropagation(); return;
+        }
         const pane = event.target.closest(".hub-explorer-tree,.hub-explorer-contents");
         if (!pane) return;
         if (mod && event.key.toLowerCase() === "a") {
@@ -763,8 +819,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             contextMenu(event, selectedFolder(), beginCreate, { kind: "background" });
         });
     }
+    const stopPlan = planRelevance?.subscribe(null, snapshot => {
+        paintTreePlan(snapshot);
+        paintDetailsPlan(snapshot);
+    });
     refresh({ restore: true });
-    return { refresh, beginCreate, beginRename, syncSelection, syncMode,
+    return { refresh, beginCreate, beginRename, syncSelection, syncMode, updateWidth: applyWidth, selectedFilePath: () => previewSelection,
         selectFolderPath(path) {
             const node = model.byPath.get(path);
             if (!node?.folder) return false;
@@ -794,7 +854,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         },
         isFullView: () => !isNoteView(),
         reportError: showError,
-        destroy() { disposed = true; sortMenu?.hide(); events.abort(); resize.disconnect(); shell.remove(); }
+        destroy() { disposed = true; stopPlan?.(); sortMenu?.hide(); events.abort(); resize.disconnect(); shell.remove(); }
     };
 }
 

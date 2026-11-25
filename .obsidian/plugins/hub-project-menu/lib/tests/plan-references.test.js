@@ -8,5 +8,13 @@ const plan=new GlobalPlanService(plugin,{storage:{getItem:k=>local.get(k)??null,
 refs.observe("prepared","op",{kind:"move",from:"Research/a.pdf",to:"Research/b.pdf"});files.delete("Research/a.pdf");files.set("Research/b.pdf",{path:"Research/b.pdf",name:"b.pdf"});receipts.push({operationId:"op",sequence:1,fileOperation:true,kind:"move"});await refs.audit();await plan.flush();assert.equal(plan.read().entries[0].reference.path,"Research/b.pdf");assert.equal(plan.read().entries[0].intendedContext.id,"p");assert.equal(plan.read().entries[0].reference.sourceWorkspace.id,"literature");
 fail=true;refs.observe("prepared","op2",{kind:"move",from:"Research/b.pdf",to:"Research/c.pdf"});files.delete("Research/b.pdf");files.set("Research/c.pdf",{name:"c.pdf"});receipts.push({operationId:"op2",sequence:2,fileOperation:true,kind:"move"});await refs.audit();assert.equal(plan.read().entries[0].reference.path,"Research/c.pdf");await assert.rejects(plan.flush());assert(plan.protected);
 fail=false;receipts.push({operationId:"lost",sequence:3,fileOperation:true,kind:"move"});await refs.audit();await plan.flush();files.set("Research/c.pdf",{name:"different file"});assert.equal(plan.read().entries[0].unavailableReason,"unresolved");assert.notEqual((await refs.resolve())[0].availability,"current");assert.equal(plan.read().entries.length,1);
+const trashPath="Research/trash.pdf",selected=refs.fileEntry({path:trashPath,name:"trash.pdf"});
+files.set(trashPath,{path:trashPath,name:"trash.pdf"});plan.add([selected]);await plan.flush();
+refs.observe("prepared","trash",{kind:"trash",from:trashPath});
+assert.equal((await refs.resolve([selected]))[0].fileState,"temporary");
+files.set(trashPath,{path:trashPath,name:"replacement.pdf"});
+receipts.push({operationId:"trash",sequence:4,fileOperation:true,kind:"trash"});
+await refs.audit();await plan.flush();
+assert.equal(plan.read().entries.find(entry=>entry.id===selected.id).unavailableReason,"deleted","A committed trash refers to the original even when the path has been reused before reconciliation");
 console.log("PASS: exact known move, intended/physical context, failed persistence recovery, receipt gaps, path reuse and retained unresolved entries");}
 run().catch(e=>{console.error(e);process.exitCode=1});

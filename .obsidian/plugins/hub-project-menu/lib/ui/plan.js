@@ -1,52 +1,295 @@
 "use strict";
 
-const {Modal,Component,Notice}=require("obsidian");
+const { Component, Modal, Notice } = require("obsidian");
+const { ownModalColors, ownNoticeColors } = require("./color-system");
+const { createModalHeader, mountModalSeparators } = require("./window-title");
+const { mountPlanPresentation } = require("./plan-presentation");
+const { mountFinishPlan } = require("./plan-finish");
+const { localISODate, formatDate } = require("../domain/dates");
+const { planDay, shiftDay, orderPlans, planLabel, planTime, planClockTime } = require("../domain/plan-timeline");
 
-const {ownModalColors}=require("./color-system");
+const { setHubIcon } = require("./icons");
+const { createIconAction } = require("./controls");
+const { editable } = require("../domain/plan-lifecycle");
+const { mountPlanDelete } = require("./plan-delete");
 
-const {createModalHeader,layoutModal}=require("./window-title");
-
-
-const {openPlanPicker}=require("./plan-picker");
-
-class PlanModal extends Modal {
-
- constructor(plugin){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.returnFocus=document.activeElement;}
-
- onOpen(){
-  ownModalColors(this);this.modalEl.classList.add("hub-plan-modal");this.contentEl.classList.add("hub-button-scope");this.component=new Component();this.component.load();
-  this.planId=this.requestedPlanId??this.plan.active()?.id??this.plan.listHistorical()[0]?.id;
-  this.render();this.plan.subscribe(this.component,()=>{const p=this.plan.readPlan(this.planId);const key=(p?.id??'empty')+':'+p?.status;if(key!==this.renderKey)this.render();else this.update();});
- }
- render(){
-  this.presentation?.unload();this.presentation=new Component();this.presentation.load();this.contentEl.empty();const p=this.plan.readPlan(this.planId),active=p?.status==='active';this.renderKey=(p?.id??'empty')+':'+p?.status;this.modalEl.classList.toggle('is-active-plan-editor',active);
-  createModalHeader(this.contentEl,{title:"Plan",icon:"goal",subtitle:active?"Choose work to include in your plan.":p?"Historical plan - "+p.calendarDate:"No active plan for today"});
-  this.body=this.contentEl.createDiv();this.scroller=document.createElement('div');this.scroller.className='hub-plan-editor-scroll hub-scrollbar';
-  const bound=this.plan.bind(this.planId);
-  const presentation=require('./plan-presentation').mountPlanPresentation({root:this.body,component:this.presentation,plan:bound,context:active?'editor':'report',scroller:this.scroller,editable:active,emptyMessage:false,onRelink:entry=>openPlanPicker(this.plugin,{relink:entry}),noteEditor:note=>{this.note=note;note.value=p.content.note;note.oninput=()=>{try{this.plan.setNote(note.value,this.planId);}catch(e){this.showError(e.message);}};}});
-  this.body.append(this.scroller);this.scroller.append(presentation.collection);this.body.classList.add('hub-plan-editor-body');
-  if(!active){presentation.note.hidden=!p;presentation.note.empty();if(p){presentation.note.classList.add('hub-plan-historical-note');const label=presentation.note.createSpan({text:require('./plan-home').dateLabel(p),cls:'hub-oath-muted'});label.title=p.timeZone;presentation.note.createSpan({text:p.snapshot.note||'No note',cls:p.snapshot.note?'hub-plan-historical-text':'hub-plan-historical-text hub-oath-muted'});const ended=presentation.note.createSpan({cls:p.status==='finished'?'hub-plan-finished':'hub-oath-muted'});require('./icons').setHubIcon(ended.createSpan(),p.status==='finished'?'circle-check':'clock');ended.createSpan({text:(p.status==='finished'?'Finished ':'Day ended ')+require('./plan-home').time(p,p.endedAt)});}this.note=null;}
-  this.addButton=this.body.createEl('button',{cls:'hub-plan-add'});this.addButton.hidden=!active;require('./icons').setHubIcon(this.addButton.createSpan({cls:'hub-capture-icon'}),'plus');this.addButton.createSpan({text:'Add to plan'});this.addButton.onclick=()=>openPlanPicker(this.plugin);
-  this.legacyButton=this.scroller.createEl('button',{cls:'hub-button-plain hub-plan-legacy',text:'Review previous Focus',attr:{hidden:''}});this.legacyButton.onclick=()=>void this.reviewLegacy().catch(e=>this.showError(e.message));
-  this.status=this.body.createDiv({cls:'hub-plan-error',attr:{role:'alert',hidden:''}});this.recovery=this.scroller.createDiv();const footer=this.contentEl.createDiv({cls:'hub-project-advancement-actions hub-plan-footer'});this.footer=footer;
-  footer.createEl('button',{text:'Done',cls:'mod-cta'}).onclick=()=>this.close();
-  layoutModal(this,{body:this.body,footer});if(active)void this.legacySources().then(s=>{this.hasLegacy=s.length>0;if(this.contentEl.isConnected)this.update();}).catch(()=>{});this.update();
- }
- showError(message){this.status.textContent=message;this.status.hidden=!message;}
- update(){const active=this.plan.readPlan(this.planId)?.status==='active',blocked=this.plan.transitioning||this.plan.pendingTransition||this.plan.conflict||this.plan.readOnly;this.legacyButton.hidden=!active||!this.hasLegacy||this.plan.draft.legacyReview!=='pending';this.addButton.disabled=!!blocked;this.showError(this.plan.error||this.plan.conflict||this.plan.readOnly?this.plan.status:'');if(this.note){if(document.activeElement!==this.note)this.note.value=this.plan.readPlan(this.planId)?.content?.note??this.note.value;this.note.disabled=!!blocked;}
- this.recovery.empty();const button=(text,run)=>{this.recovery.createEl('button',{text}).onclick=()=>void Promise.resolve().then(run).catch(e=>this.showError(e.message));};if(this.plan.conflict){const details=this.recovery.createEl('details');details.createEl('summary',{text:'Review saved and recovered Plans'});for(const [label,state]of [['Saved',this.plan.baseState],['Recovered',this.plan.conflict.desired]]){const p=state.plansById?.[state.activePlanId];details.createEl('pre',{cls:'hub-plan-conflict',text:label+' ? '+(p?.id??'No active Plan')+'\n'+(p?.content.note??'')});}button('Keep saved plan',()=>this.plan.resolveConflict(false));button('Restore recovered draft',()=>this.plan.resolveConflict(true));}else if(this.plan.error){button('Retry',()=>this.plan.pendingTransition?this.plan.ensureLifecycle():this.plan.flush());button('Copy draft',()=>navigator.clipboard.writeText(this.note?.value??this.plan.deferredInput?.text??''));}
- if(this.plan.deferredInput){const text=this.plan.deferredInput.text;button('Copy preserved text',()=>navigator.clipboard.writeText(text));if(!this.plan.active())button('Use preserved text in new plan',async()=>{const id=await this.plan.createPlan();this.plan.setNote(text,id);await this.plan.flush();this.plan.deferredInput=null;this.plan.checkpoint();this.planId=id;this.render();});}
- }
- async legacySources(){const wizard=this.plugin.projectWizard,date=require("../domain/dates").localISODate(),sources=[];const add=(title,items)=>{if(items?.length)sources.push({title,items});};add("Pending Focus",wizard.getPendingFocus()?.items??wizard.data.pendingFocus?.items);add("Daily Focus - "+date,wizard.getDailyFocus(date));add("Report Focus - "+date,wizard.data.reportFocusByDate?.[date]);const daily=this.app.vault.getAbstractFileByPath("Daily Notes/"+date+".md");if(daily){const text=await this.app.vault.read(daily);const section=text.match(/^#{1,6} Focus\s*\n([\s\S]*?)(?=^#{1,6} |$(?![\s\S]))/m);if(section){const items=section[1].split("\n").map(line=>line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/," ").trim()).filter(Boolean).map(text=>({text}));add("Daily Note Focus - "+date,items);}}return sources;}
- async reviewLegacy(){if(this.legacy){this.legacy.remove();this.legacy=null;return;}const sources=await this.legacySources();if(!this.contentEl.isConnected)return;this.legacy=this.scroller.createDiv();this.legacy.createEl("p",{text:"Choose descriptions to append to your note. Historical records are preserved."});const selected=[];for(const source of sources)for(const item of source.items){const text=typeof item==="string"?item:item.text;if(!text)continue;const label=this.legacy.createEl("label",{cls:"hub-plan-picker-row"}),box=label.createEl("input",{attr:{type:"checkbox"}});label.createSpan({text:source.title+": "+text});selected.push({box,text:"["+source.title+"] "+text});}const preview=this.legacy.createEl("pre");const refresh=()=>preview.textContent=selected.filter(i=>i.box.checked).map(i=>i.text).join("\n");this.legacy.onchange=refresh;const importButton=this.legacy.createEl("button",{text:"Append selected descriptions"});importButton.onclick=()=>{refresh();if(!preview.textContent)return;this.plan.mutate(p=>{p.note=[p.note,preview.textContent].filter(Boolean).join("\n\n");p.legacyReview="completed";});this.note.value=this.plan.draft.note;this.legacy.remove();this.legacy=null;};const dismiss=this.legacy.createEl("button",{text:"Dismiss"});dismiss.onclick=()=>{this.plan.mutate(p=>p.legacyReview="dismissed");this.legacy.remove();this.legacy=null;};}
-
- close(){if(this.closing)return;this.closing=true;void (async()=>{const p=this.plan.readPlan(this.planId);if(p?.status==='active'&&!p.content.entries.length){await this.plan.abandonEmptyPlan(this.planId);return true;}return this.plan.closeSafe();})().then(safe=>{this.closing=false;if(safe)super.close();else{this.update();this.showError("Your latest draft could not be protected. Retry or copy it before closing.");const b=this.recovery.createEl("button",{text:"Discard unprotected changes"});b.onclick=()=>{this.plan.draft=JSON.parse(JSON.stringify(this.plan.base));this.plan.recovery.clear();this.plan.emit();super.close();};}}).catch(error=>{this.closing=false;this.update();this.showError(error.message);});}
-
- onClose(){if(this.plugin.planModal===this)this.plugin.planModal=null;this.presentation?.unload();this.component?.unload();this.returnFocus?.focus?.();}
-
+function button(parent, text, onclick, cls) {
+    const control = parent.createEl("button", { text, cls, attr: { type: "button" } });
+    control.onclick = onclick;
+    return control;
 }
 
-function openPlan(plugin,planId){if(plugin.planModal?.containerEl?.isConnected){if(planId&&plugin.planModal.planId!==planId){plugin.planModal.planId=planId;plugin.planModal.render();}plugin.planModal.modalEl.focus();return plugin.planModal;}const modal=new PlanModal(plugin);plugin.planModal=modal;modal.requestedPlanId=planId;try{modal.open();if(!modal.contentEl.isConnected)throw Error("Plan could not open.");return modal;}catch(error){plugin.planModal=null;modal.component?.unload();Modal.prototype.close.call(modal);new Notice(error.message);return null;}}
+function mountPlanDetails({ root, component, plan, record, scroller, interactive = true, noteCaption, onRendered }) {
+    return mountPlanPresentation({
+        root, component, plan: plan.bind(record.id, { historicalNavigation: interactive }),
+        context: "report", scroller, interactive, execute: interactive && record.status === "active",
+        historicalNavigation: interactive, noteCaption, onRendered, showStatus: false, emptyMessage: false
+    });
+}
 
-module.exports={PlanModal,openPlan};
+function mountPlans({ root, header, component, plugin, plannerButton, visible = true }) {
+    const plan = plugin.globalPlan;
+    const today = () => localISODate(plan.now());
+    const modes = header.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-plan-browser-modes", attr: { role: "group", "aria-label": "Plan browser layout" } });
+    const byPlan = button(modes, "Plans", () => switchMode("plans"));
+    const byDay = button(modes, "Days", () => switchMode("days"));
+    header.insertBefore(modes, plannerButton.parentElement);
+    plannerButton.onclick = () => openPlanner(plugin, {
+        ...(showing ? (mode === "plans" && selectedId ? { planId: selectedId } : { date: day }) : {}),
+        returnFocus: plannerButton
+    });
+    const columns = root.createDiv({ cls: "hub-plans-columns" });
+    root.classList.add("hub-plans");
+    let mode = "plans", day = today(), selectedId = null, records = [], initialized = false;
+    let showing = visible, mounted, layoutKey, creating = false, createId;
 
+    function switchMode(next) {
+        if (next === mode) return;
+        const selected = records.find(record => record.id === selectedId);
+        if (next === "days" && selected) day = planDay(selected);
+        if (next === "plans" && (!selected || planDay(selected) !== day)) {
+            selectedId = records.find(record => planDay(record) === day)?.id ?? null;
+        }
+        mode = next;
+        refresh();
+    }
+
+    function showPlan(id) {
+        selectedId = id;
+        refresh();
+        columns.querySelector(".hub-plans-center h3")?.focus({ preventScroll: true });
+    }
+
+    function pane(label, cls = "", recenter) {
+        const section = columns.createEl("section", { cls: "hub-plans-pane " + cls, attr: { "aria-label": label } });
+        const headerRow = section.createDiv({ cls: "hub-plan-date-row" });
+        const heading = headerRow.createEl("h3", { attr: { tabindex: "-1" } });
+        if (recenter) {
+            section.classList.add("hub-plans-side-day");
+            const control = button(heading, label, recenter, "hub-button-plain hub-plans-day-heading");
+            control.setAttribute("aria-label", "Center " + label);
+            section.onclick = event => {
+                if (!event.target.closest("button, a, input, [role=button]") && root.ownerDocument.getSelection()?.isCollapsed !== false) recenter();
+            };
+        }
+        else heading.textContent = label;
+        const body = section.createDiv({ cls: "hub-plans-scroll hub-scrollbar" });
+        return { headerRow, body };
+    }
+
+    function statusIcon(host, record) {
+        const label = planLabel(record);
+        const icon = host.createSpan({ cls: "hub-plan-status-icon",
+            attr: { role: "img", "aria-label": label, title: label } });
+        icon.classList.toggle("is-finished", record.status === "finished");
+        setHubIcon(icon, record.status === "finished" ? "check" : "clock-alert");
+    }
+
+    function recordAction(host, record) {
+        if (editable(record)) {
+            const edit = createIconAction(host, "Edit Plan", "pencil", () => {
+                openPlanner(plugin, { planId: record.id, returnFocus: edit });
+            });
+        } else statusIcon(host, record);
+    }
+
+    function details(body, record, { interactive = true } = {}) {
+        const article = body.createEl("article", { cls: "hub-plans-day-record", attr: { "data-record": record.id } });
+        article.classList.toggle("is-active-plan", record.status === "active");
+        const actions = article.createDiv({ cls: "hub-plan-record-tools hub-plan-card-actions" });
+        recordAction(actions, record);
+        mountPlanDelete(actions, mounted, plugin, record.id, focusBrowser);
+        mountPlanDetails({ root: article.createDiv(), component: mounted, plan, record, scroller: body, interactive,
+            noteCaption: planClockTime(record) });
+        if (interactive && record.status === "active") {
+            const finish = article.createDiv({ cls: "hub-plan-card-finish" });
+            mountFinishPlan({ root: finish, component: mounted, plugin, planId: record.id });
+        }
+    }
+
+    function focusBrowser() {
+        columns.querySelector(".hub-plans-center h3")?.focus({ preventScroll: true });
+    }
+
+    function summaries(body, slice, empty) {
+        if (!slice.length) body.createDiv({ cls: "hub-plans-empty", text: empty });
+        for (const record of slice) {
+            const article = body.createEl("article", { cls: "hub-plans-summary-card", attr: { "data-record": record.id } });
+            const control = button(article, "", () => showPlan(record.id), "hub-plans-record");
+            control.dataset.record = record.id;
+            control.classList.toggle("is-active-plan", record.status === "active");
+            const note = (record.content ?? record.snapshot).note.trim();
+            control.createEl(note ? "span" : "em", { cls: "hub-plans-record-note", text: note || "No note" });
+            control.createSpan({ cls: "hub-plans-record-time", text: planTime(record) });
+            const actions = article.createDiv({ cls: "hub-plan-card-actions" });
+            recordAction(actions, record);
+            mountPlanDelete(actions, mounted, plugin, record.id, focusBrowser);
+        }
+    }
+
+    function refresh() {
+        root.hidden = modes.hidden = !showing;
+        if (!showing) return;
+        for (const [control, pressed] of [[byPlan, mode === "plans"], [byDay, mode === "days"]]) {
+            control.setAttribute("aria-pressed", String(pressed));
+            control.classList.toggle("is-active", pressed);
+        }
+        const state = plan.published();
+        records = orderPlans(Object.values(state.plansById).filter(record => planDay(record)));
+        if (!initialized && records.length) {
+            initialized = true;
+            selectedId = state.activePlanId ?? records.find(record => record.status === "scheduled")?.id ?? records.at(-1).id;
+        }
+        let index = records.findIndex(record => record.id === selectedId);
+        if (mode === "plans" && selectedId && index < 0) {
+            selectedId = records.find(record => planDay(record) === day)?.id ?? null;
+            index = records.findIndex(record => record.id === selectedId);
+        }
+        const selected = records[index];
+        if (mode === "plans" && selected) day = planDay(selected);
+        const dates = [shiftDay(day, -1), day, shiftDay(day, 1)];
+        const visibleRecords = mode === "days" ? records.filter(record => dates.includes(planDay(record))) : records;
+        const key = JSON.stringify([mode, day, today(), selectedId, visibleRecords.map(record => [
+            record.id, record.status, record.scheduledAt, planDay(record),
+            mode === "plans" && record.id !== selectedId ? (record.content ?? record.snapshot).note : null
+        ])]);
+        if (key === layoutKey) return;
+        const layoutClass = mode === "days" ? "is-by-day" : "is-by-plan";
+        const sameLayout = columns.classList.contains(layoutClass) && columns.dataset.anchor === (mode === "days" ? day : selectedId ?? day);
+        const scroll = sameLayout ? [...columns.querySelectorAll(".hub-plans-scroll")].map(body => body.scrollTop) : [];
+        const focus = root.ownerDocument.activeElement;
+        const focusedId = columns.contains(focus) ? focus?.closest("[data-record]")?.dataset.record : null;
+        layoutKey = key;
+        mounted?.unload();
+        mounted = new Component();
+        mounted.load();
+        columns.empty();
+        columns.className = "hub-plans-columns " + layoutClass;
+        columns.dataset.anchor = mode === "days" ? day : selectedId ?? day;
+        if (mode === "plans") {
+            const earlier = index < 0 ? records.filter(record => planDay(record) < day) : records.slice(0, index);
+            const later = index < 0 ? records.filter(record => planDay(record) > day) : records.slice(index + 1);
+            summaries(pane("Earlier").body, earlier.reverse(), "No earlier Plans");
+            const center = pane(formatDate(day, "full"), "hub-plans-center");
+            if (selected) details(center.body, selected);
+            else center.body.createDiv({ cls: "hub-plans-empty", text: "No Plans for this day" });
+            summaries(pane("Later").body, later, "No later Plans");
+        } else {
+            for (const date of dates) {
+                const recenter = date === day ? undefined : () => {
+                    day = date;
+                    refresh();
+                    columns.querySelector(".hub-plans-center h3")?.focus({ preventScroll: true });
+                };
+                const cls = [date === today() ? "is-today" : "", date === day ? "hub-plans-center" : ""].join(" ");
+                const { headerRow, body } = pane(formatDate(date, "full"), cls, recenter);
+                if (date >= today()) {
+                    const add = createIconAction(headerRow, "Create Plan for " + formatDate(date, "full"), "plus", async () => {
+                        if (creating) return;
+                        creating = true;
+                        createId ??= crypto.randomUUID();
+                        try {
+                            const id = await plan.createPlannerPlan({ date, id: createId });
+                            createId = null;
+                            const returnFocus = columns.querySelector('[aria-label="' + add.getAttribute("aria-label") + '"]');
+                            openPlanner(plugin, { planId: id, returnFocus });
+                        } catch (error) {
+                            ownNoticeColors(new Notice(error.message));
+                        } finally {
+                            creating = false;
+                        }
+                    });
+                }
+                const entries = visibleRecords.filter(record => planDay(record) === date);
+                if (!entries.length) body.createDiv({ cls: "hub-plans-empty", text: "No Plans for this day" });
+                for (const record of entries) details(body, record, { interactive: date === day });
+            }
+        }
+        [...columns.querySelectorAll(".hub-plans-scroll")].forEach((body, index) => { body.scrollTop = scroll[index] ?? 0; });
+        if (focusedId && sameLayout) [...columns.querySelectorAll("button[data-record]")]
+            .find(control => control.dataset.record === focusedId)?.focus({ preventScroll: true });
+    }
+
+    plan.subscribe(component, refresh);
+    const win = root.ownerDocument.defaultView;
+    const clock = win.setInterval(() => { if (showing) refresh(); }, 30000);
+    component.register(() => { win.clearInterval(clock); mounted?.unload(); });
+    refresh();
+    return {
+        setVisible(value) { showing = value; refresh(); }
+    };
+}
+
+class PlanModal extends Modal {
+    constructor(plugin, context) {
+        super(plugin.app);
+        this.hasInitialInputFocus = false;
+        this.plugin = plugin;
+        this.context = { ...context };
+    }
+    onOpen() {
+        ownModalColors(this);
+        this.modalEl.classList.add("hub-plans-window", "hub-planner-window");
+        const { heading } = createModalHeader(this.contentEl, {
+            title: "Planner", subtitle: "Plan and schedule your work.", icon: "goal"
+        });
+        this.heading = heading;
+        this.heading.tabIndex = -1;
+        this.component = new Component();
+        this.component.load();
+        this.presentation = require("./planner").mountPlanner({
+            root: this.contentEl.createDiv(), component: this.component, plugin: this.plugin, context: this.context
+        });
+        mountModalSeparators(this, { footer: this.contentEl.querySelector(".hub-planner-controls") });
+        this.heading.focus({ preventScroll: true });
+    }
+    onEscapeKey(event) {
+        if (!event.defaultPrevented && this.presentation?.dismissTimePopover()) {
+            event.preventDefault();
+            return;
+        }
+        super.onEscapeKey(event);
+    }
+    close() {
+        if (this.closing) return;
+        this.closing = true;
+        void this.plugin.globalPlan.closePlanner().then(safe => {
+            if (safe) {
+                this.presentation.rememberLocation();
+                super.close();
+            }
+            else ownNoticeColors(new Notice("Retry saving the Plan changes before closing."));
+        }).catch(error => ownNoticeColors(new Notice(error.message))).finally(() => {
+            this.closing = false;
+        });
+    }
+    onClose() {
+        this.component?.unload();
+        if (this.plugin.planModal === this) this.plugin.planModal = null;
+        const target = this.context.returnFocus;
+        if (target?.isConnected && target.getClientRects().length) queueMicrotask(() => target.focus({ preventScroll: true }));
+    }
+}
+
+function openPlanner(plugin, context = {}) {
+    if (plugin.planPicker?.containerEl?.isConnected && plugin.planModal?.containerEl?.isConnected) {
+        plugin.planPicker.modalEl.focus();
+        return plugin.planModal;
+    }
+    if (plugin.planModal?.containerEl?.isConnected) {
+        if (context.returnFocus) plugin.planModal.context.returnFocus = context.returnFocus;
+        // Ordinary repeated opens bring back the same window and its work.
+        if (context.planId || context.date) plugin.planModal.presentation.reveal(context);
+        plugin.planModal.heading.focus({ preventScroll: true });
+        return plugin.planModal;
+    }
+    const modal = plugin.planModal = new PlanModal(plugin, context);
+    modal.open();
+    return modal;
+}
+
+function openPlan(plugin, planId) {
+    return openPlanner(plugin, { planId });
+}
+
+module.exports = { mountPlans, PlanModal, openPlan, openPlanner, button, mountPlanDetails };

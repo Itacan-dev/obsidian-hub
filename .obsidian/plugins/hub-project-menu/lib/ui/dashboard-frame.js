@@ -38,7 +38,7 @@ function createDashboardFrame(container, component, className, page = null) {
     const layoutWork = [];
     const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
     const frame = {
-        root, current,
+        root, current, signal: controller.signal,
         abort: () => { controller.abort(); if (!root.isConnected) disposeColors(); },
         defer: task => work.push(task),
         // Geometry needs attached, styled DOM, but must precede the first paint.

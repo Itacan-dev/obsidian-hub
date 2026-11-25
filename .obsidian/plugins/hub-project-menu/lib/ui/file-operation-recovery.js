@@ -1,8 +1,10 @@
 "use strict";
 const {Modal}=require("obsidian"),{ownModalColors}=require("./color-system");
+const { mountModalSeparators } = require("./window-title");
 function openFileOperationRecovery(plugin){
  plugin.fileOperationRecoveryModal?.close();let disposed=false;
  const modal=plugin.fileOperationRecoveryModal=new Modal(plugin.app);modal.titleEl.setText("File operation recovery");
+ mountModalSeparators(modal);
  async function render(){
   modal.contentEl.empty();const pending=await plugin.fileOperations.list();
   if(disposed)return;

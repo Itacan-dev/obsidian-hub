@@ -28,12 +28,13 @@ const wizard = Object.assign(Object.create(compiled.exports.Wizard.prototype), {
 let persisted;
 wizard.store = { save: async data => { persisted = clone(data); } };
 async function run() {
+    wizard.data.reportFocusByDate = { [date]: { items: [
+        { projectId: "p", projectName: "Project A", text: "Next action" },
+        { projectId: "resource:study", projectName: "Knowledge", text: "Keep reading" },
+        { projectId: "other", projectName: "Another workspace", text: "Plan" }
+    ] } };
     await wizard.replaceCombinedProgress(date, ["p", "q"], ["study"], { p: 3, q: 2, "resource:study": 4 },
-        { p: "Reflection", q: "No tasks", "resource:study": "Read" }, { sourceDate: date, items: [
-            { projectId: "p", projectName: "Project A", text: "Next action" },
-            { projectId: "resource:study", projectName: "Knowledge", text: "Keep reading" },
-            { projectId: "other", projectName: "Another workspace", text: "Plan" }
-        ] });
+        { p: "Reflection", q: "No tasks", "resource:study": "Read" });
     let day = reportDay(wizard, date, { kind: "project" });
     assert.equal(day.reports.length, 2);
     assert.deepEqual(day.reports[0].context.tasks, [{ id: "task", text: "Original task", timestamp }]);
@@ -85,7 +86,7 @@ async function run() {
     projects = [{ projectId: "p", name: "Project A" }, { projectId: "q", name: "Project B" }];
     // Today's save refreshes context and preserves the existing rating/removal semantics.
     wizard.nativeRecords = [{ projectId: "p", text: "Today's completed task", timestamp: Date.now() }];
-    await wizard.replaceCombinedProgress(today, ["p", "q"], [], { p: 2, q: 1 }, { p: "Today" }, { sourceDate: today, items: [] });
+    await wizard.replaceCombinedProgress(today, ["p", "q"], [], { p: 2, q: 1 }, { p: "Today" });
     assert.equal(reportDay(wizard, today).reports[0].context.tasks.length, 1);
     assert.deepEqual(reportDay(wizard, today).nextFocus, []);
     await wizard.replaceProjectProgress(today, ["p"], {}, { p: "" });

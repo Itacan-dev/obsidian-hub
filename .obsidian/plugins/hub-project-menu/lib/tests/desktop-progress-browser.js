@@ -32,10 +32,10 @@ function sourceFunction(source, name) {
 }
 window.onload = async () => {
     try {
-        const [rendererSource, homeSource, projectSource, uiSource, layoutSource, colorSource, cardsSource] = await Promise.all([
+        const [rendererSource, homeSource, projectSource, uiSource, layoutSource, colorSource, cardsSource, controlsSource] = await Promise.all([
             read("../../../heatmap-calendar/main.js"),
             read("../../../../../System/Dashboards/Home/view.js"),
-            read("../../../../../System/Dashboards/Project/view.js"), read("../ui/dashboard-ui.js"), read("../ui/progress-heatmap.js"), read("../ui/progress-colors.js"), read("../ui/workspace-cards.js")
+            read("../../../../../System/Dashboards/Project/view.js"), read("../ui/dashboard-ui.js"), read("../ui/progress-heatmap.js"), read("../ui/progress-colors.js"), read("../ui/workspace-cards.js"), read("../ui/controls.js")
         ]);
         const layoutModule = { exports: {} };
         new Function("module", layoutSource)(layoutModule);
@@ -49,6 +49,36 @@ window.onload = async () => {
         const colors = colorModule.exports.progressColors.green;
         const cardsModule = { exports: {} };
         new Function("module", "require", cardsSource)(cardsModule, () => ({ setIcon() {} }));
+        const controlsModule = { exports: {} };
+        new Function("module", "require", controlsSource)(controlsModule, id => id === "./icons" ? {
+            setHubIcon(host) { host.append(document.createElementNS("http://www.w3.org/2000/svg", "svg")); }
+        } : {});
+        const controls = controlsModule.exports;
+        window.hubCreatePanelAction = controls.createPanelAction;
+        const widthSandbox = document.body.createDiv({ cls: "hub-button-scope" });
+        widthSandbox.style.cssText = "position:absolute;visibility:hidden;width:600px";
+        const homeWidths = widthSandbox.createDiv({ cls: "home-dashboard" });
+        const workspaceWidths = widthSandbox.createDiv({ cls: "project-dashboard resource-dashboard" });
+        const panelAction = (host, label) => controls.createPanelAction(host, label, () => {});
+        const topActions = [
+            homeWidths.createEl("button", { cls: "hub-panel-action", text: "Today" }),
+            homeWidths.createEl("button", { cls: "hub-panel-action", text: "Planner" }),
+            panelAction(homeWidths, "Task"), panelAction(workspaceWidths, "Task")
+        ];
+        for (const action of topActions) controls.sizeDashboardButton(action, "top-actions");
+        assert(topActions.every(action => Math.abs(rect(action).width - rect(topActions[0]).width) < .04),
+            "Home and Resource share the top-action width");
+        const projectSelectors = homeWidths.createDiv({ cls: "hub-panel-selectors" });
+        const statusButtons = ["Active (0)", "Future (0)", "Shelved (0)"].map(text => projectSelectors.createEl("button", { text }));
+        const projectButtons = [...statusButtons, panelAction(homeWidths, "Project"), panelAction(homeWidths, "Report"), panelAction(workspaceWidths, "Report")];
+        for (const action of projectButtons) controls.sizeDashboardButton(action, "project-progress");
+        const initialWidth = rect(projectButtons.at(-1)).width;
+        const changedProjects = Array.from({ length: 112 }, () => ({ status: "shelved" }));
+        for (const action of projectButtons) controls.sizeDashboardButton(action, "project-progress", changedProjects);
+        assert(rect(projectButtons.at(-1)).width > initialWidth &&
+            projectButtons.every(action => Math.abs(rect(action).width - rect(projectButtons.at(-1)).width) < .04),
+            "Three-digit project counts resize Home and Resource controls together " + JSON.stringify({ initialWidth, widths: projectButtons.map(action => rect(action).width) }));
+        widthSandbox.remove();
         const entries = Array.from({ length: 28 }, (_, day) => ({ date: `2026-09-${String(day + 1).padStart(2, "0")}`, intensity: day % 4 + 1 }));
         const host = document.getElementById("fixture"), viewport = host.closest(".markdown-preview-view");
         let dispose = () => {};
@@ -94,7 +124,7 @@ window.onload = async () => {
             create("div", { cls: home ? "" : "project-progress-title", text: "Progress", parent: heading });
             if (home) {
                 const controls = homeSource.slice(homeSource.indexOf("const progressHeaderControls ="), homeSource.indexOf("const progressToolbar ="));
-                new Function("progressHeader", controls)(heading);
+                new Function("progressHeader", "projectCountPeers", "renderProjectTabCounts", controls)(heading, [], () => {});
                 assert(!heading.querySelector(".home-progress-scope-controls"), "No workspace scope selector");
             }
             const section = home ? create("div", { cls: "home-progress-section", parent: panel }) : panel;
@@ -115,7 +145,7 @@ window.onload = async () => {
             // Use the production remaining-height calculations after layout.
             const heightSource = home ? homeSource : projectSource;
             const heightName = home ? "syncRecentActivityHeight" : "syncProjectActivityHeight";
-            const heightSync = new Function("root", "recent", "recentBody", "progressPanel", "activitySection", sourceFunction(heightSource, heightName) + ";return " + heightName)(root, panel, body, panel, body);
+            const heightSync = new Function("root", "recent", "historyGrid", "progressPanel", "activitySection", sourceFunction(heightSource, heightName) + ";return " + heightName)(root, panel, body, panel, body);
             const boxes = calendar.querySelector(".heatmap-calendar-boxes"), months = calendar.querySelector(".heatmap-calendar-months");
             // Match the browser's allocated content box. At CSS zoom 1.5,
             // rect.width / zoom can differ from ResizeObserver by 1/64 CSS px,
@@ -262,20 +292,8 @@ window.onload = async () => {
             for (const panel of f.root.querySelectorAll(home ? ".home-calendar,.home-glance,.home-upcoming,.home-recent" : ".project-tasks,.project-progress")) near(rect(panel).width, unit, "Shared equal-width panel unit");
             near(parseFloat(getComputedStyle(f.grid).gap), 12, "Panel gutter remains 12px");
             if (!home) return;
-            const statistics = f.heading.querySelector(".hub-statistics-trigger"), controls = statistics.parentElement;
-            near(rect(statistics).right, rect(f.heading).right - parseFloat(getComputedStyle(f.heading).paddingRight) * zoom, "Statistics remains right-aligned");
-            const geometry = () => [f.panel, f.heading, f.calendar, f.boxes, f.history, f.scroller].map(element => {
-                const box = rect(element); return [box.x, box.y, box.width, box.height];
-            });
-            const unified = geometry();
-            // Restore the former selector in its fixed-height header to compare
-            // all panel/calendar/History bounds at each responsive width.
-            const legacy = create("div", { parent: controls });
-            legacy.style.cssText = "display:grid;grid-auto-flow:column;grid-auto-columns:1fr;width:max-content;height:var(--hub-panel-control-height)";
-            for (const label of ["Projects", "Resources"]) create("button", { text: label, parent: legacy });
-            controls.prepend(legacy);
-            geometry().forEach((box, i) => box.forEach((value, j) => near(value, unified[i][j], "Removing selector preserves panel, heatmap and History bounds")));
-            legacy.remove();
+            const report = f.heading.querySelector(".hub-panel-add"), controls = report.parentElement;
+            near(rect(report).right, rect(f.heading).right - parseFloat(getComputedStyle(f.heading).paddingRight) * zoom, "Report remains right-aligned");
             for (const [selector, count, minimum, gap] of [["project", 3, 220, 12], ["resource", 4, 205, 16]]) {
                 const rail = f.root.querySelector(`.home-${selector}-grid`), style = getComputedStyle(rail);
                 const cards = [...rail.children], padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);

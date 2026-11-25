@@ -2,7 +2,6 @@
 // Reporting eligibility only. No interaction history, duration, or productivity scoring.
 const { localISODate, parseLocalISODate } = require("../domain/dates");
 const { savedReportContext } = require("../domain/report-context");
-const { validateFocusItems } = require("../domain/focus");
 const clone = value => JSON.parse(JSON.stringify(value ?? {}));
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const validScore = n => Number.isInteger(n) && n >= 0 && n <= 4;
@@ -15,12 +14,12 @@ function stored(data, date, id) {
 }
 function publish(wizard, data) {
     // Keep unrelated state that may have advanced while persistence was pending.
-    for (const key of ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice", "reportFocusByDate", "pendingFocus"]) {
+    for (const key of ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice"]) {
         if (has(data, key)) { wizard.data[key] = data[key]; if (key in wizard) wizard[key] = data[key]; }
     }
 }
 async function saveProgress(wizard, input) {
-    const { date, entries = [], cutoffs = {}, dismiss = {}, deviceId = wizard.store.deviceId, focus } = input;
+    const { date, entries = [], cutoffs = {}, dismiss = {}, deviceId = wizard.store.deviceId } = input;
     if (!parseLocalISODate(date) || date > localISODate()) throw Error("Choose today or an earlier date.");
     const seen = new Set();
     for (const entry of entries) {
@@ -28,7 +27,6 @@ async function saveProgress(wizard, input) {
         if (has(entry, "rating") && entry.rating !== null && !validScore(entry.rating)) throw Error("Invalid progress rating.");
         if (has(entry, "summary") && (typeof entry.summary !== "string" || entry.summary.length > 1000)) throw Error("Reflection must contain at most 1000 characters.");
     }
-    const focusItems = focus === undefined ? undefined : validateFocusItems(focus);
     const mutate = data => {
         for (const entry of entries) {
             const previous = stored(data, date, entry.id);
@@ -54,10 +52,6 @@ async function saveProgress(wizard, input) {
                     [entry.id.startsWith("resource:") ? "resourceName" : "projectName"]: previous.log?.resourceName ?? previous.log?.projectName ?? workspace?.label ?? workspace?.name ?? "Unavailable workspace",
                     timestamp: previous.log?.timestamp || Date.now(), updatedAt: Date.now() };
             }
-        }
-        if (focusItems !== undefined) {
-            data.reportFocusByDate = { ...data.reportFocusByDate, [date]: { items: focusItems } };
-            if (date === localISODate()) data.pendingFocus = { sourceDate: date, items: focusItems };
         }
         const buckets = data.reportEngagementByDevice ??= {};
         const days = buckets[deviceId] ??= {};

@@ -1,5 +1,6 @@
 "use strict";
 const { ownModalColors } = require("./color-system");
+const { mountModalSeparators } = require("./window-title");
 
 const { Modal, setIcon } = require("obsidian");
 
@@ -94,6 +95,7 @@ class ProjectDeletionModal extends Modal {
             else if (event.target === this.input && this.phase === "name") this.beginCountdown();
         };
         content.addEventListener("keydown", this.onKeydown, true);
+        mountModalSeparators(this, { footer: actions });
         this.input.focus();
     }
 

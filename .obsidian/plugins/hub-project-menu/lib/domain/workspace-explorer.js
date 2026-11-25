@@ -46,6 +46,35 @@ function filterWorkspaceTree(roots, query) {
     return { visible, matches };
 }
 
+function displayedPlanNodes(nodes, locations, { rootFilesOnly = false } = {}) {
+    const roots = new Map(), displayed = new Map(), rootFiles = new Map();
+    for (const node of nodes) {
+        const root = node.parent ? roots.get(node.parent) : node;
+        roots.set(node, root);
+        if (!displayed.has(node.path)) displayed.set(node.path, []);
+        displayed.get(node.path).push(node);
+        if (rootFilesOnly && node === root && root.descriptor.isRoot) {
+            // Note view lists root notes and top-level folders under separate roots.
+            rootFiles.set(root, new Set(root.children.map(child => child.path)));
+        }
+    }
+    const marked = new Set();
+    for (const location of locations) {
+        const represented = new Set();
+        for (let path = location; path; path = path.slice(0, Math.max(0, path.lastIndexOf("/")))) {
+            for (const node of displayed.get(path) ?? []) {
+                const root = roots.get(node);
+                if (represented.has(root)) continue;
+                const files = rootFiles.get(root);
+                if (files && location !== root.path && !files.has(location)) continue;
+                marked.add(node);
+                represented.add(root);
+            }
+        }
+    }
+    return marked;
+}
+
 function sortExplorerChildren(children, state = {}) {
     const key = ["name", "modified", "created"].includes(state.sortKey) ? state.sortKey : "modified";
     const direction = state.sortDirection === "asc" ? 1 : -1;
@@ -67,4 +96,4 @@ function rewriteExplorerPaths(states, oldPath, newPath) {
     for (const [path, state] of entries) states[rewrite(path)] = { ...state, currentPath: rewrite(state.currentPath) };
 }
 
-module.exports = { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths };
+module.exports = { workspaceTree, filterWorkspaceTree, displayedPlanNodes, sortExplorerChildren, rewriteExplorerPaths };

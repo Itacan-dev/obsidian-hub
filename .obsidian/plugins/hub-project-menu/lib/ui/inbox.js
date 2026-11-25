@@ -35,6 +35,7 @@ class InboxModal extends CaptureModal {
         this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:[' ','Enter'].includes(event.key)?at:null;if(n!==null){event.preventDefault();if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&![' ','Enter'].includes(event.key))rows[n].focus();else void this.changeSelection(rows[n].dataset.captureId,event,true)}});
         this.detail=body.createEl("section",{cls:"hub-inbox-detail",attr:{"aria-label":"Item details",tabindex:"-1"}});
         const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
+        this.mountSeparators(footer);
         this.stop=this.service.onChange(()=>{if(this.busy)this.needsRefresh=true;else this.refresh()});
         this.deleteKey=e=>{if(e.key==='Delete'&&!e.repeat&&!e.target.closest('input,textarea,select,[contenteditable],.menu')&&!this.busy&&!this.confirmation&&this.checkedIds.size<2){e.preventDefault();void this.remove(this.selectedId)}};this.modalEl.addEventListener('keydown',this.deleteKey);
         this.refresh();this.list.scrollTop=this.options.resumeState?.scrollTop??0;this.filterButtons[0].button.focus();

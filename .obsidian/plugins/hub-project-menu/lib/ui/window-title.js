@@ -67,12 +67,28 @@ function createModalHeader(parent, { title, subtitle, icon, titleId, description
     return { header, heading, description };
 }
 
+function modalHeader(root) {
+    return root.querySelector(":scope > .hub-capture-header, :scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
+}
+
+function mountModalSeparators(modal, { header = modalHeader(modal.contentEl), footer } = {}) {
+    if (!header && modal.titleEl?.textContent.trim()) header = modal.titleEl;
+    for (const [region, edge] of [[header, "header"], [footer, "footer"]]) {
+        if (!region?.parentElement || region.classList.contains("hub-modal-" + edge + "-region")) continue;
+        const separator = region.ownerDocument.createElement("div");
+        separator.className = "hub-modal-separator is-" + edge;
+        separator.setAttribute("aria-hidden", "true");
+        region.classList.add("hub-modal-" + edge + "-region");
+        if (edge === "header") region.after(separator);
+        else region.before(separator);
+    }
+}
+
 // Keep native chrome and existing form ownership; only the middle region scrolls.
 function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, body, bodyClass = "" } = {}) {
     const root = modal.contentEl;
-    headerEnd ??= root.querySelector(":scope > .hub-capture-header, :scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
-    if (headerEnd?.nextElementSibling?.classList.contains("hub-project-advancement-divider"))
-        headerEnd = headerEnd.nextElementSibling;
+    const header = modalHeader(root);
+    headerEnd ??= header;
     footer ??= container.querySelector(":scope > .hub-capture-actions, :scope > .hub-task-dialog-actions, :scope > .hub-oath-actions, :scope > .hub-project-advancement-actions, :scope > .hub-project-wizard-actions");
     if (!body) {
         const children = [...container.children];
@@ -87,7 +103,8 @@ function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, bo
     root.classList.add("hub-modal-layout");
     modal.modalEl.classList.add("hub-modal-window");
     if (container !== root) container.classList.add("hub-modal-form");
+    mountModalSeparators(modal, { header, footer });
     return body;
 }
 
-module.exports = { createWindowTitle, setWindowUndertext, createModalHeader, layoutModal };
+module.exports = { createWindowTitle, setWindowUndertext, createModalHeader, mountModalSeparators, layoutModal };

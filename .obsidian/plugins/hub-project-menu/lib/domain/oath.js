@@ -1,5 +1,4 @@
 "use strict";
-const { validWorkspace } = require("./oath-workspace");
 
 const isCommitted = oath => ["scheduled", "active"].includes(oath?.state);
 const DEFAULT_DURATION_MS = 50 * 60000;
@@ -14,15 +13,14 @@ function oathRequirements(draft, now = Date.now()) {
     return [
         { key: "Start", complete: draft.start === "now" || draft.start === "scheduled" && Number.isFinite(draft.scheduledAt) && draft.scheduledAt > now,
             error: draft.start === "scheduled" ? "Choose a start date and time in the future." : "Choose when the Oath should begin." },
-        { key: "Workspace", complete: validWorkspace(draft.workspace), error: "Select a Project or Resource for your Oath." },
-        { key: "Tasks", complete: Array.isArray(draft.tasks) && draft.tasks.length > 0, error: "Select at least one task for your Oath." },
+        { key: "Tasks", complete: (draft.tasks?.length ?? 0) + (draft.planEntryIds?.length ?? 0) > 0, error: "Select at least one item from the active Plan." },
         { key: "Duration", complete: validDuration(draft.durationMs), error: "Choose a duration in whole minutes, at least one minute." }
     ];
 }
 function validateOath(draft, now = Date.now()) {
     const requirements = oathRequirements(draft, now);
     // Preserve the service's established error precedence; guidance uses form order.
-    for (const key of ["Start", "Duration", "Tasks", "Workspace"]) {
+    for (const key of ["Start", "Duration", "Tasks"]) {
         const field = requirements.find(field => field.key === key);
         if (!field.complete) throw Error(field.error);
     }
@@ -32,12 +30,11 @@ function oathTime(oath, now = Date.now()) {
     return { elapsedMs, remainingMs: Math.max(0, (oath?.durationMs ?? DEFAULT_DURATION_MS) - elapsedMs) };
 }
 // Fulfillment is a timestamp, independent of actual session end.
-function fulfilmentTime(oath, work, now = Date.now()) {
+function fulfilmentTime(oath, now = Date.now()) {
     if (oath?.fulfilledAt != null) return oath.fulfilledAt;
     if (oath?.state !== "active" || oath.startedAt == null) return null;
     const deadline = oath.startedAt + oath.durationMs;
-    if (now >= deadline) return deadline;
-    return oath.tasks.length > 0 && work.length === oath.tasks.length && oathProgress(work).allComplete ? now : null;
+    return now >= deadline ? deadline : null;
 }
 function oathProgress(work) {
     return { total: work.length, completed: work.filter(item => item.task?.completed).length,
@@ -50,7 +47,7 @@ function shortOathTime(ms) {
 }
 function fulfilmentLabel(oath) {
     if (oath.fulfilledAt != null) return "Fulfilled · Still Oathbound";
-    return `After ${oathDuration(oath.durationMs)}${oath.tasks?.length ? " or when all selected tasks are complete" : ""}`;
+    return `After ${oathDuration(oath.durationMs)}`;
 }
 function oathDuration(ms) {
     if (!Number.isFinite(ms) || ms < 60000) return "a selected duration";

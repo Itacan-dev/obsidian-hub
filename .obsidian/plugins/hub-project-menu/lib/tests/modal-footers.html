@@ -20,24 +20,79 @@ try{
   const primary=getComputedStyle(footer.lastElementChild);check(primary.borderTopWidth==='0px'&&primary.backgroundColor===(family==='hub-oath-actions'?'rgb(113, 80, 204)':'rgb(137, 85, 237)'),family+' borderless purple primary preserves existing color');
  }
  const compact=document.createElement('div');compact.className='hub-inbox-detail-actions';compact.innerHTML='<button>Make task</button>';families.append(compact);check(getComputedStyle(compact.firstElementChild).minHeight==='30px','Compact Inbox action remains exempt');
- const small=document.createElement('div');small.className='hub-capture-confirmation';small.innerHTML='<div class="hub-capture-actions"><button>Cancel</button></div>';families.append(small);check(getComputedStyle(small.firstElementChild).borderTopWidth==='0px','Small confirmation stays separator-free');families.replaceChildren();
- // Reuse the existing report fixture's source loaders and Obsidian stubs only.
- const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1],bootstrap=script.slice(0,script.indexOf('\ntry{'));
- const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
- const {Report,ui,empty,date}=await new AsyncFunction(bootstrap+';return {Report,ui,empty,date};')();
- for(const editing of [false,true])for(const count of [1,16]){
-  const workspaces=Array.from({length:count},(_,i)=>({projectId:'w'+i,name:'Workspace '+i})),entries=workspaces.map(w=>({projectId:w.projectId,projectName:w.name,score:2,summary:'A report with useful context.\n'.repeat(5),context:empty}));
-  let edited=0,saved=0;
-  const modal=editing?new Report({}, {projects:workspaces,currentScores:Object.fromEntries(workspaces.map(w=>[w.projectId,2])),allowNoProgress:true,showCancel:true,onSave:async()=>saved++}):new ui.DailyReportModal({}, {day:{date,reports:entries,nextFocus:[]},onEdit:()=>edited++});
-  modal.open();await settle();const root=modal.contentEl,body=root.querySelector('.hub-report-scroll'),footer=root.querySelector('.hub-project-advancement-actions');
-  check(body?.parentElement===root&&footer.parentElement===root&&!body.contains(footer),'Report footer is outside scrolling body');
-  const s=getComputedStyle(footer);check(s.borderTopWidth==='1px'&&s.borderTopColor==='rgb(85, 85, 85)'&&s.paddingTop==='16px'&&s.marginTop==='16px','Both reports use Capture separator and balanced 16px spacing');
-  check(Math.abs(footer.getBoundingClientRect().width-(body.getBoundingClientRect().width-parseFloat(getComputedStyle(body).paddingLeft)-parseFloat(getComputedStyle(body).paddingRight)))<1,'Report separator follows content horizontal alignment');
-  if(count>1){check(body.scrollHeight>body.clientHeight,'Long report scrolls in body');const before=footer.getBoundingClientRect();body.scrollTop=body.scrollHeight;await settle();check(body.scrollTop>0&&footer.getBoundingClientRect().top===before.top,'Footer stays visible and stationary during report scroll');}
-  const box=footer.getBoundingClientRect();check(box.bottom<=innerHeight&&box.right<=innerWidth&&modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'Footer and report fit normal/narrow window');
-  check(!saved&&!edited,'Layout checks do not invoke actions');
-  if(editing){modal.saveButton.click();await settle();check(saved===1,'Report save action unchanged');}else{footer.querySelector('button').click();check(edited===1,'Read-only report edit action unchanged');}
+ families.replaceChildren();
+ const module = { exports: {} };
+ const source = await (await fetch('../ui/window-title.js')).text();
+ new Function('module', 'require', source)(module, () => ({ setIcon() {} }));
+ const { layoutModal, mountModalSeparators } = module.exports;
+ const near = (a, b) => Math.abs(a-b) < .1;
+ const bounds = el => el.getBoundingClientRect();
+ const make = (host, tag, className, text) => {
+  const el = document.createElement(tag);
+  el.className = className;
+  if (text) el.textContent = text;
+  host.append(el);
+  return el;
+ };
+ for (const theme of ['dark','light']) {
+  document.body.className = 'theme-' + theme;
+  const color = theme === 'dark' ? '#555' : '#ccc';
+  document.body.style.setProperty('--background-modifier-border', color);
+  const expectedColor = theme === 'dark' ? 'rgb(85, 85, 85)' : 'rgb(204, 204, 204)';
+  for (const [name, modalClass, headerClass, footerClass, labels, mode] of [
+   ['Quick Add','hub-quick-add-dialog','hub-capture-header','hub-capture-actions',['Clear','Send to Inbox'],'custom'],
+   ['Inbox','hub-inbox-dialog','hub-capture-header','hub-capture-actions',['Close'],'custom'],
+   ['Make an Oath','hub-oath-dialog','hub-window-header','hub-oath-actions',['Cancel','Review Oath'],'shared'],
+   ['Progress Report','hub-progress-editor','hub-window-header','hub-project-advancement-actions',['Keep working','Skip report','Save and close'],'shared'],
+   ['Report viewer','hub-daily-report-modal','hub-window-header','hub-project-advancement-actions',['Edit report'],'shared'],
+   ['Task editor','hub-task-live-dialog','hub-capture-header','hub-task-dialog-actions',['Cancel','Save task'],'form'],
+   ['Planner','hub-plans-window','hub-capture-header','hub-planner-controls',['Focused','Full day','New Plan'],'planner'],
+   ['Settings','hub-settings-dialog','hub-settings-header',null,[],'custom'],
+   ['Statistics','hub-statistics-window','hub-statistics-header',null,[],'shared']
+  ]) {
+   const modalEl = make(families,'div','modal ' + modalClass);
+   modalEl.style.inlineSize = 'min(660px, calc(100vw - 28px))';
+   const contentEl = make(modalEl,'div','modal-content hub-button-scope');
+   const modal = { modalEl, contentEl };
+   const header = make(contentEl,'header',headerClass);
+   header.style.minHeight = '32px';
+   if (headerClass === 'hub-window-header') header.style.marginBottom = '11px';
+   make(header,'h2','',name).style.margin = '0';
+   const nested = mode === 'form' || mode === 'planner';
+   const bodyOwner = nested ? make(contentEl, mode === 'form' ? 'form' : 'div', mode === 'planner' ? 'hub-plans hub-planner' : '') : contentEl;
+   const body = make(bodyOwner,'section',mode === 'planner' ? 'hub-planner-stack' : 'content-region');
+   body.style.minHeight = '64px';
+   body.style.display = 'flow-root';
+   const inside = make(body,'div','hub-project-advancement-divider is-context-divider');
+   const footer = footerClass ? make(bodyOwner,'footer',footerClass) : null;
+   for (const label of labels) make(footer,'button','',label);
+   if (mode === 'shared' || mode === 'form') layoutModal(modal, { header, body, footer, container: bodyOwner });
+   else mountModalSeparators(modal,{ header, footer });
+   mountModalSeparators(modal,{ header, footer }); // Reusing layout must be idempotent.
+   await settle();
+   for (const [edge, region, line] of [['header',header,header.nextElementSibling],['footer',footer,footer?.previousElementSibling]]) {
+    if (!region) continue;
+    const lineStyle = getComputedStyle(line), frame = bounds(contentEl), separator = bounds(line);
+    check(line.classList.contains('hub-modal-separator') && line.classList.contains('is-' + edge), name + ' has a separate ' + edge + ' divider');
+    check(near(separator.left,frame.left) && near(separator.right,frame.right), name + ' ' + edge + ' follows both content insets');
+    check(near(separator.height,1) && lineStyle.borderTopColor === expectedColor, name + ' ' + edge + ' uses the theme line');
+    if (edge === 'header') {
+     check(near(separator.top - bounds(header).bottom,16), name + ' fixed space above header divider');
+     check(near(bounds(nested ? bodyOwner : body).top - separator.bottom,16), name + ' fixed space below header divider ' + (bounds(nested ? bodyOwner : body).top - separator.bottom));
+    } else {
+     check(near(separator.top - bounds(body).bottom,16), name + ' fixed space above footer divider ' + (separator.top - bounds(body).bottom));
+     check(near(bounds(footer).top - separator.bottom,16), name + ' fixed space below footer divider');
+     if (labels.length > 1 && mode !== 'planner') {
+      check(bounds(footer).width < separator.width && near(bounds(footer).right,separator.right), name + ' dividers and action width are independent');
+      check([...footer.children].every(button => near(bounds(button).width,bounds(footer.firstElementChild).width)), name + ' equal button widths');
+     }
+    }
+   }
+   check(modalEl.querySelectorAll('.hub-modal-separator').length === (footer ? 2 : 1), name + ' has only its window dividers');
+   check(inside.parentElement === body && getComputedStyle(inside).borderTopWidth === '1px', name + ' retains its content divider');
+   modalEl.remove();
+  }
  }
- result.textContent='PASS: '+checks+' footer checks at '+innerWidth+'px: shared dimensions, purple borderless primaries, compact/narrow exceptions, real short/long report editor and viewer, aligned separators, independent scrolling and unchanged actions.';
+ result.textContent = 'PASS: ' + checks + ' modal separator and button checks at ' + innerWidth + '×' + innerHeight + ' across light and dark themes.';
 }catch(error){result.textContent='FAIL: '+error.stack}
 </script>

@@ -61,6 +61,7 @@ class QuickAddModal extends CaptureModal {
         this.fileAction = action(footer, "Add files to...", "folder-input", () => { void this.launchAction("file"); });
         this.fileAction.dataset.captureAction = "file"; this.fileAction.hidden = true;
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
+        this.mountSeparators(footer);
         this.renderActions();
         // Size once from the existing empty text layout, including current fonts.
         const height = this.captureRegion.getBoundingClientRect().height;

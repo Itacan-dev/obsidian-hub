@@ -29,7 +29,8 @@ const runtimeErrors = [];
 window.onerror = (message, source, line, column, error) => runtimeErrors.push(error?.stack ?? message);
 window.addEventListener("unhandledrejection", event => runtimeErrors.push(String(event.reason?.stack ?? event.reason)));
 window.onload = async () => { try {
-    const names = ["ui/color-system", "domain/dates", "domain/files", "domain/workspace-explorer", "ui/file-icons", "ui/icons", "ui/workspace-explorer", "ui/note-rail", "ui/tooltips"];
+    const names = ["ui/color-system", "domain/dates", "domain/files", "domain/workspace-explorer", "domain/plan-relevance",
+        "domain/oath-workspace", "ui/file-icons", "ui/icons", "ui/workspace-explorer", "ui/note-rail", "ui/tooltips", "ui/plan-marker"];
     const sources = Object.fromEntries(await Promise.all(names.map(async name => [name, await (await fetch("../" + name + ".js")).text()]))), cache = {};
     function load(name) {
         if (name === "obsidian") return { setIcon, getIcon, addIcon: name => { icons[name] = "M3 5h18"; } };
@@ -93,7 +94,27 @@ window.onload = async () => { try {
     const component = { register: fn => cleanup.push(fn), registerEvent: ref => cleanup.push(() => listeners.delete(ref)),
         registerDomEvent: (element, name, fn, options) => { element.addEventListener(name, fn, options); cleanup.push(() => element.removeEventListener(name, fn, options)); } };
     const fileDomain = load("domain/files").createFileDomain({ getByPath: app.vault.getAbstractFileByPath });
-    window.hubSetIcon = load("ui/icons").setHubIcon; window.hubMountWorkspaceExplorer = load("ui/workspace-explorer").mountWorkspaceExplorer;
+    const { derivePlanRelevance } = load("domain/plan-relevance");
+    const resourceRef = { type: "resource", id: "study" };
+    const planListeners = new Set();
+    const planRelevance = { snapshot: derivePlanRelevance(null, [], null), subscribe(_component, listener) {
+        planListeners.add(listener); return () => planListeners.delete(listener);
+    } };
+    function showPlan({ files = [], tasks = [], direct = false } = {}) {
+        const items = files.map(path => ({ entry: { kind: "file", reference: { path } }, file: objects.get(path) }));
+        for (const [index, path] of tasks.entries()) {
+            const reference = { authorityId: "browser", taskId: String(index), owner: resourceRef };
+            items.push({ entry: { kind: "task", reference }, task: { nativeReference: reference, location: path } });
+        }
+        if (direct) items.push({ entry: { kind: "workspace", reference: resourceRef } });
+        planRelevance.snapshot = derivePlanRelevance({ id: "browser", content: { entries: items.map(item => item.entry) } },
+            items.map(item => ({ ...item, availability: "current" })), null, {
+                fileOwner: () => resourceRef, intendedProject: () => null, taskLocation: task => ({ path: task.location })
+            });
+        for (const listener of planListeners) listener(planRelevance.snapshot);
+    }
+    window.hubSetIcon = load("ui/icons").setHubIcon;
+    window.hubMountWorkspaceExplorer = options => load("ui/workspace-explorer").mountWorkspaceExplorer({ ...options, planRelevance });
     window.hubGetFolderUiState = id => structuredClone(stored[id] ?? {});
     window.hubSaveFolderUiState = (id, value) => stored[id] = structuredClone(value);
     window.hubGetProjectResourceFolders = () => [shared];
@@ -108,7 +129,7 @@ window.onload = async () => { try {
         cleanup.splice(0).forEach(fn => fn()); host.replaceChildren();
         const isResourceContext = kind !== "project", projectRoot = kind === "empty" ? "Resources/Literature" : isResourceContext ? resourcePath : projectPath;
         const contextId = isResourceContext ? "resource:study" : "itacan";
-        const current = { file: { path: projectRoot + (isResourceContext ? "/Knowledge.md" : "/Itacan.md") }, projectId: contextId, folder_order: [] };
+        const current = { file: { path: projectRoot + (isResourceContext ? "/Knowledge.md" : "/Itacan.md") }, projectId: contextId, resourceType: "study", folder_order: [] };
         root = host.createDiv({ cls: "project-dashboard hub-button-scope" });
         const nav = root.createDiv({ cls: "project-nav-dock" });
         nav.createDiv({ cls: "project-nav-identity", text: isResourceContext ? "Knowledge" : "Itacan" });
@@ -158,7 +179,38 @@ window.onload = async () => { try {
     const input = () => root.querySelector('.project-create-input');
     const create = async (button, name) => { button.click(); await settle(); input().value=name; key(input(),'Enter'); await settle(); };
     const current = path => row(path)?.classList.contains('is-current-folder');
+    const marker = element => element?.querySelector(".hub-explorer-plan-marker")?.dataset.planLevel;
+    const homework = assignments + "/Homework.md", lecture = course + "/Lecture plan.md";
     mount('resource'); await settle();
+    showPlan({ files: [lecture], tasks: [homework] });
+    assert(marker(row(resourcePath)) === "" && marker(row(math)) === "indirect", "Collapsed visible branch carries both routes");
+    key(treeItem(resourcePath), "ArrowLeft");
+    assert(marker(row(resourcePath)) === "indirect" && marker(detail(math)) === "indirect", "Collapsing the root moves the tree dot and preserves the listing");
+    key(treeItem(resourcePath), "ArrowRight");
+    toggle(math); toggle(course);
+    assert(marker(row(math)) === "" && marker(row(course)) === "indirect" && marker(row(assignments)) === "indirect",
+        "A hidden direct file leaves its own route alongside the visible task branch");
+    assert(marker(detail(math)) === "indirect", "A listed folder retains its marker after tree expansion");
+    const tree = root.querySelector(".hub-explorer-tree");
+    tree.style.maxHeight = "42px";
+    const courseRow = row(course);
+    tree.scrollTop = tree.scrollHeight;
+    await settle();
+    assert(tree.scrollTop > 0 && courseRow.getBoundingClientRect().bottom < tree.getBoundingClientRect().top,
+        "The planned course is above the viewport");
+    assert(marker(courseRow) === "indirect" && marker(row(resourcePath)) === "", "Scrolling does not redistribute tree markers");
+    tree.style.removeProperty("max-height"); tree.scrollTop = 0;
+    await setMode(true); search("homework");
+    assert(marker(row(homework)) === "indirect" && marker(row(course)) === "indirect",
+        "A task in a displayed note has a dot while a filtered-out sibling route stays on its parent");
+    search(""); await setMode(false);
+    showPlan({ files: [lecture], tasks: [homework, course], direct: true });
+    assert(marker(row(resourcePath)) === "direct" && marker(row(course)) === "indirect" && marker(row(assignments)) === "indirect",
+        "A directly planned Resource retains its target alongside separate routes");
+    assert(treeItem(resourcePath).getAttribute("aria-description") === "Explicitly included in the active Plan" &&
+        !treeItem(math).hasAttribute("aria-description"), "Accessible descriptions match the displayed indicators");
+    showPlan();
+    toggle(course); toggle(math);
     assert(treeItem(resourcePath)?.getAttribute('aria-expanded')==='true','Explicit root is expanded initially');
     assert(!row(resourcePath+'/Knowledge.md'),'Dashboard excluded');
     assert(!root.querySelector('.hub-explorer-tree [data-path$=".md"]'),'Full tree contains folders only');
@@ -316,6 +368,10 @@ window.onload = async () => { try {
     await create(root.querySelector('.hub-explorer-create-folder'),'First folder'); assert(row('Resources/Literature/First folder'),'Empty root creates first folder');
     mount('project'); await settle(); assert(root.querySelector('.hub-explorer-breadcrumb').firstElementChild.matches('.hub-explorer-crumb'),'Project breadcrumb begins with workspace text'); assert(row(projectPath)&&row(projectPath+'/Meta')&&row(math),'Project root, local and shared hierarchies coexist');
     assert(row(math).textContent.includes('Shared resource'),'Shared origin retained');
+    showPlan({ tasks: [homework], direct: true });
+    assert(marker(row(projectPath)) === "" && marker(row(math)) === "indirect",
+        "Attached folders use their physical Resource path and do not inherit the Resource target");
+    showPlan();
     assert(!fullMenu(row(math)).some(e=>e?.title==='Delete')&&fullMenu(row(math),'Detach from project'),'Shared reference root protected');
     row(math).click(); toggle(math); row(course).click();
     fullMenu(row(course),'New note').run(); await settle(); input().value='Shared edit'; key(input(),'Enter'); await settle();
@@ -373,5 +429,5 @@ window.onload = async () => { try {
     assert(!fullMenu(row(nestedWorkspace)).some(e=>e?.title==='Rename'||e?.title==='Delete'),'Nested workspace root has no ordinary structural menu actions');
     assert(runtimeErrors.length===0,'No asynchronous runtime errors: '+runtimeErrors.join('; '));
     window.explorerPreview=async()=>{};
-    document.getElementById('result').textContent='PASS: Full root/folder-only navigation; independent disclosure; single/double-click and split opening; pane selection; concise contextual menus; current-folder inline creation and cancellation; root policy; shared sorting/presets; keyboard splitter; local/shared resources; unchanged Note search/opening/creation; responsive themes and sidebar geometry. Synthetic vault only.';
+    document.getElementById('result').textContent='PASS: Full and Note navigation; Plan markers across disclosure, search, scrolling and independent panes; selection; contextual menus; inline creation; sorting and presets; keyboard splitter; shared Resources; responsive themes and sidebar geometry. Synthetic vault only.';
 } catch(error) { document.getElementById('result').textContent='FAIL: '+error.stack; } };

@@ -27,7 +27,7 @@ async function runCases() {
         }
         async setState() {}
     }
-    const modules = ["ui/color-system", "ui/note-rail", "ui/tooltips", "ui/prepared-note-rail", "ui/workspace-explorer", "ui/file-icons", "domain/workspace-explorer", "domain/files"];
+    const modules = ["ui/color-system", "ui/note-rail", "ui/tooltips", "ui/prepared-note-rail", "ui/workspace-explorer", "ui/file-icons", "domain/workspace-explorer", "domain/files", "ui/plan-marker"];
     const sources = Object.fromEntries(await Promise.all(modules.map(async name => [name, await (await fetch("../" + name + ".js")).text()])));
     const cache = {};
     function load(name) {

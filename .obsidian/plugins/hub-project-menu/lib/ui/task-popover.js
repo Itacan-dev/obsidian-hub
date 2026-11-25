@@ -6,7 +6,7 @@ const active = new WeakMap();
 
 // Contextual controls remain inside the modal's focus scope. The native top
 // layer avoids clipping by its scrolling body; no second Modal is opened.
-function openTaskPopover(anchor, { title, heading = true, autofocus = true, exclusive = true, avoidFooter = false, maxHeight = Infinity, className = "", width = 300, render, onClose = () => {} }) {
+function openTaskPopover(anchor, { title, heading = true, autofocus = true, exclusive = true, avoidFooter = false, alignEnd = false, maxHeight = Infinity, className = "", width = 300, render, onClose = () => {} }) {
     const doc = anchor.ownerDocument, win = doc.defaultView;
     if (exclusive) active.get(doc)?.close(false);
     const parent = anchor.closest(".modal") ?? doc.body;
@@ -43,14 +43,16 @@ function openTaskPopover(anchor, { title, heading = true, autofocus = true, excl
         element.style.maxHeight = Math.max(0, Math.min(maxHeight, bottom - top)) + "px";
         const rect = anchor.getBoundingClientRect(), naturalHeight = element.getBoundingClientRect().height;
         const belowRoom = Math.max(0, bottom - rect.bottom - 6), aboveRoom = Math.max(0, rect.top - top - 6);
-        const footer = avoidFooter ? parent.querySelector('.hub-task-dialog-actions')?.getBoundingClientRect() : null;
+        const footerSelector = typeof avoidFooter === "string" ? avoidFooter : ".hub-task-dialog-actions";
+        const footer = avoidFooter ? parent.querySelector(footerSelector)?.getBoundingClientRect() : null;
         const overlapsFooter = footer && rect.bottom + 6 < footer.bottom && rect.bottom + 6 + naturalHeight > footer.top;
         const above = naturalHeight > belowRoom && aboveRoom > belowRoom || overlapsFooter && naturalHeight <= aboveRoom;
         // Long menus scroll in the available side, preserving the anchor gap
         // instead of growing across their trigger when neither side fits.
         element.style.maxHeight = Math.min(maxHeight, bottom - top, Math.max(64, above ? aboveRoom : belowRoom)) + "px";
         const height = element.getBoundingClientRect().height;
-        element.style.left = Math.max(left, Math.min(rect.left, right - element.offsetWidth)) + "px";
+        const alignedLeft = alignEnd ? rect.right - element.offsetWidth : rect.left;
+        element.style.left = Math.max(left, Math.min(alignedLeft, right - element.offsetWidth)) + "px";
         element.style.top = Math.max(top, Math.min(above ? rect.top - height - 6 : rect.bottom + 6, bottom - height)) + "px";
     }
     const observer = new win.ResizeObserver(position);

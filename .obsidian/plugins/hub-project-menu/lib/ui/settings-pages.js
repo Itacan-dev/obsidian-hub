@@ -15,6 +15,7 @@ const SETTINGS_PAGES = [
     ["oath", "The Oath", "Preferences for focused work."],
     ["daily-brief", "Daily brief", "Your daily orientation."],
     ["history", "History", "Your work history and reports."],
+    ["statistics", "Statistics", "Explore recorded work and progress."],
     ["integrations", "Integrations", "Connections to other tools."],
     ["files", "Files & Data", "Files and application data."],
     ["shortcuts", "Shortcuts", "Keyboard shortcuts and quick actions."],
@@ -82,6 +83,17 @@ function renderSettingsPage(parent, page, plugin) {
     if (page.id === "atlas" && plugin?.atlas) return require("../atlas/obsidian/ui").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("h2", { text: page.title });
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
+    if (page.id === "statistics") {
+        const launch = parent.createEl("button", { text: "Open Statistics",
+            attr: { type: "button", "aria-haspopup": "dialog" } });
+        launch.onclick = () => {
+            const workspace = plugin.workspaceModes?.currentContext?.();
+            const filter = workspace?.contextKind === "resource"
+                ? "resource:" + workspace.resourceType : workspace?.projectId ? "project:" + workspace.projectId : undefined;
+            parent.ownerDocument.defaultView.hubOpenStatistics?.(filter);
+        };
+        return;
+    }
     if (page.id === "appearance") return renderAppearance(parent, plugin);
     if (page.id === "music" && plugin?.musicLibrary) return require("./music-settings").mountMusicSettings(parent, plugin.musicLibrary);
     if (page.id === "oath" && plugin?.oath) return require("./oath-settings").mountOathSettings(parent, plugin.oath);

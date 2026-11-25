@@ -1,5 +1,6 @@
 "use strict";
 const fs = require("fs"), path = require("path"), os = require("os"), { spawn } = require("child_process");
+const planner = process.argv.includes("--planner");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "hub-explorer-runtime-"));
 const plugin = path.resolve(__dirname, "../.."), vault = path.join(scratch, "vault"), profile = path.join(scratch, "profile");
 const copiedPlugin = path.join(vault, ".obsidian/plugins/hub-project-menu");
@@ -9,19 +10,32 @@ const build = require('child_process').spawnSync(process.execPath, [path.join(pl
 if (build.status !== 0) throw Error(build.stdout + build.stderr);
 fs.appendFileSync(path.join(copiedPlugin, 'main.js'), '\nmodule.exports.__explorerRuntimeApi = require("obsidian");\n');
 fs.writeFileSync(path.join(vault, "Home.md"), "# Explorer runtime fixture\nThis vault contains only synthetic test content.\n");
-fs.writeFileSync(path.join(vault, ".obsidian/community-plugins.json"), JSON.stringify(["hub-project-menu"]));
+const dataview = path.join(vault, ".obsidian/plugins/dataview");
+fs.mkdirSync(dataview);
+for (const name of ["manifest.json", "main.js", "styles.css"]) fs.copyFileSync(path.join(plugin, "../dataview", name), path.join(dataview, name));
+fs.writeFileSync(path.join(dataview, "data.json"), JSON.stringify({ enableDataviewJs: true }));
+fs.writeFileSync(path.join(vault, ".obsidian/community-plugins.json"), JSON.stringify(["dataview", "hub-project-menu"]));
 fs.writeFileSync(path.join(vault, ".obsidian/app.json"), JSON.stringify({ safeMode: false, showInlineTitle: true }));
 fs.writeFileSync(path.join(vault, ".obsidian/appearance.json"), JSON.stringify({ theme: "obsidian", cssTheme: "", baseFontSize: 17, showRibbon: false, nativeMenus: false }));
 fs.writeFileSync(path.join(profile, "obsidian.json"), JSON.stringify({ vaults: { explorerruntime: { path: vault, ts: 1, open: true } }, cli: false, updateDisabled: true }));
 fs.writeFileSync(path.join(profile, "explorerruntime.json"), "{}");
 const env = { ...process.env, LOCALAPPDATA: path.join(scratch, "local"), HUB_EXPLORER_RUNTIME_ROOT: scratch, HUB_EXPLORER_OBSIDIAN_ARCHIVE: process.env.HUB_EXPLORER_OBSIDIAN_ARCHIVE || path.join(process.env.APPDATA,"obsidian",fs.readdirSync(path.join(process.env.APPDATA,"obsidian")).filter(n=>/^obsidian-[0-9.]+\.asar$/.test(n)).sort((a,b)=>b.localeCompare(a,undefined,{numeric:true}))[0]) };
+if (planner) {
+    env.HUB_PLANNER_RUNTIME = "1";
+    for (const dashboard of ["Home", "Project"]) {
+        const source = path.resolve(plugin, "../../../System/Dashboards", dashboard);
+        const destination = path.join(vault, "System/Dashboards", dashboard);
+        fs.mkdirSync(destination, { recursive: true });
+        for (const name of ["view.js", "view.css"]) fs.copyFileSync(path.join(source, name), path.join(destination, name));
+    }
+}
 delete env.ELECTRON_RUN_AS_NODE;
 env.NODE_PATH = [path.join(plugin, "lib/atlas/tests/native/node_modules"), process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
 const binary = path.join(plugin, "lib/atlas/tests/native/node_modules/electron/dist/electron.exe");
 if (!fs.existsSync(binary)) throw Error("Existing native-test Electron is required");
 const child = spawn(binary, [path.join(__dirname, "workspace-explorer-obsidian-host.cjs")], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
 let completed = false;
-child.stdout.on("data", data => { const text = data.toString(); process.stdout.write(text); completed ||= text.includes("PASS actual isolated Obsidian explorer runtime"); });
+child.stdout.on("data", data => { const text = data.toString(); process.stdout.write(text); completed ||= text.includes("PASS actual isolated Obsidian " + (planner ? "Planner" : "explorer") + " runtime"); });
 child.stderr.on("data", data => process.stderr.write(data));
 child.on("error", error => { console.error(error); process.exitCode = 1; });
 child.on("close", code => {

@@ -7,10 +7,8 @@ const { renderReportWorkspaceHeader } = require("./report-workspace-header");
 
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate, formatDate, formatTime, formatDateTime } = require("../domain/dates");
-const { activitySummary, recordedWorkSummary } = require("../domain/report-context");
+const { renderDetailsChevron } = require("./disclosure");
 const { createHubMarkdown } = require("./markdown");
-const { renderHistoryIcon } = require("./dashboard-ui");
-const { setHubIcon } = require("./icons");
 
 function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath = "Home.md") {
     const element = parent.createDiv({ cls, text });
@@ -22,22 +20,6 @@ function time(parent, timestamp) {
     const date = new Date(Number(timestamp));
     if (!(Number(timestamp) > 0) || !Number.isFinite(date.getTime())) return;
     parent.createEl("time", { cls: "hub-report-time", text: formatTime(date), attr: { datetime: date.toISOString(), title: formatDateTime(date) } });
-}
-
-function sectionIcon(parent, name) {
-    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true", "data-icon": name } });
-    if (name === "rotate-ccw-clock") renderHistoryIcon(icon);
-    else if (name === "goal") setHubIcon(icon, name);
-    else setIcon(icon, name);
-}
-
-function focusSection(parent, heading, items, empty, markdown) {
-    const section = parent.createDiv({ cls: "hub-report-section hub-report-focus" });
-    const label = section.createEl("h3", { cls: "hub-report-section-heading" });
-    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "goal");
-    label.createSpan({ text: heading });
-    if (!items.length) section.createDiv({ cls: "hub-report-empty", text: empty });
-    for (const text of items) reportText(section, text, markdown);
 }
 
 function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component, availability = "current" } = {}) {
@@ -75,7 +57,9 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
 
 function renderReportEvidence(parent, context, markdown, component) {
     const disclosure = parent.createEl("details", { cls: "hub-report-recorded-work" });
-    disclosure.createEl("summary", { text: recordedWorkSummary(context) });
+    const summary = disclosure.createEl("summary");
+    renderDetailsChevron(summary);
+    summary.createSpan({ text: "View work done" });
     const body = disclosure.createDiv();
     renderReportEvidenceDetails(body, context, markdown, component);
     for (const oath of context.oaths ?? []) body.createDiv({ cls: "hub-report-evidence-row", text: "Oath fulfilled \u00b7 " + formatTime(new Date(oath.fulfilledAt)) });
@@ -89,14 +73,8 @@ function renderReportEvidenceDetails(parent, context, markdown, component) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
         return evidence;
     }
-    const disclosure = evidence.createEl("details", { cls: "hub-report-activity" });
-    const summary = disclosure.createEl("summary");
-    sectionIcon(summary, "rotate-ccw-clock");
-    summary.createSpan({ cls: "hub-report-section-label", text: "Activity summary" });
-    summary.createSpan({ cls: "hub-report-activity-count", text: activitySummary(context.activity) });
-    const chevron = summary.createSpan({ cls: "hub-report-chevron", attr: { "aria-hidden": "true" } });
-    setIcon(chevron, "chevron-right");
-    const entries = disclosure.createDiv({ cls: "hub-report-activity-list" });
+    evidence.createEl("h3", { text: "File and workspace activity" });
+    const entries = evidence.createDiv({ cls: "hub-report-activity-list" });
     const icons = { created: "file", edited: "file-pen-line", deleted: "trash-2", renamed: "pencil-line",
         "project-created": "folder-plus", "project-deleted": "trash-2", "project-renamed": "folder-pen" };
     for (const entry of context.activity) {
@@ -127,18 +105,7 @@ function renderDailyReport(parent, day, markdown, plugin, component) {
             report.summary ? "hub-report-text hub-report-summary hub-report-reflection" : "hub-report-empty",
             workspace?.path || workspace?.hubPath || report.path || report.hubPath || "Home.md");
         renderReportEvidence(card, report.context, markdown, component);
-        focusSection(card, "Focus for this day", report.context.focus, "No focus set for this day.", markdown);
-        focusSection(card, "Next focus", day.nextFocus.filter(item => item.projectId === report.projectId)
-            .map(item => item.text), "No next focus recorded.", markdown);
     }
-    // The shared editor can target a workspace with no report (or the other scope).
-    // Retain those intentions once, with their recorded workspace labels.
-    const ids = new Set(day.reports.map(report => report.projectId));
-    const otherFocus = day.nextFocus.filter(item => !ids.has(item.projectId));
-    if (otherFocus.length) focusSection(parent, "Next focus · other workspaces", otherFocus.map(item =>
-        item.projectName ? `${item.projectName}: ${item.text}` : item.text), "", markdown);
-    if (day.sharedFocus?.length) focusSection(parent, "Focus for this day · shared",
-        day.sharedFocus.map(item => item.text), "", markdown);
 }
 
 function reportTitle(date, editing = false) {
@@ -154,12 +121,10 @@ class DailyReportModal extends Modal {
         });
         setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted",
             text: "A summary of your work and progress for the day" }));
-        this.contentEl.createDiv({ cls: "hub-project-advancement-divider" });
         this.renderComponent = new Component();
         this.renderComponent.load();
         const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });
         renderDailyReport(this.contentEl, this.day, markdown, this.plugin, this.renderComponent);
-        this.contentEl.addClass("hub-report-footer-layout");
         const actions = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
         layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
         if (this.onEdit) actions.createEl("button", { text: "Edit progress" }).addEventListener("click", () => {
@@ -170,4 +135,4 @@ class DailyReportModal extends Modal {
     onClose() { this.renderComponent?.unload(); this.contentEl.empty(); }
 }
 
-module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, renderTaskProgress, focusSection };
+module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, renderTaskProgress };

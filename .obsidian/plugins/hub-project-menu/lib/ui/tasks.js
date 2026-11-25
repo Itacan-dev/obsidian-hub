@@ -6,8 +6,17 @@ const { createHubMarkdown } = require("./markdown");
 const { taskGroups, taskIsFuture, taskStartDate } = require("../domain/task-planning");
 const { createTaskSteps } = require("./task-steps");
 const { createOathTaskSection } = require("./oath-tasks");
+const { createTaskFocus } = require("../domain/task-views");
+const { taskKey } = require("../domain/oath-workspace");
 
 const { createTaskRow, taskSourceLabel, mountTaskCardPresentation } = require("./task-card");
+
+function renderPlanTaskSection(parent, tasks, renderTask) {
+    if (!tasks.length) return;
+    const section = parent.createEl("section", { cls: "hub-task-in-plan", attr: { "aria-label": "In Plan" } });
+    section.createEl("h3", { cls: "hub-task-in-plan-heading", text: "In Plan" });
+    for (const task of tasks) renderTask(section, task);
+}
 
 // Presentation only: no checkbox, edit bindings, menus or navigation.
 function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}) {
@@ -24,7 +33,8 @@ function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}
     return row;
 }
 
-function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
+function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel,
+    plan, inlineOath = false, planRelevance }) {
     const { Menu, Notice, setIcon, Component } = require("obsidian");
     const document = body.ownerDocument;
     let lastRender = null, disposed = false, groupMenu = null;
@@ -32,15 +42,33 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     const expanded = new Set();
     const report = error => { console.error("Hub task action failed", error); ownNoticeColors(new Notice(error.message || "Could not update task.")); };
     const stepStates = new Map(); component.register(() => stepStates.clear());
-    const rows = require("./task-row-cache").createTaskRowCache(component, task => JSON.stringify([task, phaseLabel?.(task), Math.floor(renderNow.getTime() / 60000)]));
-    const oathSection = createOathTaskSection(oath, body, component);
-    if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
+    let focus = createTaskFocus();
+    let relevance;
+    const label = (task, inSection = true) => {
+        if (!relevance) return focus.label(task);
+        const item = relevance.task(task);
+        if (!item) return "";
+        if (item.oath) return inSection ? "Oath" : "Oath · In Plan";
+        return inSection ? "" : "In Plan";
+    };
+    const rows = require("./task-row-cache").createTaskRowCache(component, task =>
+        JSON.stringify([task, phaseLabel?.(task), label(task), Math.floor(renderNow.getTime() / 60000)]));
+    const oathSection = createOathTaskSection(planRelevance ? null : oath, body, component);
+    const refresh = () => { if (!disposed && body.isConnected) lastRender?.(); };
+    if (planRelevance) {
+        planRelevance.subscribe(component, refresh);
+    } else {
+        if (oath) component.register(oath.onChange(refresh));
+        plan?.subscribe(component, refresh);
+    }
 
     const defer = () => false;
 
     function beginRender(render) {
         groupMenu?.hide();
         lastRender = render;
+        relevance = planRelevance?.snapshot;
+        if (!relevance) focus = createTaskFocus(plan?.active(), inlineOath && oath?.active ? oath.focus??oath.current : null);
         renderNow = new Date();
         clearTimeout(refreshTimer); refreshAt = Infinity;
         const midnight = new Date(renderNow); midnight.setHours(24, 0, 0, 0);
@@ -67,7 +95,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             const task = item.task && typeof item.task === "object" ? item.task : item;
             scheduleRefresh(taskStartDate(task).getTime());
         }
-        return grouped;
+        return relevance ? grouped : { ...grouped, active: focus.order(grouped.active), future: focus.order(grouped.future) };
     }
 
     function bind(row, textEl, task, getPath, options = {}) {
@@ -75,6 +103,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         const markdown = createHubMarkdown({ app, component: rowComponent });
         const steps = createTaskSteps({ markdown, mutate, onEdit, report, setIcon, states: stepStates });
         row.dataset.taskId = task.id;
+        row.dataset.taskKey = taskKey(task);
         row.dataset.taskRevision = String(task.nativeReference?.taskRevision ?? task.revision ?? 0);
         rows.store(task, row, rowComponent);
         const checkbox = row.querySelector('input[type="checkbox"]');
@@ -84,6 +113,18 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             description: options.description ?? options.dates !== false, now: renderNow, phaseLabel });
         rowComponent.register(() => presentation.destroy());
         const info = textEl.parentElement;
+        const mark = label(task, options.inPlanSection === true);
+        if (mark) {
+            const selected = mark.startsWith("Oath");
+            const marker = info.createSpan({ cls: "hub-task-plan-marker" + (selected ? " is-oath-task" : "") });
+            if (relevance && options.compactPlanMarker) {
+                const glyph = marker.createSpan({ cls: "hub-task-plan-glyph", attr: { "aria-hidden": "true" } });
+                setIcon(glyph, selected ? "pin" : "target");
+                marker.title = mark;
+                marker.setAttribute("role", "img");
+                marker.setAttribute("aria-label", mark);
+            } else marker.textContent = mark;
+        }
         if (!options.selection && options.steps !== false) steps.bind(info, task, getPath, rowComponent,
             body.matches(".home-tasks-body, .project-tasks-body") && !row.classList.contains("hub-full-task-card"));
         if (editTask && !task.nativeReadOnly) {
@@ -184,7 +225,11 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         button.addEventListener("click", () => createTask(options));
         return button;
     }
-    return { bind, reuseRow: rows.reuse, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
+    return { bind, reuseRow: rows.reuse, beginRender, defer, groups, group, addButton,
+        focusOrder: tasks => relevance?.order(tasks) ?? focus.order(tasks),
+        partitionPlan: tasks => relevance?.partition(tasks) ?? { prioritized: [], ordinary: tasks },
+        renderPlan: renderPlanTaskSection,
+        partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
 module.exports = { createTaskUi, createTaskRow, renderReadOnlyTask, taskSourceLabel };

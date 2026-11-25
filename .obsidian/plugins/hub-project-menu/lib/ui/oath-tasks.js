@@ -20,19 +20,22 @@ function createOathTaskSection(service, body, component) {
     // Reuse the service clock; task rows only rerender on ordinary state changes.
     if (service) component.register(service.onChange(updateClock, true));
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
-    function partition(items, wrap = task => task) {
-        if (!service?.active) return { ordinary: items, pinned: [], missing: [] };
-        const selected = oathTaskOrder(service.current);
+    function partition(items, wrap = task => task, allows = () => true) {
+        if (!service?.active)return { ordinary:items,pinned:[],missing:[] };
+        const focus=service.focus??service.current;
+        const work=service.work.filter(item=>allows(item.ref?.owner??item.task?.nativeReference?.owner??focus.workspace));
+        const selected = oathTaskOrder({...focus,tasks:(focus.tasks??[]).filter(ref=>allows(ref.owner??focus.workspace))});
+        if(!work.length&&!selected.size)return {ordinary:items,pinned:[],missing:[]};
         const selectedTask = task => selected.has(taskKey(task));
         return { ordinary: items.filter(item => !selectedTask(taskOf(item))),
-            pinned: service.work.filter(item => item.task).map(item => wrap(item.task)),
-            missing: service.work.filter(item => !item.task), oath: service.current };
+            pinned: work.filter(item => item.task).map(item => wrap(item.task)),
+            missing: work.filter(item => !item.task), progress:oathProgress(work),oath:focus };
     }
     function render(plan, renderTask) {
         status = null;
-        if (!plan.oath?.tasks.length) return;
+        if (!plan.progress?.total) return;
         const { setIcon } = require("obsidian");
-        const progress = oathProgress(service.work);
+        const progress = plan.progress;
         const box = body.createDiv({ cls: "hub-oath-pinned" });
         const heading = box.createDiv({ cls: "hub-oath-pinned-heading" });
         const title = heading.createDiv({ cls: "hub-oath-pinned-title" });

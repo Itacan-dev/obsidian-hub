@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("assert");
-const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = require("../domain/workspace-explorer");
+const { workspaceTree, filterWorkspaceTree, displayedPlanNodes, sortExplorerChildren, rewriteExplorerPaths } = require("../domain/workspace-explorer");
 const objects = new Map();
 function folder(path) { const item = { path, name: path.split("/").pop(), children: [] }; objects.set(path, item); return item; }
 function file(path, mtime = 10, ctime = 5) {
@@ -49,6 +49,23 @@ assert.equal(full.roots[0].path, project.path, "Full view always starts at the p
 assert.deepEqual(full.roots[0].children.map(node => node.path), [local.path, rootNote.path], "Full root includes immediate folders and legacy files, excluding dashboard");
 assert.equal(full.byPath.get(local.path).parent.path, project.path, "Local folders retain their physical hierarchy");
 assert.equal(full.roots[1].item, resource, "Linked Resource root remains canonical and separate");
+const [projectRoot, sharedRoot] = full.roots, meta = full.byPath.get(local.path), topology = full.byPath.get(course.path);
+const markers = (nodes, locations, options) => [...displayedPlanNodes(nodes, locations, options)].map(node => node.path);
+assert.deepEqual(markers([projectRoot, sharedRoot], [notes.path]), [resource.path], "Collapsed attachment represents its hidden planned note");
+assert.deepEqual(markers([projectRoot, sharedRoot, topology], [notes.path]), [course.path], "Expanding a root passes the cue to the deepest displayed folder");
+assert.deepEqual(markers([projectRoot, sharedRoot, topology], [notes.path, resource.path, rootNote.path]),
+    [course.path, resource.path, project.path], "Folder-local work and invisible root files still have cues");
+assert.deepEqual(markers([projectRoot, meta, sharedRoot, topology], [notes.path, empty.path, local.path]), [course.path, local.path],
+    "Multiple routes use each displayed branch once");
+assert.deepEqual(markers([tree.roots[0]], [local.path, local.path + "/Hidden.md"], { rootFilesOnly: true }), [],
+    "The synthetic root-file group does not claim routes from a hidden sibling root");
+assert.deepEqual(markers([tree.roots[0]], [rootNote.path], { rootFilesOnly: true }), [project.path]);
+assert.deepEqual(markers([tree.roots[2], tree.byPath.get(course.path), tree.byPath.get(notes.path)], [notes.path]), [notes.path],
+    "The note itself represents a route once the note is displayed");
+const overlapping = workspaceTree([shared, { ...shared, path: course.path }], path => objects.get(path), hub.path);
+const nestedOccurrence = overlapping.roots[0].children[0];
+assert.deepEqual([...displayedPlanNodes([overlapping.roots[0], nestedOccurrence, overlapping.roots[1]], [notes.path])],
+    [nestedOccurrence, overlapping.roots[1]], "Overlapping shared roots each display their own route");
 console.log("Workspace explorer model checks passed.");
 
 const { availableDefaultItemPath } = require('../domain/files');

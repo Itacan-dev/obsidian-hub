@@ -12,7 +12,6 @@ const {
     historyHeading,
     makeActionableRow,
     historyKind,
-    createHistoryPager,
     historyDate,
     formatDate,
     formatTime,
@@ -529,6 +528,9 @@ const searchWorkspace = { root: projectRoot, projectId: contextId, name: current
 window.hubMountContextSearch?.({ component: dv.component, dv, root, toolbar: shortcutsBar, scope: searchWorkspace });
 markDashboardRow(shortcutsBar, 3);
 let taskWorkspace = null;
+let panelExpansion = null;
+let filePreview = null;
+let expandedTasks = null;
 
 // ---------- MAIN LAYOUT ----------
 
@@ -2498,6 +2500,9 @@ function fullExplorerContextMenu(event, node, beginCreate, { kind = "item" } = {
     if (!host) return;
     const entries = [], add = (title, icon, run, disabled = false, warning = false) => entries.push({ title, icon, run, disabled, warning });
     const selected = selectedRootPaths([...selectedProjectItemPaths]);
+    if (kind === "item" && !node.folder && workspaceExplorer?.previewFile) {
+        add("Preview", "eye", () => workspaceExplorer.previewFile(node.path));
+    }
     if (kind === "item" && window.hubPlan) {
         const paths = selectedProjectItemPaths.size > 1 ? [...selectedProjectItemPaths] : [node.path];
         const files = paths.filter(path => { const file=app.vault.getAbstractFileByPath(path); return file && !Array.isArray(file.children); });
@@ -2655,6 +2660,7 @@ function renderFolderPanels() {
     workspaceExplorer = window.hubMountWorkspaceExplorer({
         parent: folderStack,
         workspacePath: projectRoot,
+        workspaceRef: { type: isResourceContext ? "resource" : "project", id: isResourceContext ? current.resourceType : current.projectId },
         dashboardPath: current.file.path,
         descriptors: projectFolderDescriptors,
         getByPath: path => app.vault.getAbstractFileByPath(path),
@@ -2838,6 +2844,7 @@ let currentProjectTasks = [];
 
 
 let taskPanelLoading = true, taskPanelDisposed = false;
+let taskPanelAvailability = "loading";
 let taskPanelGeneration = 0;
 const taskPanelRead = window.hubCreateTaskPanelRead?.({
     component: dv.component,
@@ -2855,7 +2862,8 @@ function applyPanelTaskEdit(edit) {
 tasksBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, tasksBody, edit => {
     applyPanelTaskEdit(edit);
 }, taskPanelRead?.actions);
-tasksBody.hubTaskUi?.addButton(tasksTitle, { root: projectRoot });
+const projectTaskAdd = tasksBody.hubTaskUi?.addButton(tasksTitle, { root: projectRoot });
+window.hubSizeDashboardButton?.(projectTaskAdd, "top-actions");
 
 function taskLocation(
     path
@@ -2898,16 +2906,31 @@ async function readProjectTasks() {
 }
 
 
-function renderTaskRows() {
+function renderTaskRows(refreshExpanded = true) {
+    const focused = tasksBody.ownerDocument.activeElement;
+    const previousRow = tasksBody.contains(focused) && focused.closest("[data-task-key]");
+    const controls = "button, input, select, [tabindex='0']";
+    const controlIndex = previousRow ? [...previousRow.querySelectorAll(controls)].indexOf(focused) : -1;
+    const scrollTop = tasksBody.scrollTop;
+    renderTaskRowsContent(refreshExpanded);
+    tasksBody.scrollTop = scrollTop;
+    if (controlIndex >= 0) {
+        const row = [...tasksBody.querySelectorAll("[data-task-key]")]
+            .find(el => el.dataset.taskKey === previousRow.dataset.taskKey);
+        (row?.querySelectorAll(controls)[controlIndex] ?? tasksTitle.querySelector("button"))?.focus({ preventScroll: true });
+    }
+}
 
-    if (tasksBody.hubTaskUi && !tasksBody.hubTaskUi.beginRender(() => renderTaskRows())) return;
+function renderTaskRowsContent(refreshExpanded) {
+    if (tasksBody.hubTaskUi && !tasksBody.hubTaskUi.beginRender(() => renderTaskRows(false))) return;
+    if (refreshExpanded) expandedTasks?.render();
     tasksBody.empty();
     if (taskPanelLoading && !currentProjectTasks.length) {
         tasksBody.createDiv({ cls: "project-empty", text: "Loading tasks...", attr: { role: "status" } }); return;
     }
 
-    const oathPlan = tasksBody.hubTaskUi?.partitionOath?.(currentProjectTasks);
-    const ordinaryTasks = oathPlan?.ordinary ?? currentProjectTasks;
+    const { prioritized, ordinary: ordinaryTasks } = tasksBody.hubTaskUi?.partitionPlan?.(currentProjectTasks) ??
+        { prioritized: [], ordinary: currentProjectTasks };
     const groups = tasksBody.hubTaskUi?.groups(ordinaryTasks) ?? window.hubTaskGroups?.(ordinaryTasks);
     const openTasks = groups?.active ?? ordinaryTasks.filter(task => !task.completed);
     const futureTasks = groups?.future ?? [];
@@ -2928,7 +2951,7 @@ function renderTaskRows() {
 
     if (
         openTasks.length === 0 &&
-        completedTasks.length === 0 && futureTasks.length === 0 && !oathPlan?.oath
+        completedTasks.length === 0 && futureTasks.length === 0 && !prioritized.length
     ) {
 
         el(
@@ -2950,7 +2973,10 @@ function renderTaskRows() {
 
         if (tasksBody.hubTaskUi?.reuseRow(target, task)) return;
         const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed);
-        tasksBody.hubTaskUi?.bind(row, textEl, task, () => task.path, { locationWorkspace: isResourceContext ? { type: "resource", id: current.resourceType } : { type: "project", id: current.projectId } });
+        tasksBody.hubTaskUi?.bind(row, textEl, task, () => task.path, {
+            inPlanSection: target !== tasksBody,
+            locationWorkspace: isResourceContext ? { type: "resource", id: current.resourceType } : { type: "project", id: current.projectId }
+        });
 
 
         
@@ -2980,7 +3006,7 @@ function renderTaskRows() {
     }
 
 
-    if (oathPlan) tasksBody.hubTaskUi.renderOath(oathPlan, renderTask);
+    tasksBody.hubTaskUi?.renderPlan?.(tasksBody, prioritized, (section, task) => renderTask(task, false, section));
 
     // Open tasks first.
 
@@ -3039,21 +3065,26 @@ async function renderCurrentTasks() {
         const result = await readProjectTasks();
         if (!result || taskPanelDisposed || !root.isConnected || generation !== taskPanelGeneration || taskWorkspace?.active()) return;
         if (tasksBody.hubTaskUi?.defer(() => { void renderCurrentTasks(); })) return;
-        taskPanelLoading = result.availability === "loading";
+        const previousAvailability = taskPanelAvailability;
+        taskPanelAvailability = result.availability ?? "current";
+        taskPanelLoading = taskPanelAvailability === "loading";
         if (result.availability && result.availability !== "current") {
             let status = tasksBody.querySelector("[data-task-read-status]");
             if (!status) status = tasksBody.createDiv({ cls: "project-empty", attr: { "data-task-read-status": "", role: "status" } });
             status.textContent = result.availability === "loading" ? "Loading tasks..." : "Tasks are temporarily unavailable. Existing tasks are retained.";
+            if (previousAvailability !== taskPanelAvailability) expandedTasks?.render();
             return;
         }
         tasksBody.querySelector("[data-task-read-status]")?.remove();
         if (result.changed) {
             currentProjectTasks = result.tasks; taskPanelRead.accept(currentProjectTasks);
             const scroll = tasksBody.scrollTop; renderTaskRows(); tasksBody.scrollTop = scroll;
-        }
+        } else if (previousAvailability !== taskPanelAvailability) expandedTasks?.render();
     } catch (error) {
         if (taskPanelDisposed || !root.isConnected || generation !== taskPanelGeneration || taskWorkspace?.active()) return;
         // Keep the last valid rows; a failed query is never an empty result.
+        taskPanelAvailability = "unavailable";
+        expandedTasks?.render();
         if (!tasksBody.querySelector("[data-task-read-status]")) tasksBody.createDiv({ cls: "project-empty",
             text: "Tasks are temporarily unavailable. They will refresh when the index is ready.", attr: { "data-task-read-status": "", role: "status" } });
         console.error("Task panel read failed", error);
@@ -3300,8 +3331,18 @@ progressTitle.createEl("h2", {
 });
 
 
-const progressToolbar = root.ownerDocument.createElement("div");
+const progressHeaderControls = progressHeader.createDiv({ cls: "hub-progress-header-actions" });
+const reportAction = window.hubCreatePanelAction(progressHeaderControls, "Report", () => window.hubLogProgress?.());
+const sizeReportAction = () => window.hubSizeDashboardButton?.(reportAction, "project-progress", window.hubGetHomeProjects?.() ?? []);
+sizeReportAction();
+if (app.metadataCache?.on && window.hubGetHomeProjects) {
+    dv.component.registerEvent(app.metadataCache.on("changed", sizeReportAction));
+    dv.component.registerEvent(app.metadataCache.on("resolved", sizeReportAction));
+    dv.component.registerEvent(app.vault.on("delete", sizeReportAction));
+}
 
+
+const progressToolbar = root.ownerDocument.createElement("div");
 
 const previousYear =
     progressToolbar.createEl(
@@ -3679,87 +3720,30 @@ root.addEventListener(
         renderProjectProgressYear();
 
 
-        if (
-            progressView === "reports"
-        ) {
-            renderProjectProgressView();
-        }
+        progressHistory.refresh("reports");
     }
 );
 
 
 // ---------- PROJECT REPORTS / ACTIVITY ----------
 
-const progressTabs =
-    progressPanel.createDiv({
-        cls:
-            "project-progress-tabs hub-panel-selectors"
-    });
-
+const progressTabs = progressPanel.createDiv({ cls: "project-progress-tabs hub-progress-history-heading" });
 historyHeading(progressTabs);
-const historySelectors = progressTabs.createDiv({
-    cls: "hub-history-selectors hub-panel-selectors"
+const activitySection = progressPanel.createDiv({ cls: "project-progress-activity" });
+const progressHistory = window.hubMountProgressHistory({
+    root, panel: progressPanel, heatmap: progressCalendar, toolbar: progressTabs, container: activitySection,
+    bodyClass: "project-progress-activity-body", signal: frame.signal, storageKey: "obsidian-hub::project-progress-view",
+    workspace: { type: isResourceContext ? "resource" : "project", id: isResourceContext ? current.resourceType : current.projectId },
+    renderers: { reports: renderProjectReports, activity: renderProjectActivity, tasks: renderProjectTaskHistory },
+    onLayout: scheduleProjectActivityHeight,
+    onViewChange: () => {
+        stopActivityScrollAnimation();
+        activityBody = progressHistory.body(progressHistory.category);
+        activityScrollTarget = activityBody.scrollTop;
+        if (progressHistory.isVisible("tasks")) void refreshProjectTaskHistory();
+    }
 });
-
-const reportsTab =
-    historySelectors.createEl(
-        "button",
-        {
-            text:
-                "Reports"
-        }
-    );
-
-
-const activityTab =
-    historySelectors.createEl(
-        "button",
-        {
-            text:
-                "Activity"
-        }
-    );
-
-
-const tasksTab =
-    historySelectors.createEl(
-        "button",
-        {
-            text:
-                "Tasks"
-        }
-    );
-
-
-const savedProgressView =
-    sessionStorage.getItem(
-        "obsidian-hub::project-progress-view"
-    );
-
-
-let progressView =
-    [
-        "reports",
-        "activity",
-        "tasks"
-    ].includes(savedProgressView)
-        ? savedProgressView
-        : "reports";
-
-const activitySection =
-    progressPanel.createDiv({
-        cls:
-            "project-progress-activity"
-    });
-
-
-const activityBody =
-    activitySection.createDiv({
-        cls:
-            "project-progress-activity-body hub-scrollbar"
-    });
-activityBody.hubMarkdown = window.hubCreateMarkdown?.(dv.component);
-const historyPager = createHistoryPager(activityBody, dv.component);
+let activityBody = progressHistory.body(progressHistory.category);
 let projectTaskHistory = [];
 let historyReadDisposed = false, historyReadGeneration = 0, historyReadStatus = null, historyRenderedNode = null, historyRenderedContext = null;
 const completedHistoryRead = window.hubCreateTaskHistoryRead?.({ component: dv.component, changed: () => queueMicrotask(() => { if (!historyReadDisposed && root.isConnected) void refreshProjectTaskHistory(); }) });
@@ -3772,6 +3756,10 @@ let activityHeightFrame =
 
 
 function syncProjectActivityHeight() {
+    if (progressPanel.classList.contains("is-progress-expanded")) {
+        activitySection.style.removeProperty("height");
+        return;
+    }
 
     if (
         !progressPanel.isConnected
@@ -3962,9 +3950,10 @@ function animateActivityScroll() {
 }
 
 
-activityBody.addEventListener(
+for (const body of progressHistory.bodies) body.addEventListener(
     "scroll",
     () => {
+        if (body !== activityBody) return;
 
         if (
             activityScrollFrame ===
@@ -3981,6 +3970,7 @@ activityBody.addEventListener(
 progressPanel.addEventListener(
     "wheel",
     event => {
+        if (progressPanel.classList.contains("is-progress-expanded") || event.target.closest("select, button")) return;
 
         /*
          * Directly over history:
@@ -4298,7 +4288,8 @@ function projectActivityLocationParts(
 }
 
 
-function renderProjectReports() {
+function renderProjectReports(activityBody) {
+    const historyPager = activityBody.hubHistoryPager;
     historyPager.reset();
 
     activityBody.hubMarkdown?.clear();
@@ -4412,32 +4403,34 @@ function renderProjectReports() {
 
 async function refreshProjectTaskHistory() {
     const ticket = ++historyReadGeneration;
-    if (historyReadDisposed || !root.isConnected || progressView !== "tasks") return;
+    const activityBody = progressHistory.body("tasks");
+    if (historyReadDisposed || !root.isConnected || !progressHistory.isVisible("tasks")) return;
     try {
         if (!completedHistoryRead) throw new Error("Recorded task History reader is unavailable.");
         const result = await completedHistoryRead.read(() => historyReadDisposed || ticket !== historyReadGeneration || !root.isConnected);
         if (!result || historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
+        const recovering = !!historyReadStatus;
         historyReadStatus?.remove(); historyReadStatus = null;
         projectTaskHistory = result.records;
-        if (progressView !== "tasks") return;
+        if (!progressHistory.isVisible("tasks")) return;
         const context = JSON.stringify([projectRoot, current.projectId, current.resourceType, current.file.path, isResourceContext]);
-        // A tab switch can replace History with another panel's rows. Reuse
-        // unchanged History DOM only while its content/context is still current.
-        if (result.changed || activityBody.firstChild !== historyRenderedNode || context !== historyRenderedContext) {
-            completedHistoryRead.preserve(activityBody, renderProjectTaskHistory);
+        // Keep the Tasks column in place while its data and workspace are current.
+        if (result.changed || recovering || activityBody.firstChild !== historyRenderedNode || context !== historyRenderedContext) {
+            completedHistoryRead.preserve(activityBody, () => progressHistory.refresh("tasks"));
             historyRenderedNode = activityBody.firstChild; historyRenderedContext = context;
             scheduleProjectActivityHeight();
         }
         completedHistoryRead.accept(result);
     } catch (error) {
-        if (historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration || progressView !== "tasks") return;
-        if (!historyReadStatus) historyReadStatus = activityBody.parentElement.createDiv({ cls: "project-empty", text: "Task History is temporarily unavailable. Existing History is retained." });
+        if (historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration || !progressHistory.isVisible("tasks")) return;
+        if (!historyReadStatus) historyReadStatus = activityBody.parentElement.createDiv({ cls: "project-empty hub-progress-task-status", text: "Task History is temporarily unavailable. Existing History is retained." });
         historyReadStatus.setAttribute("role", "status"); historyReadStatus.setAttribute("data-task-history-status", "");
         console.error("Recorded task History read failed", error);
     }
 }
 
-function renderProjectTaskHistory() {
+function renderProjectTaskHistory(activityBody) {
+    const historyPager = activityBody.hubHistoryPager;
     historyPager.reset();
 
     activityBody.hubMarkdown?.clear();
@@ -4625,83 +4618,13 @@ function renderProjectTaskHistory() {
 
 
 function renderProjectProgressView() {
-    if (historyReadStatus) historyReadStatus.hidden = progressView !== "tasks";
-
-    reportsTab.toggleClass(
-        "is-active",
-        progressView === "reports"
-    );
-
-    activityTab.toggleClass(
-        "is-active",
-        progressView === "activity"
-    );
-
-    tasksTab.toggleClass(
-        "is-active",
-        progressView === "tasks"
-    );
-
-
-    if (progressView === "reports") {
-        renderProjectReports();
-    } else if (progressView === "activity") {
-        renderProjectActivity();
-    } else {
-        void refreshProjectTaskHistory();
-    }
-
-
+    for (const key of ["reports", "activity", "tasks", "plans", "oaths"]) progressHistory.refresh(key);
+    if (progressHistory.isVisible("tasks")) void refreshProjectTaskHistory();
     scheduleProjectActivityHeight();
 }
 
-
-reportsTab.addEventListener(
-    "click",
-    () => {
-        progressView = "reports";
-        sessionStorage.setItem(
-            "obsidian-hub::project-progress-view",
-            progressView
-        );
-        activityBody.scrollTop = 0;
-        activityScrollTarget = 0;
-        renderProjectProgressView();
-    }
-);
-
-
-activityTab.addEventListener(
-    "click",
-    () => {
-        progressView = "activity";
-        sessionStorage.setItem(
-            "obsidian-hub::project-progress-view",
-            progressView
-        );
-        activityBody.scrollTop = 0;
-        activityScrollTarget = 0;
-        renderProjectProgressView();
-    }
-);
-
-
-tasksTab.addEventListener(
-    "click",
-    () => {
-        completedHistoryRead?.invalidate();
-        progressView = "tasks";
-        sessionStorage.setItem(
-            "obsidian-hub::project-progress-view",
-            progressView
-        );
-        activityBody.scrollTop = 0;
-        activityScrollTarget = 0;
-        renderProjectProgressView();
-    }
-);
-
-function renderProjectActivity() {
+function renderProjectActivity(activityBody) {
+    const historyPager = activityBody.hubHistoryPager;
     historyPager.reset();
 
     activityBody.hubMarkdown?.clear();
@@ -4929,11 +4852,7 @@ root.addEventListener(
     "hub-activity-changed",
     () => {
 
-        if (
-            progressView === "activity"
-        ) {
-            renderProjectProgressView();
-        }
+        progressHistory.refresh("activity");
     }
 );
 
@@ -4941,12 +4860,66 @@ root.addEventListener(
 
 
 
+function syncPanelExpansion() {
+    if (!frame.current()) return;
+    if (explorerIsNoteView() || dv.component.hubDestinationMode === "note") {
+        panelExpansion?.reset();
+        panelExpansion?.dispose();
+        panelExpansion = null;
+        filePreview?.dispose();
+        filePreview = null;
+        delete workspaceExplorer.previewFile;
+        return;
+    }
+    if (panelExpansion || grid.hidden || !window.hubMountExpansionHost) return;
+    const filesHeader = folderStack.querySelector(".hub-explorer-heading");
+    filePreview = window.hubMountFilePreview?.({
+        panel: folderStack, signal: frame.signal, workspaceId: contextId,
+        getSelection: workspaceExplorer.selectedFilePath, updateWidth: workspaceExplorer.updateWidth
+    });
+    if (filePreview) workspaceExplorer.previewFile = filePreview.show;
+    if (!expandedTasks && taskPanelRead) {
+        const workspace = { root: projectRoot, projectId: current.projectId, name: current.file.name,
+            contextKind: isResourceContext ? "resource" : "project", resourceType: current.resourceType };
+        expandedTasks = window.hubMountExpandedTasks?.({
+            panel: tasksPanel, compactBody: tasksBody, signal: frame.signal, stateOwner: dv.container, stateKey: contextId,
+            workspace, readItems: () => currentProjectTasks.map(task => ({ task, owner: workspace })),
+            availability: () => taskPanelAvailability, reader: taskPanelRead, onEdit: applyPanelTaskEdit
+        });
+    }
+    panelExpansion = window.hubMountExpansionHost({
+        host: grid,
+        signal: frame.signal,
+        stateOwner: dv.container,
+        stateKey: contextId,
+        panels: [
+            { element: folderStack, surface: filesHeader.parentElement, header: filesHeader, title: "Files", icon: "folder-tree",
+                compactHeading: [...filesHeader.querySelectorAll(":scope > .hub-explorer-icon, :scope > .hub-panel-heading-label")],
+                onLayout: active => { filePreview?.setExpanded(active); workspaceExplorer.updateWidth(); },
+                scrollOwners: [...folderStack.querySelectorAll(".hub-explorer-tree, .hub-explorer-contents")] },
+            { element: tasksPanel, header: tasksTitle, title: "Tasks", icon: "list-todo",
+                compactHeading: [tasksTitleIcon, tasksTitleText], actions: [projectTaskAdd], scrollOwners: [tasksBody],
+                transitionBodies: expandedTasks && { compact: tasksBody, expanded: expandedTasks.host },
+                onExpandedChange: active => expandedTasks?.setExpanded(active) },
+            { element: progressPanel, header: progressHeader, title: "Progress", icon: "rocket",
+                compactHeading: [progressTitle], actions: [progressHeaderControls],
+                onExpandedChange: active => progressHistory.setExpanded(active),
+                onLayout: scheduleProjectActivityHeight }
+        ]
+    });
+}
+
 taskWorkspace = window.hubMountTaskWorkspace?.({
     component: dv.component, dv, root, toolbar: shortcutsBar, filesGrid: grid, filesPanel: folderStack, roadmapParent: left,
     workspace: { root: projectRoot, projectId: contextId, name: current.file.name,
-        path: current.file.path, status: current.status,
+        path: current.file.path, status: current.status, resourceType: current.resourceType,
         contextKind: isResourceContext ? "resource" : "project" },
     onFiles: () => { renderCurrentTasks(); scheduleProgressHeightSync(); },
+    onModeChange: mode => {
+        if (mode === "work") syncPanelExpansion();
+        else panelExpansion?.reset();
+    },
+    showTasks: () => panelExpansion?.open("Tasks"),
     openSource: path => {
         const file = app.vault.getAbstractFileByPath(path);
         if (file) return openProjectNote(file);
@@ -4954,8 +4927,11 @@ taskWorkspace = window.hubMountTaskWorkspace?.({
 });
 window.hubRegisterSearchWorkspace?.(dv.component, root, searchWorkspace, path => {
     taskWorkspace?.showFiles();
+    panelExpansion?.reveal("Files");
     workspaceExplorer?.selectFolderPath(path);
 }, (kind, id) => taskWorkspace?.focusPlanning(kind, id));
+frame.beforePaint(syncPanelExpansion);
+root.addEventListener("hub-explorer-mode-change", syncPanelExpansion, { signal: frame.signal });
 frame.defer(() => window.hubApplySearchFolder?.(root));
 frame.commit();
 window.hubMountFullViewLayout?.(root, dv.component);

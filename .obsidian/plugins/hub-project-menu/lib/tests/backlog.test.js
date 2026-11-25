@@ -56,10 +56,10 @@ const filename = path.resolve(__dirname, "../../plugin.js");
 const compiled = new Module(filename, module);
 compiled.filename = filename;
 compiled.paths = Module._nodeModulePaths(path.dirname(filename));
-compiled._compile(fs.readFileSync(filename, "utf8") + "\nmodule.exports.testing = { HubWorkspaceModeService, ProjectWizardService, ConfirmModal, ProjectAdvancementModal };", filename);
+compiled._compile(fs.readFileSync(filename, "utf8") + "\nmodule.exports.testing = { HubWorkspaceModeService, ProjectWizardService, ConfirmModal };", filename);
 Module._load = originalLoad;
 const HubPlugin = compiled.exports;
-const { HubWorkspaceModeService, ProjectWizardService, ConfirmModal, ProjectAdvancementModal } = HubPlugin.testing;
+const { HubWorkspaceModeService, ProjectWizardService, ConfirmModal } = HubPlugin.testing;
 const homeSource = fs.readFileSync(path.resolve(__dirname, "../../../../../System/Dashboards/Home/view.js"), "utf8");
 const summarySource = homeSource.slice(homeSource.indexOf("function formatHomeContextSummary("), homeSource.indexOf("const dateBox ="));
 const formatSummary = new Function(summarySource + "; return formatHomeContextSummary;")();
@@ -228,10 +228,6 @@ async function run() {
 
     const historyHost = { taskProgressEvidence:()=>({availability:"current",records:["a", "future", "deleted", "resource:study"].map(projectId => ({projectId}))}), getProjectRecords: () => [project, { projectId:"future", status:"future" }] };
     assert.deepEqual(ProjectWizardService.prototype.getCompletedTaskHistory.call(historyHost).map(t => t.projectId), ["a", "future", "deleted", "resource:study"], "Stored history survives later workspace deletion or status changes");
-    const rating = { summaryInputs: new Map([["a", { value: "Old summary" }]]), currentSummaries:{a:"Old summary"}, selectedScores:new Map(), ratingRows:new Map(), updateSaveButton(){} };
-    ProjectAdvancementModal.prototype.selectScore.call(rating, { querySelectorAll: () => [] }, "a", 0);
-    assert.equal(rating.summaryInputs.get("a").value, "Old summary");
-    assert.equal(rating.currentSummaries.a, "Old summary");
-    console.log("Hub backlog checks passed: native layout data, contextual navigation, opening policy, Resource identities/Focus, image limits, active task history and score-zero reflection preservation.");
+    console.log("Hub backlog checks passed: native layout data, contextual navigation, opening policy, Resource identities/Focus, image limits, active task history.");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

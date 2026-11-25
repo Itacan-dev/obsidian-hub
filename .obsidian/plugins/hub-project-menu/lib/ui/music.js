@@ -1,7 +1,7 @@
 "use strict";
 const { ownModalColors } = require("./color-system");
 
-const { createWindowTitle, setWindowUndertext } = require("./window-title");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators } = require("./window-title");
 const { Modal } = require("obsidian");
 const { setHubIcon } = require("./icons");
 const { action } = require("./capture-modal");
@@ -50,6 +50,7 @@ class MusicModal extends Modal {
         const footer = this.contentEl.createDiv({ cls: "hub-capture-actions hub-music-actions" });
         action(footer, "Music settings", "settings", () => this.openSettings());
         action(footer, "Close", null, () => this.close());
+        mountModalSeparators(this, { header, footer });
         this.stop = this.controller.onChange(state => this.renderState(state));
         this.stopLibrary = this.library.onChange(() => this.renderList());
         this.renderList(); this.controller.attach(this.surface);

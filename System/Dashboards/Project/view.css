@@ -341,7 +341,7 @@
 
     border-radius: 8px;
 
-    padding: 14px;
+    padding: var(--hub-panel-inset, 14px);
 
     box-sizing: border-box;
 }
@@ -349,7 +349,7 @@
 
 .project-panel-title {
     font-size: var(--hub-font-heading);
-    font-weight: 700;
+    font-weight: var(--hub-panel-heading-weight, 700);
 
     margin-bottom: 9px;
 }
@@ -1229,10 +1229,10 @@
 
 
 .project-tasks-title-icon {
-    width: 16px;
-    height: 16px;
+    width: var(--hub-panel-heading-icon-size, 16px);
+    height: var(--hub-panel-heading-icon-size, 16px);
 
-    flex: 0 0 16px;
+    flex: 0 0 var(--hub-panel-heading-icon-size, 16px);
 
     display: inline-flex;
     align-items: center;
@@ -1241,8 +1241,9 @@
 
 
 .project-tasks-title-icon svg {
-    width: 16px;
-    height: 16px;
+    display: block;
+    width: 100%;
+    height: 100%;
 }
 
 
@@ -1372,10 +1373,10 @@
 
 
 .project-progress-title-icon {
-    width: 16px;
-    height: 16px;
+    width: var(--hub-panel-heading-icon-size, 16px);
+    height: var(--hub-panel-heading-icon-size, 16px);
 
-    flex: 0 0 16px;
+    flex: 0 0 var(--hub-panel-heading-icon-size, 16px);
 
     display: inline-flex;
     align-items: center;
@@ -1386,8 +1387,8 @@
 
 
 .project-progress-title-icon svg {
-    width: 16px;
-    height: 16px;
+    width: 100%;
+    height: 100%;
 
     display: block;
 }
@@ -1754,7 +1755,20 @@
 }
 /* Full-view panel title; Note-view keeps the existing search row. */
 .hub-explorer-heading { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; margin: 0; padding: 14px; border-bottom: 1px solid var(--background-modifier-border); }
-.hub-explorer-heading .hub-explorer-icon { width: 16px; height: 16px; }
+.hub-explorer-heading.hub-expansion-header { border-bottom: 0; }
+.hub-workspace-explorer > .hub-expansion-header-band::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+    pointer-events: none;
+}
+.hub-explorer-heading .hub-explorer-icon {
+    width: var(--hub-panel-heading-icon-size, 16px);
+    height: var(--hub-panel-heading-icon-size, 16px);
+    flex-basis: var(--hub-panel-heading-icon-size, 16px);
+}
 .hub-workspace-explorer.is-note-explorer .hub-explorer-heading, .hub-project-rail .hub-explorer-heading { display: none; }
 .hub-workspace-explorer.is-note-explorer .hub-explorer-search, .hub-project-rail .hub-explorer-search { display: flex; }
 .hub-explorer-search {
@@ -1791,6 +1805,7 @@
     overscroll-behavior: contain;
 }
 .hub-explorer-tree { padding: 4px 6px 10px; }
+.hub-dashboard-panel .hub-explorer-tree { padding-inline: 0; }
 .hub-explorer-item, .hub-explorer-group {
     position: relative; min-width: 0;
     /* Nesting is structural: only the one-pixel guide paints this area. */
@@ -1828,10 +1843,10 @@
 }
 .hub-explorer-item:focus-visible { outline: none; }
 .hub-explorer-item:focus-visible > .hub-explorer-tree-row,
-.hub-workspace-explorer :is(button, .hub-explorer-detail-row):focus-visible {
+.hub-workspace-explorer :is(button, .hub-explorer-detail-row):focus-visible:where(:not(.hub-icon-action)) {
     outline: 1px solid var(--interactive-accent); outline-offset: -1px;
 }
-.hub-workspace-explorer button.hub-button-plain {
+.hub-workspace-explorer button.hub-button-plain:where(:not(.hub-icon-action)) {
     box-shadow: none; border: 0; background: transparent; color: inherit; font: inherit;
 }
 .hub-workspace-explorer button.hub-explorer-disclosure, .hub-explorer-disclosure-space {
@@ -1854,6 +1869,14 @@
 .hub-explorer-breadcrumb > .hub-explorer-icon { color: var(--text-muted); }
 .hub-explorer-disclosure .hub-explorer-icon { width: 14px; height: 14px; flex-basis: 14px; color: var(--text-faint); }
 .hub-explorer-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; flex: 1 1 0; min-width: 0; }
+.hub-explorer-plan-marker {
+    display: grid;
+    place-items: center;
+    flex: 0 0 16px;
+    height: 16px;
+    color: var(--text-accent);
+}
+.hub-explorer-plan-marker svg { display: block; width: 15px; height: 15px; }
 .hub-explorer-name { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-explorer-origin { display: block; max-width: 100%; color: var(--text-muted); font-size: var(--hub-font-meta); line-height: 1.4; overflow-wrap: anywhere; }
 .hub-explorer-details { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--background-modifier-border); }
@@ -2021,7 +2044,7 @@
 }
 /* Prevent the old dashboard document padding adding another blank screen tail. */
 .markdown-preview-sizer:has(.project-dashboard.hub-full-view):not(.hub-project-rail *) { padding-bottom: var(--hub-dashboard-gap, 14px) !important; }
-@media (max-width: 700px) {
+@container hub-desktop (max-width: 700px) {
     .project-dashboard.hub-full-view:not(.hub-project-rail *) > .project-main-grid {
         min-height: calc(460px + var(--hub-full-view-top-row-min-height, 245px) + var(--hub-full-view-bottom-row-min-height, 320px) + 2 * var(--hub-panel-gap, 12px));
         grid-template-rows: minmax(460px, 1fr) minmax(calc(var(--hub-full-view-top-row-min-height, 245px) + var(--hub-full-view-bottom-row-min-height, 320px) + var(--hub-panel-gap, 12px)), 1fr);
@@ -2030,3 +2053,38 @@
 
 .project-dashboard.hub-full-view:not(.hub-project-rail *) > :is(.hub-task-workspace, .hub-roadmap-host) { min-height: 460px; }
 .project-dashboard.hub-full-view:not(.hub-project-rail *) > [hidden] { display: none !important; }
+
+/* The full-view controller measures the selected panel's viewport allocation.
+   During collapse, the compact grid resumes its track sizes for the landing rect. */
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > .project-main-grid.hub-has-expanded-panel:not(.hub-expansion-closing) {
+    flex: 0 0 auto;
+    min-height: var(--hub-expanded-height, 320px);
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > .project-main-grid.hub-expansion-closing {
+    height: auto;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-main-grid .hub-panel-expanded {
+    height: 100%;
+    min-height: 0;
+}
+
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-body.is-previewing {
+    grid-template-columns: minmax(0, var(--hub-explorer-tree-width, 23%)) 5px minmax(0, 1fr) minmax(0, 34%);
+}
+.hub-explorer-body > .hub-file-preview {
+    grid-column: 4;
+    grid-row: 1 / 3;
+    border-inline-start: 1px solid var(--background-modifier-border);
+}
+@container hub-explorer (max-width: 740px) {
+    .hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-body.is-previewing {
+        grid-template-columns: minmax(0, var(--hub-explorer-tree-width, 33.333%)) 5px minmax(0, 1fr);
+        grid-template-rows: 40px minmax(0, 1fr) minmax(0, .8fr);
+    }
+    .hub-explorer-body > .hub-file-preview {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        border-inline-start: 0;
+        border-block-start: 1px solid var(--background-modifier-border);
+    }
+}

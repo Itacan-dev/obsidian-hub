@@ -25,8 +25,14 @@ class HubNavigationHistory {
     }
     rememberWorkspace(context) {
         this.initialize();
-        this.state.workspaceHistory = rememberHistory(this.state.workspaceHistory.filter(id => typeof id === "string"), context.projectId);
+        const previous = this.state.workspaceHistory;
+        const next = rememberHistory(previous.filter(id => typeof id === "string"), context.projectId);
+        this.state.workspaceHistory = next;
+        if (next.length !== previous.length || next.some((id, index) => id !== previous[index])) {
+            this.modes.app.workspace.trigger?.("hub:workspace-history");
+        }
     }
+    recentWorkspaceIds() { return [...(this.state.workspaceHistory ?? [])]; }
     rememberFile(context, file = null) {
         if (!(file instanceof TFile)) return;
         this.initialize();

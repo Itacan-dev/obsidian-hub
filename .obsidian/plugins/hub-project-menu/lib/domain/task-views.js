@@ -1,6 +1,7 @@
 "use strict";
 const { localISODate, parseLocalISODate } = require("./dates");
 const { taskGroups, taskIsFuture } = require("./task-planning");
+const { taskKey, oathTaskOrder } = require("./oath-workspace");
 
 const PROJECT_VIEWS = ["upcoming", "calendar", "timeline", "all"];
 const RESOURCE_VIEWS = ["location", "upcoming", "all"];
@@ -70,6 +71,27 @@ function sortTasks(tasks, key = "due", direction = 1, describe = task => task.pa
     }).map(item => item.task);
 }
 
+function createTaskFocus(plan, oath) {
+    const planned = new Set((plan?.content?.entries ?? []).filter(entry => entry.kind === "task").map(entry => taskKey(entry.reference)));
+    const oathTasks = oathTaskOrder(oath);
+    const label = task => {
+        if (task.completed) return "";
+        const key = taskKey(task);
+        if (oathTasks.has(key)) return planned.has(key) ? "Oath · In Plan" : "Oath";
+        return planned.has(key) ? "In Plan" : "";
+    };
+    const order = tasks => {
+        const rank = item => {
+            const task = item.task ?? item;
+            if (task.completed) return 2;
+            const key = taskKey(task);
+            return oathTasks.has(key) ? 0 : planned.has(key) ? 1 : 2;
+        };
+        return [...tasks].sort((a, b) => rank(a) - rank(b));
+    };
+    return { label, order };
+}
+
 function calendarRange(anchor, mode) {
     const first = mode === "week" ? new Date(anchor) : new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     first.setHours(0, 0, 0, 0); first.setDate(first.getDate() - (first.getDay() + 6) % 7);
@@ -107,4 +129,4 @@ function locationTree(tasks, workspace, folders = []) {
 }
 
 module.exports = { PROJECT_VIEWS, RESOURCE_VIEWS, VIEW_LABELS, BUCKETS, within, shiftDay, dayNumber,
-    locationLabel, validLocation, upcomingBucket, upcomingGroups, filterTasks, sortTasks, calendarRange, timelinePlacement, locationTree };
+    locationLabel, validLocation, upcomingBucket, upcomingGroups, filterTasks, sortTasks, createTaskFocus, calendarRange, timelinePlacement, locationTree };

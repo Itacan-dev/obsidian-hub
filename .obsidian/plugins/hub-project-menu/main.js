@@ -8460,7 +8460,6 @@ module.exports = { oathTaskOrder, workspaceRef, validWorkspace, sameWorkspace, t
 },
 "lib/domain/oath.js": function (module, exports, __hubRequire) {
 "use strict";
-const { validWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
 
 const isCommitted = oath => ["scheduled", "active"].includes(oath?.state);
 const DEFAULT_DURATION_MS = 50 * 60000;
@@ -8475,15 +8474,14 @@ function oathRequirements(draft, now = Date.now()) {
     return [
         { key: "Start", complete: draft.start === "now" || draft.start === "scheduled" && Number.isFinite(draft.scheduledAt) && draft.scheduledAt > now,
             error: draft.start === "scheduled" ? "Choose a start date and time in the future." : "Choose when the Oath should begin." },
-        { key: "Workspace", complete: validWorkspace(draft.workspace), error: "Select a Project or Resource for your Oath." },
-        { key: "Tasks", complete: Array.isArray(draft.tasks) && draft.tasks.length > 0, error: "Select at least one task for your Oath." },
+        { key: "Tasks", complete: (draft.tasks?.length ?? 0) + (draft.planEntryIds?.length ?? 0) > 0, error: "Select at least one item from the active Plan." },
         { key: "Duration", complete: validDuration(draft.durationMs), error: "Choose a duration in whole minutes, at least one minute." }
     ];
 }
 function validateOath(draft, now = Date.now()) {
     const requirements = oathRequirements(draft, now);
     // Preserve the service's established error precedence; guidance uses form order.
-    for (const key of ["Start", "Duration", "Tasks", "Workspace"]) {
+    for (const key of ["Start", "Duration", "Tasks"]) {
         const field = requirements.find(field => field.key === key);
         if (!field.complete) throw Error(field.error);
     }
@@ -8493,12 +8491,11 @@ function oathTime(oath, now = Date.now()) {
     return { elapsedMs, remainingMs: Math.max(0, (oath?.durationMs ?? DEFAULT_DURATION_MS) - elapsedMs) };
 }
 // Fulfillment is a timestamp, independent of actual session end.
-function fulfilmentTime(oath, work, now = Date.now()) {
+function fulfilmentTime(oath, now = Date.now()) {
     if (oath?.fulfilledAt != null) return oath.fulfilledAt;
     if (oath?.state !== "active" || oath.startedAt == null) return null;
     const deadline = oath.startedAt + oath.durationMs;
-    if (now >= deadline) return deadline;
-    return oath.tasks.length > 0 && work.length === oath.tasks.length && oathProgress(work).allComplete ? now : null;
+    return now >= deadline ? deadline : null;
 }
 function oathProgress(work) {
     return { total: work.length, completed: work.filter(item => item.task?.completed).length,
@@ -8511,7 +8508,7 @@ function shortOathTime(ms) {
 }
 function fulfilmentLabel(oath) {
     if (oath.fulfilledAt != null) return "Fulfilled · Still Oathbound";
-    return `After ${oathDuration(oath.durationMs)}${oath.tasks?.length ? " or when all selected tasks are complete" : ""}`;
+    return `After ${oathDuration(oath.durationMs)}`;
 }
 function oathDuration(ms) {
     if (!Number.isFinite(ms) || ms < 60000) return "a selected duration";
@@ -8529,6 +8526,20 @@ const {createHash,randomUUID}=require('node:crypto');
 const {clone,normalize:normalizeLegacy,identity}=__hubRequire("lib/domain/global-plan.js");
 const {localISODate}=__hubRequire("lib/domain/dates.js");
 const iso=value=>new Date(value).toISOString();
+const localTime=date=>localISODate(date)+'T'+String(date.getHours()).padStart(2,'0')+':'+String(date.getMinutes()).padStart(2,'0');
+function scheduledStart(value,now) {
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value))throw Error('Choose a Plan date and start time.');
+ const date=new Date(value);
+ if(!Number.isFinite(date.getTime())||localTime(date)!==value)throw Error('Choose a valid local date and time.');
+ if(date<=now)throw Error('Choose a start time in the future.');
+ return date;
+}
+const editable = p => ['active', 'scheduled', 'draft'].includes(p?.status);
+function hasContent(record) {
+ const content = record?.content ?? record?.snapshot;
+ return Boolean(content?.note.trim() || content?.entries.length);
+}
+const provisional = p => !!p?.plannerSession && !hasContent(p);
 function boundary(now=new Date()) {
  const date=new Date(now);if(!Number.isFinite(date.getTime()))throw Error('Invalid Plan clock.');
  const end=new Date(date);end.setHours(24,0,0,0);
@@ -8536,7 +8547,7 @@ function boundary(now=new Date()) {
 }
 function empty(){return {version:2,revision:0,activePlanId:null,plansById:{},legacyReview:'pending',fileOperationCursor:null};}
 function newRecord({now=new Date(),id=randomUUID(),content={note:'',entries:[]},provenance='created'}={}) {
- return {id,...boundary(now),creationProvenance:provenance,status:'active',touched:false,content:clone(content),navigation:clone(content.entries)};
+ return {id,...boundary(now),startedAt:iso(now),creationProvenance:provenance,status:'active',touched:false,content:clone(content),navigation:clone(content.entries)};
 }
 function normalize(value) {
  if(!value)return empty();
@@ -8544,17 +8555,27 @@ function normalize(value) {
  const result=clone(value);
  if(!Number.isInteger(result.revision)||result.revision<0||!result.plansById||Array.isArray(result.plansById)||typeof result.plansById!=='object')throw Error('Invalid Plan lifecycle data.');
  let active=0;
+ const times=new Set();
  for(const [id,p]of Object.entries(result.plansById)){
-  if(p.id!==id||!['active','finished','day-ended'].includes(p.status)||!Number.isFinite(Date.parse(p.createdAt))||!Number.isFinite(Date.parse(p.endsAt))||Date.parse(p.endsAt)<=Date.parse(p.createdAt)||!/^\d{4}-\d{2}-\d{2}$/.test(p.calendarDate)||typeof p.timeZone!=='string'||typeof p.touched!=='boolean')throw Error('Invalid Plan record.');
+  if(p.id!==id||!['active','scheduled','draft','finished','day-ended','timed-out'].includes(p.status)||!Number.isFinite(Date.parse(p.createdAt))||!(p.status==='draft'&&p.calendarDate===null)&&!/^\d{4}-\d{2}-\d{2}$/.test(p.calendarDate)||typeof p.timeZone!=='string'||typeof p.touched!=='boolean')throw Error('Invalid Plan record.');
   new Intl.DateTimeFormat('en',{timeZone:p.timeZone});
-  const c=p.status==='active'?p.content:p.snapshot;
+  if(p.status==='scheduled'||p.status==='draft'){
+   if(p.endsAt!==null)throw Error('A scheduled Plan has no active window.');
+   if(p.status==='draft'&&p.startedAt!==null)throw Error('A draft Plan has not started.');
+    if(p.scheduledAt!=null){
+    const time=Date.parse(p.scheduledAt);
+    if(!Number.isFinite(time)||times.has(time))throw Error('Two Plans cannot start at the same time.');
+    times.add(time);
+   }
+  }else if(p.archiveReason!=='never-activated'&&(!Number.isFinite(Date.parse(p.endsAt))||Date.parse(p.endsAt)<=Date.parse(p.startedAt??p.createdAt)))throw Error('Invalid Plan end time.');
+  const c=editable(p)?p.content:p.snapshot;
   if(!c||typeof c.note!=='string'||!Array.isArray(c.entries)||!Array.isArray(p.navigation))throw Error('Invalid Plan content.');
   const ids=new Set(),keys=new Set();
   for(const e of c.entries){const key=identity(e);if(!e.id||ids.has(e.id)||keys.has(key))throw Error('Duplicate Plan entry.');ids.add(e.id);keys.add(key);}
   if(p.navigation.length!==c.entries.length||p.navigation.some(e=>!ids.has(e.id)))throw Error('Invalid Plan navigation bindings.');
   const navIds=new Set();for(const e of p.navigation){identity(e);if(navIds.has(e.id))throw Error('Duplicate Plan navigation binding.');navIds.add(e.id);}
   if(p.status==='active'){active++;if(result.activePlanId!==id)throw Error('Conflicting active Plans require review.');}
-  else if(!Number.isFinite(Date.parse(p.endedAt))||!Number.isFinite(Date.parse(p.recordedAt))||!p.transitionId)throw Error('Invalid ended Plan.');
+  else if(!editable(p)&&(!Number.isFinite(Date.parse(p.endedAt))||!Number.isFinite(Date.parse(p.recordedAt))||!p.transitionId))throw Error('Invalid ended Plan.');
  }
  if(active>1||Boolean(result.activePlanId)!==Boolean(active))throw Error('Conflicting active Plans require review.');
  return result;
@@ -8579,9 +8600,69 @@ function migrateRecovery(record,{now=new Date()}={}) {
  }
  return {version:2,base:clone(record.base??null),desired:normalize(desired),pending:null,deferredInput:null,sequence:record.sequence??0,pendingFile:clone(record.pendingFile??null),legacyInflight:record.inflight??null};
 }
-function create(state,{now=new Date(),id=randomUUID(),entries=[]}={}) {
+function create(state,{now=new Date(),id=randomUUID(),entries=[],note=''}={}) {
  const next=normalize(state);if(next.activePlanId)throw Error('Finish the active Plan before starting another.');
- const p=newRecord({now,id,content:{note:'',entries}});p.touched=entries.length>0;next.activePlanId=id;next.plansById[id]=p;return normalize(next);
+ const p=newRecord({now,id,content:{note,entries}});p.touched=entries.length>0||!!note;next.activePlanId=id;next.plansById[id]=p;return normalize(next);
+}
+function schedule(state,{start,now=new Date(),id=randomUUID(),content}={}) {
+ const date=scheduledStart(start,now);
+ const next=normalize(state);
+ next.plansById[id]={...newRecord({now,id,content}),status:'scheduled',calendarDate:localISODate(date),scheduledAt:iso(date),endsAt:null,startedAt:null};
+ return normalize(next);
+}
+function createForPlanner(state, { date, now, id, startNow }) {
+ const next = startNow ? create(state, { now, id }) : normalize(state);
+ if (!startNow) {
+  next.plansById[id] = {
+   ...newRecord({ now, id }), status: 'draft', calendarDate: date,
+   scheduledAt: null, startedAt: null, endsAt: null
+  };
+ }
+ next.plansById[id].plannerSession = true;
+ return normalize(next);
+}
+
+function releaseProvisionalActive(state, planId) {
+ const record = state.plansById[planId];
+ if (state.activePlanId !== planId || !provisional(record)) throw Error('The active Plan changed.');
+ Object.assign(record, { status: 'draft', scheduledAt: null, startedAt: null, endsAt: null });
+ state.activePlanId = null;
+}
+
+function deletePlan(state, planId) {
+ const next = normalize(state);
+ delete next.plansById[planId];
+ if (next.activePlanId === planId) next.activePlanId = null;
+ if (next.focusHandoff?.planId === planId) delete next.focusHandoff;
+ return next;
+}
+
+function reschedule(state,{planId,start,now=new Date()}={}) {
+ const date=scheduledStart(start,now);
+ const next=normalize(state),p=next.plansById[planId];
+ if(!p||!['draft','scheduled'].includes(p.status))throw Error('Only a draft or scheduled Plan can change its start time.');
+  p.status = provisional(p) ? 'draft' : 'scheduled';
+ p.calendarDate=localISODate(date);
+ p.timeZone=boundary(now).timeZone;
+ p.scheduledAt=iso(date);
+ delete p.deferredOathId;
+ return normalize(next);
+}
+function startScheduled(state,{planId,now=new Date()}={}) {
+ const next=normalize(state),p=next.plansById[planId],today=boundary(now);
+ if(p?.status!=='scheduled'||provisional(p))throw Error('This Plan is no longer scheduled.');
+ if(next.activePlanId)throw Error('Finish the active Plan before starting another.');
+ if(!p.scheduledAt||Date.parse(p.scheduledAt)>+now)throw Error('This Plan is scheduled for a future time.');
+ p.scheduledFor=p.calendarDate;
+ p.startedAt=today.createdAt;
+ p.calendarDate=today.calendarDate;
+ p.timeZone=today.timeZone;
+ p.endsAt=today.endsAt;
+ p.status='active';
+ delete p.deferredOathId;
+ next.lastScheduledActivation=p.scheduledAt;
+ next.activePlanId=p.id;
+ return normalize(next);
 }
 function end(state,{planId,status='finished',now=new Date(),snapshot,transitionId}={}) {
  const next=normalize(state),p=next.plansById[planId];
@@ -8591,10 +8672,29 @@ function end(state,{planId,status='finished',now=new Date(),snapshot,transitionI
  if(status==='day-ended'&&Date.parse(iso(now))<Date.parse(p.endsAt))throw Error('The Plan day has not ended.');
  if(status==='finished'&&Date.parse(iso(now))>=Date.parse(p.endsAt))throw Error('The Plan day ended. Apply rollover first.');
  next.activePlanId=null;
- if(status==='day-ended'&&!p.touched&&!p.content.note.trim()&&!p.content.entries.length){delete next.plansById[planId];return normalize(next);}
  if(!snapshot||snapshot.note!==p.content.note||snapshot.entries.length!==p.content.entries.length||snapshot.entries.some((e,i)=>e.id!==p.content.entries[i].id||identity(e)!==identity(p.content.entries[i])))throw Error('Snapshot does not match the protected Plan draft.');
  p.status=status;p.endedAt=status==='day-ended'?p.endsAt:iso(now);p.recordedAt=iso(now);p.transitionId=transitionId||planId+':'+status;p.snapshot=clone(snapshot);p.navigation=clone(p.content.entries);delete p.content;
  return normalize(next);
+}
+function archive(state,{planId,reason,at,now,snapshot}) {
+ const p=state.plansById[planId];
+ if(reason==='never-activated'?p?.status!=='scheduled':p?.status!=='active')throw Error('The Plan changed before it could be archived.');
+ if(snapshot.note!==p.content.note||snapshot.entries.length!==p.content.entries.length||
+    snapshot.entries.some((entry,index)=>entry.id!==p.content.entries[index].id||identity(entry)!==identity(p.content.entries[index])))
+  throw Error('Snapshot does not match the protected Plan.');
+ if(reason==='never-activated')p.startedAt=null;
+ else {
+  p.startedAt=p.startedAt??p.createdAt;
+  state.activePlanId=null;
+ }
+ p.status='timed-out';
+ p.archiveReason=reason;
+ p.transitionId=p.id+':'+reason;
+ p.endedAt=iso(at);
+ p.recordedAt=iso(now);
+ p.snapshot=clone(snapshot);
+ delete p.content;
+ delete p.deferredOathId;
 }
 function abandon(state,planId){
  const next=normalize(state),p=next.plansById[planId];
@@ -8603,8 +8703,211 @@ function abandon(state,planId){
  if(p.content.entries.length)throw Error('This Plan still contains planned items.');
  delete next.plansById[planId];next.activePlanId=null;return normalize(next);
 }
-function history(state){return Object.values(state.plansById).filter(p=>p.status!=='active').sort((a,b)=>b.endedAt.localeCompare(a.endedAt)||b.createdAt.localeCompare(a.createdAt)||a.id.localeCompare(b.id));}
-module.exports={boundary,empty,newRecord,normalize,migrate,migrateRecovery,create,end,abandon,history};
+function history(state){return Object.values(state.plansById).filter(p=>!editable(p)).sort((a,b)=>b.endedAt.localeCompare(a.endedAt)||b.createdAt.localeCompare(a.createdAt)||a.id.localeCompare(b.id));}
+function scheduled(state){return Object.values(state.plansById).filter(p=>p.status==='scheduled').sort((a,b)=>(a.scheduledAt??'~').localeCompare(b.scheduledAt??'~')||a.calendarDate.localeCompare(b.calendarDate)||a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));}
+module.exports={boundary,editable,hasContent,provisional,createForPlanner,releaseProvisionalActive,deletePlan,empty,newRecord,normalize,migrate,migrateRecovery,create,end,abandon,history,scheduled,schedule,reschedule,startScheduled,archive,scheduledStart,localTime};
+
+},
+"lib/domain/plan-relevance.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { taskKey, oathTaskOrder } = __hubRequire("lib/domain/oath-workspace.js");
+
+const workspaceKey = ref => JSON.stringify([ref?.type, ref?.id]);
+const sameOrInside = (path, folder) => path === folder || path.startsWith(folder + "/");
+
+function derivePlanRelevance(plan, items, oath, { fileOwner, intendedProject, taskLocation } = {}) {
+    const workspaces = new Map(), paths = new Map(), planned = new Map();
+    const locations = new Set();
+    const selected = oathTaskOrder(oath);
+    function add(index, key, reason) {
+        if (!key) return;
+        if (!index.has(key)) index.set(key, { direct: false, files: 0, tasks: 0, attached: 0 });
+        const result = index.get(key);
+        if (reason === "direct") result.direct = true;
+        else result[reason]++;
+    }
+    function addAncestors(path, reason) {
+        for (let slash = path.lastIndexOf("/"); slash >= 0; slash = path.lastIndexOf("/", slash - 1)) {
+            add(paths, path.slice(0, slash), reason);
+            if (slash === 0) break;
+        }
+    }
+    for (const [position, entry] of (plan?.content.entries ?? []).entries()) {
+        if (entry.kind === "task") planned.set(taskKey(entry.reference), position);
+    }
+    for (const { entry, availability, file, task } of items) {
+        if (availability !== "current") continue;
+        if (entry.kind === "workspace") {
+            add(workspaces, workspaceKey(entry.reference), "direct");
+        } else if (entry.kind === "file") {
+            const path = file.path;
+            locations.add(path);
+            const owner = fileOwner(path);
+            const intended = intendedProject(entry.intendedContext, path);
+            add(paths, path, "direct");
+            addAncestors(path, "files");
+            if (owner) add(workspaces, workspaceKey(owner), "files");
+            if (intended && workspaceKey(intended) !== workspaceKey(owner)) add(workspaces, workspaceKey(intended), "attached");
+        } else if (task && !task.completed) {
+            const owner = task.nativeReference.owner;
+            add(workspaces, workspaceKey(owner), "tasks");
+            const location = taskLocation(task);
+            if (location) {
+                locations.add(location.path);
+                add(paths, location.path, "tasks");
+                addAncestors(location.path, "tasks");
+            }
+        }
+    }
+
+    const describe = value => {
+        if (!value) return null;
+        if (value.direct) return { level: "direct", description: "Explicitly included in the active Plan" };
+        const reasons = [];
+        if (value.files) reasons.push(value.files === 1 ? "1 planned file" : value.files + " planned files");
+        if (value.tasks) reasons.push(value.tasks === 1 ? "1 unfinished planned task" : value.tasks + " unfinished planned tasks");
+        if (value.attached) reasons.push(value.attached === 1 ? "1 planned file in an attached folder" : value.attached + " planned files in attached folders");
+        return { level: "indirect", description: "Leads to " + reasons.join(" and ") };
+    };
+    const task = item => {
+        const value = item.task && typeof item.task === "object" ? item.task : item;
+        if (value.completed) return null;
+        const key = taskKey(value), position = planned.get(key);
+        return position === undefined ? null : { position, oath: selected.has(key) };
+    };
+    function order(tasks) {
+        return tasks.map(value => ({ value, focus: task(value) })).sort((a, b) =>
+            Number(!a.focus?.oath) - Number(!b.focus?.oath) ||
+            (a.focus?.position ?? Number.MAX_SAFE_INTEGER) - (b.focus?.position ?? Number.MAX_SAFE_INTEGER)
+        ).map(item => item.value);
+    }
+    function partition(tasks) {
+        const prioritized = [], ordinary = [];
+        for (const value of tasks) (task(value) ? prioritized : ordinary).push(value);
+        return { prioritized: order(prioritized), ordinary };
+    }
+    return {
+        planId: plan?.id ?? null,
+        locations: Object.freeze([...locations]),
+        signature: JSON.stringify([plan?.id, [...planned], [...planned.keys()].filter(key => selected.has(key)), [...workspaces], [...paths], [...locations]]),
+        workspace: ref => describe(workspaces.get(workspaceKey(ref))),
+        workspaceRank(ref) {
+            const value = workspaces.get(workspaceKey(ref));
+            return value?.direct ? 0 : value ? 1 : 2;
+        },
+        path: path => describe(paths.get(path)),
+        task, order, partition
+    };
+}
+
+module.exports = { derivePlanRelevance, sameOrInside };
+
+},
+"lib/domain/plan-timeline.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { localISODate, parseLocalISODate, formatDateTime, formatTime } = __hubRequire("lib/domain/dates.js");
+
+function planDay(record) {
+    return record.status === "scheduled" && record.scheduledAt
+        ? localISODate(new Date(record.scheduledAt)) : record.calendarDate;
+}
+
+function shiftDay(day, delta) {
+    const date = parseLocalISODate(day);
+    date.setHours(12);
+    date.setDate(date.getDate() + delta);
+    return localISODate(date);
+}
+
+function planStart(record) {
+    const stamp = ["scheduled", "draft"].includes(record.status) || record.archiveReason === "never-activated"
+        ? record.scheduledAt : record.startedAt ?? record.createdAt;
+    return stamp ? new Date(stamp) : null;
+}
+
+function orderPlans(records) {
+    return records.map(record => ({
+        record, day: planDay(record) ?? "", start: +(planStart(record) ?? Infinity)
+    })).sort((a, b) => a.day.localeCompare(b.day) || a.start - b.start ||
+        a.record.createdAt.localeCompare(b.record.createdAt) || a.record.id.localeCompare(b.record.id))
+        .map(({ record }) => record);
+}
+
+function planLabel(record) {
+    if (record.status === "active") return "Active Plan";
+    if (record.status === "scheduled") return "Scheduled Plan";
+    if (record.status === "draft") return "Draft Plan";
+    if (record.status === "finished") return "Finished Plan";
+    if (record.archiveReason === "never-activated") return "Never activated";
+    return "Time ran out";
+}
+
+function planTime(record) {
+    const start = planStart(record);
+    return start ? formatDateTime(start) : "Start time unset";
+}
+
+function planClockTime(record) {
+    const stamp = ["scheduled", "draft"].includes(record.status) || record.archiveReason === "never-activated"
+        ? record.scheduledAt : record.startedAt;
+    if (!stamp || record.creationProvenance === "migration-original-start-unknown") return "";
+    return formatTime(new Date(stamp));
+}
+
+module.exports = { planDay, shiftDay, orderPlans, planLabel, planTime, planClockTime };
+
+},
+"lib/domain/progress-history.js": function (module, exports, __hubRequire) {
+"use strict";
+const { sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
+
+const oathMode = record => record.policy?.mode === "strict" ? "Strict" : "Regular";
+const oathOutcome = record => ({
+    fulfilled: "Fulfilled",
+    broken: "Broken",
+    interrupted: "Interrupted",
+    invalid: "Unavailable"
+})[record.state] ?? "Ended";
+const planOutcome = record => record.status === "finished" ? "Plan finished" :
+    record.archiveReason === "never-activated" ? "Plan never activated" : "Time ran out";
+
+function planWorkspaces(entries) {
+    return entries.flatMap(entry => {
+        if (entry.kind === "workspace") return [entry.reference];
+        if (entry.kind === "task") return [entry.reference?.ownerHint];
+        if (entry.kind === "file") return [entry.reference?.sourceWorkspace, entry.intendedContext];
+        return [];
+    });
+}
+
+function lifecycleHistory({ plans = [], oathsByDevice = {}, workspace = null }) {
+    const records = [];
+    const matches = refs => !workspace || refs.some(ref => sameWorkspace(ref, workspace));
+    const seen = new Set();
+    for (const bucket of Object.values(oathsByDevice ?? {})) {
+        const history = Array.isArray(bucket?.history) ? bucket.history : [];
+        for (const oath of [...history, bucket?.current]) {
+            if (!oath?.id || seen.has(oath.id) || oath.state === "active" || oath.state === "scheduled") continue;
+            const at = typeof oath.completedAt === "number" ? oath.completedAt : Date.parse(oath.completedAt);
+            if (!Number.isFinite(at)) continue;
+            const owners = [...(oath.workspaces ?? []), oath.workspace, ...(oath.tasks ?? []).map(task => task.owner)];
+            if (!matches(owners)) continue;
+            seen.add(oath.id);
+            records.push({ key: "oath:" + oath.id, kind: "oath", at, record: oath });
+        }
+    }
+    for (const plan of plans) {
+        const at = Date.parse(plan.endedAt);
+        if (plan.snapshot && Number.isFinite(at) && matches(planWorkspaces(plan.snapshot.entries))) {
+            records.push({ key: "plan:" + plan.id, kind: "plan", at, record: plan });
+        }
+    }
+    return records.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
+}
+
+module.exports = { lifecycleHistory, oathMode, oathOutcome, planOutcome };
 
 },
 "lib/domain/progress.js": function (module, exports, __hubRequire) {
@@ -9297,6 +9600,7 @@ module.exports = { taskCaptureSource, taskStartDate, taskIsFuture, taskDatePrese
 "use strict";
 const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
 const { taskGroups, taskIsFuture } = __hubRequire("lib/domain/task-planning.js");
+const { taskKey, oathTaskOrder } = __hubRequire("lib/domain/oath-workspace.js");
 
 const PROJECT_VIEWS = ["upcoming", "calendar", "timeline", "all"];
 const RESOURCE_VIEWS = ["location", "upcoming", "all"];
@@ -9366,6 +9670,27 @@ function sortTasks(tasks, key = "due", direction = 1, describe = task => task.pa
     }).map(item => item.task);
 }
 
+function createTaskFocus(plan, oath) {
+    const planned = new Set((plan?.content?.entries ?? []).filter(entry => entry.kind === "task").map(entry => taskKey(entry.reference)));
+    const oathTasks = oathTaskOrder(oath);
+    const label = task => {
+        if (task.completed) return "";
+        const key = taskKey(task);
+        if (oathTasks.has(key)) return planned.has(key) ? "Oath · In Plan" : "Oath";
+        return planned.has(key) ? "In Plan" : "";
+    };
+    const order = tasks => {
+        const rank = item => {
+            const task = item.task ?? item;
+            if (task.completed) return 2;
+            const key = taskKey(task);
+            return oathTasks.has(key) ? 0 : planned.has(key) ? 1 : 2;
+        };
+        return [...tasks].sort((a, b) => rank(a) - rank(b));
+    };
+    return { label, order };
+}
+
 function calendarRange(anchor, mode) {
     const first = mode === "week" ? new Date(anchor) : new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     first.setHours(0, 0, 0, 0); first.setDate(first.getDate() - (first.getDay() + 6) % 7);
@@ -9403,7 +9728,7 @@ function locationTree(tasks, workspace, folders = []) {
 }
 
 module.exports = { PROJECT_VIEWS, RESOURCE_VIEWS, VIEW_LABELS, BUCKETS, within, shiftDay, dayNumber,
-    locationLabel, validLocation, upcomingBucket, upcomingGroups, filterTasks, sortTasks, calendarRange, timelinePlacement, locationTree };
+    locationLabel, validLocation, upcomingBucket, upcomingGroups, filterTasks, sortTasks, createTaskFocus, calendarRange, timelinePlacement, locationTree };
 
 },
 "lib/domain/workspace-explorer.js": function (module, exports, __hubRequire) {
@@ -9455,6 +9780,35 @@ function filterWorkspaceTree(roots, query) {
     return { visible, matches };
 }
 
+function displayedPlanNodes(nodes, locations, { rootFilesOnly = false } = {}) {
+    const roots = new Map(), displayed = new Map(), rootFiles = new Map();
+    for (const node of nodes) {
+        const root = node.parent ? roots.get(node.parent) : node;
+        roots.set(node, root);
+        if (!displayed.has(node.path)) displayed.set(node.path, []);
+        displayed.get(node.path).push(node);
+        if (rootFilesOnly && node === root && root.descriptor.isRoot) {
+            // Note view lists root notes and top-level folders under separate roots.
+            rootFiles.set(root, new Set(root.children.map(child => child.path)));
+        }
+    }
+    const marked = new Set();
+    for (const location of locations) {
+        const represented = new Set();
+        for (let path = location; path; path = path.slice(0, Math.max(0, path.lastIndexOf("/")))) {
+            for (const node of displayed.get(path) ?? []) {
+                const root = roots.get(node);
+                if (represented.has(root)) continue;
+                const files = rootFiles.get(root);
+                if (files && location !== root.path && !files.has(location)) continue;
+                marked.add(node);
+                represented.add(root);
+            }
+        }
+    }
+    return marked;
+}
+
 function sortExplorerChildren(children, state = {}) {
     const key = ["name", "modified", "created"].includes(state.sortKey) ? state.sortKey : "modified";
     const direction = state.sortDirection === "asc" ? 1 : -1;
@@ -9476,7 +9830,7 @@ function rewriteExplorerPaths(states, oldPath, newPath) {
     for (const [path, state] of entries) states[rewrite(path)] = { ...state, currentPath: rewrite(state.currentPath) };
 }
 
-module.exports = { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths };
+module.exports = { workspaceTree, filterWorkspaceTree, displayedPlanNodes, sortExplorerChildren, rewriteExplorerPaths };
 
 },
 "lib/domain/workspace.js": function (module, exports, __hubRequire) {
@@ -11699,7 +12053,7 @@ class FileOperations {
  ancestors(w,path,excluded){const rows=[];let p=parent(path);while(p&&inside(p,w.root)){if(!inside(p,excluded))rows.push({path:p,endpoint:this.endpoint(w,p,"folder")});if(p===w.root)break;p=parent(p);}rows.push({path:null,endpoint:{ownerId:this.db.ownerId(w.owner),context:null}});return rows;}
  completion(intent,extra={}){const fallbacks={},destinations={};intent.mappings.forEach((m,i)=>{const candidate=m.ancestors?.find(a=>a.path===null||folder(this.exact(a.path)));fallbacks[i]=candidate?.endpoint??m.fallback;if(intent.kind==="trash")destinations[i]=fallbacks[i];});return{phase:"filesystem-complete",fallbacks,destinations,...extra};}
  async progress(operationId,progress){return this.db.request({action:"progress",operationId,progress});}
- observePlan(stage,operationId,intent,result){try{const observed=this.plugin.globalPlan?.references?.observe(stage,operationId,intent,result);if(observed?.catch)observed.catch(error=>console.error("Plan file observer failed",error));}catch(error){console.error("Plan file observer failed",error);}}
+ observePlan(stage,operationId,intent,result){try{const observed=this.plugin.globalPlan?.references?.observe(stage,operationId,intent,result);if(observed?.catch)observed.catch(error=>console.error("Plan file observer failed",error));this.plugin.planRelevance?.invalidate();}catch(error){console.error("Plan file observer failed",error);}}
  async cancelPlanOperation(operationId){const result=await this.db.request({action:"cancel",operationId});this.observePlan("cancelled",operationId);return result;}
  async execute(kind,from,to=null,options={}){return this.enqueue(async()=>{
   await this.recoverInside();await this.db.refresh?.();const operationId=options.operationId??randomUUID(),requestHash=digest(JSON.stringify([kind,from,to??null,!!options.workspaceRename,!!options.workspaceDelete]));
@@ -11832,9 +12186,11 @@ module.exports={FileOperations,normalize,validPath,stable};
 },
 "lib/services/global-plan.js": function (module, exports, __hubRequire) {
 "use strict";
-const {clone,normalize,identity,emptyPlan}=__hubRequire("lib/domain/global-plan.js");
+const {clone,normalize,identity}=__hubRequire("lib/domain/global-plan.js");
+const {randomUUID}=require("node:crypto");
 const lifecycle=__hubRequire("lib/domain/plan-lifecycle.js");
 const {PlanDraft}=__hubRequire("lib/services/plan-draft.js");
+const {localISODate,parseLocalISODate}=__hubRequire("lib/domain/dates.js");
 class GlobalPlanService {
  constructor(plugin,{storage=globalThis.localStorage,vault=plugin.app.vault.adapter.getBasePath(),now=()=>new Date()}={}) {
   this.plugin=plugin;this.store=plugin.dataStore??plugin.projectWizard.store;this.now=now;this.listeners=new Set();this.sequence=0;this.status="Saved";this.recovery=new PlanDraft(storage,vault);this.nativeOperations=new Set();
@@ -11847,6 +12203,7 @@ class GlobalPlanService {
    else if(JSON.stringify(r.base)===JSON.stringify(this.rawBase)||saved.inflight===JSON.stringify(this.rawBase)){this.state=lifecycle.normalize(r.desired);this.pendingTransition=r.pending;this.protected=true;this.status="Changes kept locally - Retry";}
    else{this.conflict=r;this.protected=true;this.status="Recovered changes need review";}
   }}catch(error){this.error=error;this.status=error.message;}
+  this.interruptedPlanner = Object.values(this.state.plansById).some(record => record.plannerSession);
  }
  projection(state=this.state){const p=state.plansById[state.activePlanId];return {...clone(p?.content??{entries:[],note:""}),version:1,revision:state.revision,legacyReview:state.legacyReview,fileOperationCursor:clone(state.fileOperationCursor)};}
  get draft(){return this.projection();}
@@ -11854,49 +12211,445 @@ class GlobalPlanService {
  get base(){return this.projection(this.baseState);}
  read(){return this.projection();}
  readState(){return clone(this.state);}
+ published(){return this.transitioning||this.pendingTransition?this.baseState:this.state;}
  active(){const state=this.pendingTransition?this.baseState:this.state;return state.plansById[state.activePlanId]??null;}
- listHistorical(date){return lifecycle.history((this.transitioning||this.pendingTransition)?this.baseState:this.state).filter(p=>!date||p.calendarDate===date);}
- readPlan(id){return clone(((this.transitioning||this.pendingTransition)?this.baseState:this.state).plansById[id]??null);}
- selected(date){const state=(this.transitioning||this.pendingTransition)?this.baseState:this.state,p=state.plansById[state.activePlanId];return p&&(!date||p.calendarDate===date)?clone(p):this.listHistorical(date)[0]??null;}
- bind(id){const service=this;return {get draft(){const p=service.readPlan(id);return p?.content??p?.snapshot??{note:"",entries:[]};},get status(){return service.status;},get busy(){return !!(service.transitioning||service.pendingTransition||service.conflict||service.readOnly);},assertEditable:()=>service.assertEditable(id),subscribe:(c,f)=>service.subscribe(c,f),references:{resolve:()=>service.resolvePlan(id),open:i=>service.references.open(i),workspace:r=>service.references.workspace(r),tasks:service.references.tasks},trackNative:p=>service.trackNative(p),move:(entry,to)=>{service.assertEditable(id);service.move(entry,to);},remove:entry=>{service.assertEditable(id);service.remove(entry);}};}
- assertEditable(id=this.state.activePlanId){if(this.restoring)throw Error("Plan is restarting after backup restoration.");if(this.readOnly)throw this.error;if(this.conflict)throw Error("Resolve the recovered Plan first.");if(this.transitioning||this.pendingTransition)throw Error("Resolve the pending Plan transition first.");const p=this.active();if(!p||p.id!==id)throw Error("The original Plan is no longer active.");if(this.now().getTime()>=Date.parse(p.endsAt)){void this.ensureLifecycle().catch(()=>{});throw Error("The Plan day ended. Your text has been preserved.");}}
- async resolvePlan(id){const p=this.readPlan(id);if(!p)return [];if(p.status==='active')return this.references.resolve(p.content.entries);const live=await this.references.resolve(p.navigation);return p.snapshot.entries.map((e,i)=>({...live[i],entry:clone(p.navigation[i]),label:e.label??e.lastKnownLabel,historical:true,planId:p.id,snapshot:clone(e),task:e.kind==='task'?{text:e.label??e.lastKnownLabel,completed:e.taskState==='completed',nativeReadOnly:true,nativeLocationDisplay:{available:true,workspaceName:e.route??'',segments:[]}}:null}));}
- async capture(p,{status,observedAt}){let items=[];try{items=await this.references.resolve(p.content.entries);}catch{}return {note:p.content.note,entries:p.content.entries.map((e,i)=>{const item=items[i],route=item?.task?.nativeLocationDisplay;const source=this.references.workspace?.(e.reference.sourceWorkspace);return {...clone(e),label:item?.label??e.lastKnownLabel??'Unavailable reference',route:route?[route.workspaceName,...(route.segments??[])].filter(Boolean).join(' / '):e.kind==='workspace'?(e.reference.type==='resource'?'Resource':'Project'):[source?.name??source?.label??'Vault',...e.reference.path?.split('/').slice(0,-1)??[]].join(' / '),taskState:e.kind==='task'?(status==='finished'&&item?.availability==='current'&&item.task?(item.task.completed?'completed':'incomplete'):'unknown'):undefined,observedAt};})};}
- trackNative(promise){this.nativeOperations.add(promise);promise.finally(()=>this.nativeOperations.delete(promise)).catch(()=>{});return promise;}
- async createPlan(entries=[]){await this.ensureLifecycle();if(this.active())return this.active().id;return this.transition(async()=>{this.state=lifecycle.create(this.state,{now:this.now(),entries});this.pendingTransition={kind:"create",planId:this.state.activePlanId};this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;this.finishedPreviewPlanId=null;return this.state.activePlanId;});}
- async transition(work){if(this.transitioning)throw Error('A Plan transition is already in progress.');if(this.readOnly)throw this.error;if(this.conflict)throw Error('Resolve the recovered Plan first.');this.transitioning=true;this.emit();try{return await work();}catch(error){this.error=error;this.status=error.message;throw error;}finally{this.transitioning=false;this.emit();this.schedule();}}
- async endPlan(id,status){if(this.pendingTransition)return this.transition(async()=>{await this.flush();this.pendingTransition=null;});return this.transition(async()=>{await this.flush();await Promise.all([...this.nativeOperations]);const p=this.active();if(!p||p.id!==id)throw Error('The active Plan changed.');let now=this.now();if(now.getTime()>=Date.parse(p.endsAt))status='day-ended';let snapshot=await this.capture(p,{status,observedAt:now.toISOString()});now=this.now();if(status==='finished'&&now.getTime()>=Date.parse(p.endsAt)){status='day-ended';snapshot=await this.capture(p,{status,observedAt:now.toISOString()});}this.state=lifecycle.end(this.state,{planId:id,status,now,snapshot,transitionId:id+':'+status});this.pendingTransition={planId:id,kind:status};this.undoAction=null;this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;});}
- async finishPlan(id){this.requestedFinishId=id;await this.endPlan(id,'finished');if(this.readPlan(id)?.status==='finished'){this.finishedPreviewPlanId=id;this.emit();}}
- async abandonEmptyPlan(id){
-  if(this.pendingTransition?.kind==='abandon'){if(this.pendingTransition.planId!==id)throw Error('The active Plan changed.');return this.endPlan(id,'abandon');}
-  return this.transition(async()=>{
-   await this.flush();await Promise.all([...this.nativeOperations]);
-   const p=this.state.plansById[id];if(!p||p.status!=='active')return;
-   this.state=lifecycle.abandon(this.state,id);this.pendingTransition={kind:'abandon',planId:id};this.undoAction=null;this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;
+ listHistorical(date){return lifecycle.history(this.published()).filter(p=>!date||p.calendarDate===date);}
+ listScheduled(){
+  return lifecycle.scheduled(this.published()).filter(record => {
+   const saved = this.baseState.plansById[record.id];
+   const current = this.state.plansById[record.id];
+   return !record.plannerSession || (
+    current?.status === 'scheduled' && saved?.status === 'scheduled' &&
+    saved.scheduledAt === current.scheduledAt && lifecycle.hasContent(saved) && lifecycle.hasContent(current)
+   );
   });
  }
- async ensureLifecycle(){if(this.transitioning)return;if(this.pendingTransition){await this.endPlan(this.pendingTransition.planId,this.pendingTransition.kind);if(this.requestedFinishId&&this.readPlan(this.requestedFinishId)?.status==='finished'){this.finishedPreviewPlanId=this.requestedFinishId;this.emit();}return;}const p=this.active();if(p&&this.now().getTime()>=Date.parse(p.endsAt))await this.endPlan(p.id,'day-ended');}
- schedule(){clearTimeout(this.dayTimer);if(this.disposed)return;const p=this.active();if(p&&!this.error)this.dayTimer=setTimeout(()=>void this.ensureLifecycle().catch(()=>{}),Math.min(2147483647,Math.max(1,Date.parse(p.endsAt)-this.now().getTime())));this.dayTimer?.unref?.();}
- start(){const resume=()=>void this.ensureLifecycle().then(()=>this.schedule()).catch(e=>{this.error=e;this.status=e.message;this.emit();});globalThis.document?.addEventListener('visibilitychange',resume);globalThis.window?.addEventListener('focus',resume);this.plugin.register(()=>{this.disposed=true;clearTimeout(this.dayTimer);globalThis.document?.removeEventListener('visibilitychange',resume);globalThis.window?.removeEventListener('focus',resume);});resume();}
+ canFinish(id){const record=this.readPlan(id);return record?.status==="active"&&!lifecycle.provisional(record);}
+ readPlan(id){return clone(this.published().plansById[id]??null);}
+ selected(date){const state=(this.transitioning||this.pendingTransition)?this.baseState:this.state,p=state.plansById[state.activePlanId];return p&&(!date||p.calendarDate===date)?clone(p):this.listHistorical(date)[0]??null;}
+ get busy(){return !!(this.transitioning||this.pendingTransition||this.conflict||this.readOnly||this.restoring);}
+ bind(id,{historicalNavigation=false}={}){const service=this;return {
+  get draft(){const p=service.readPlan(id);return p?.content??p?.snapshot??{note:"",entries:[]};},
+  get status(){return service.status;},get error(){return service.error;},get deferredInput(){return service.deferredInput;},
+  get busy(){return service.busy||service.enrollingOathId===id;},
+  assertEditable:()=>service.assertEditable(id),subscribe:(c,f)=>service.subscribe(c,f),emit:()=>service.emit(),
+  assertExecutable:()=>{if(service.active()?.id!==id)throw Error("This Plan is no longer active.");service.assertEditable(id);},
+  references:{resolve:()=>service.resolvePlan(id,{historicalNavigation}),open:i=>service.references.open(i),workspace:r=>service.references.workspace(r),tasks:service.references.tasks},
+  trackNative:p=>service.trackNative(p),move:(entry,to)=>service.move(entry,to,id),remove:entry=>service.remove(entry,id)
+ };}
+ oathProtects(id){
+  const oath=this.plugin.oath;
+  return !!id&&(this.enrollingOathId===id||(oath?.committed&&(oath.focus?.planId??oath.current?.planId)===id));
+ }
+ focusHandoff(oathId){const handoff=this.published().focusHandoff;return handoff?.oathId===oathId?clone(handoff):null;}
+ duePlans(now=this.now()){return this.listScheduled().filter(p=>p.scheduledAt&&Date.parse(p.scheduledAt)<=+now);}
+ nextScheduledTime(){const first=lifecycle.scheduled(this.state).find(p=>p.scheduledAt&&!lifecycle.provisional(p));return first?Date.parse(first.scheduledAt):Infinity;}
+ focusPrompts(){
+  const oath=this.plugin.oath;
+  if(!oath?.active||!oath.fulfilled)return [];
+  const watermark=Date.parse(this.published().lastScheduledActivation??"");
+  return this.duePlans().filter(p=>p.deferredOathId!==oath.current.id&&!(Date.parse(p.scheduledAt)<=watermark));
+ }
+ assertEditable(id=this.state.activePlanId){
+  if(this.readOnly)throw this.error;
+  if(this.busy)throw Error("Resolve the pending Plan changes first.");
+  const p=this.state.plansById[id];
+  if(!lifecycle.editable(p))throw Error("This Plan is no longer editable.");
+  if(this.enrollingOathId===id)throw Error("Wait for the Oath commitment to save.");
+  if(p.status==='active'&&this.now().getTime()>=Date.parse(p.endsAt)&&!this.oathProtects(id)){
+   void this.ensureLifecycle().catch(()=>{});
+   throw Error("The Plan day ended.");
+  }
+ }
+ async withOathPlan(id,work){
+  await this.ensureLifecycle();
+  const p=this.active();
+  if(!id||p?.id!==id||!p.content.entries.length||this.now().getTime()>=Date.parse(p.endsAt))throw Error("An active Plan with at least one item is required to take an Oath.");
+  this.assertEditable(id);
+  this.enrollingOathId=id;
+  this.emit();
+  try{await this.flush();return await work(clone(this.state.plansById[id]));}
+  finally{this.enrollingOathId=null;this.emit();void this.ensureLifecycle().then(()=>this.schedule()).catch(()=>{});}
+ }
+ async resolvePlan(id,{historicalNavigation=false}={}){
+  const p=this.readPlan(id);
+  if(!p)return [];
+  if(lifecycle.editable(p))return (await this.references.resolve(p.content.entries)).map(item=>({...item,planId:id}));
+  const bindings = historicalNavigation ? p.navigation.filter(entry=>entry.kind!=="task") : [];
+  const navigation = new Map((bindings.length ? await this.references.resolve(bindings) : [])
+   .map(item=>[item.entry.id,item.availability]));
+  return p.snapshot.entries.map(e=>({
+   entry:clone(e),label:e.label??e.lastKnownLabel,historical:true,planId:id,snapshot:clone(e),
+   navigationAvailability:navigation.get(e.id),
+   task:e.kind==="task"?{text:e.label??e.lastKnownLabel,completed:e.taskState==="completed",nativeReadOnly:true}:null
+  }));
+ }
+ async capture(p){let items=[];try{await this.plugin.nativeTaskHost?.ready;items=await this.references.resolve(p.content.entries);}catch{}const observedAt=this.now().toISOString();return {note:p.content.note,entries:p.content.entries.map((e,i)=>{const item=items[i],route=item?.task?.nativeLocationDisplay;const source=this.references.workspace?.(e.reference.sourceWorkspace);return {...clone(e),label:item?.label??e.lastKnownLabel??'Unavailable reference',route:route?[route.workspaceName,...(route.segments??[])].filter(Boolean).join(' / '):e.kind==='workspace'?(e.reference.type==='resource'?'Resource':'Project'):[source?.name??source?.label??'Vault',...e.reference.path?.split('/').slice(0,-1)??[]].join(' / '),taskState:e.kind==='task'?(item?.availability==='current'&&item.task?(item.task.completed?'completed':'incomplete'):'unknown'):undefined,observedAt};})};}
+ trackNative(promise){this.nativeOperations.add(promise);promise.finally(()=>this.nativeOperations.delete(promise)).catch(()=>{});return promise;}
+ async createPlan(entries=[]){await this.ensureLifecycle();if(this.active())return this.active().id;return this.transition(async()=>{this.state=lifecycle.create(this.state,{now:this.now(),entries});this.pendingTransition={kind:"create",planId:this.state.activePlanId};this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;this.finishedPreviewPlanId=null;return this.state.activePlanId;});}
+ async changeSchedule(kind,operation){
+  await this.ensureLifecycle();
+  return this.transition(async()=>{
+   if(this.pendingTransition)throw Error("Retry the pending Plan change first.");
+   const {state,id}=operation(this.state,this.now());
+   this.state=state;
+   this.pendingTransition={kind,planId:id};
+   this.sequence++;
+   this.checkpoint();
+   await this.flush();
+   this.pendingTransition=null;
+   return id;
+  });
+ }
+ assertScheduleAllowed(start,now){
+  const at=+lifecycle.scheduledStart(start,now),until=this.plugin.oath?.commitmentDeadline?.();
+  if(this.enrollingOathId)throw Error("Wait for the Oath commitment to save.");
+  const current=this.plugin.oath?.current;
+  if(until>at&&(this.plugin.oath.active||current?.scheduledAt<=at))
+   throw Error("This start time overlaps an unfulfilled Oath.");
+  if(current?.state==="scheduled"&&at<current.scheduledAt)
+   throw Error("This Plan would replace the Plan of a scheduled Oath.");
+ }
+ schedulePlan(start){
+  const id=randomUUID();
+  return this.changeSchedule("schedule",(state,now)=>{
+   this.assertScheduleAllowed(start,now);
+   return {state:lifecycle.schedule(state,{start,now,id}),id};
+  });
+ }
+ async createPlannerPlan({ date = null, id = randomUUID() } = {}) {
+  await this.ensureLifecycle();
+  if (this.readPlan(id)) return id;
+  return this.changeSchedule("create", (state, now) => {
+   const today = localISODate(now);
+   if (date !== null && (!parseLocalISODate(date) || date < today)) {
+    throw Error("Choose today or a future day to create a Plan.");
+   }
+   const startNow = !state.activePlanId && (!date || date === today);
+   return { state: lifecycle.createForPlanner(state, { date, now, id, startNow }), id };
+  }).then(created => {
+   if (this.active()?.id === created) this.dismissHomePlan(this.finishedPreviewPlanId);
+   return created;
+  });
+ }
+ async finalizePlanner() {
+  const candidates = Object.values(this.state.plansById).filter(record => record.plannerSession);
+  if (!candidates.length) return;
+  await this.transition(async () => {
+   await this.flush();
+   let next = this.readState();
+   for (const { id } of candidates) {
+    const record = next.plansById[id];
+    if (!record) continue;
+    if (!lifecycle.hasContent(record) && !this.oathProtects(id) && this.deferredInput?.planId !== id) {
+     next = lifecycle.deletePlan(next, id);
+    } else if (lifecycle.hasContent(record)) {
+     delete record.plannerSession;
+    }
+   }
+   if (JSON.stringify(next) !== JSON.stringify(this.state)) await this.saveTransition(next, "planner-close");
+  });
+ }
+ async deletePlan(id, { confirmed = false } = {}) {
+  if (this.lifecycleWork) await this.lifecycleWork;
+  if (this.pendingTransition) await this.ensureLifecycle();
+  await this.transition(async () => {
+   await this.flush();
+   await Promise.all([...this.nativeOperations]);
+   const record = this.state.plansById[id];
+   if (!record) return;
+   if (this.oathProtects(id)) throw Error("End the Oath before deleting its Plan.");
+   if (!confirmed && lifecycle.hasContent(record)) throw Error("Confirm deletion of this Plan first.");
+   await this.saveTransition(lifecycle.deletePlan(this.state, id), "delete", id);
+   if (this.finishedPreviewPlanId === id) this.finishedPreviewPlanId = null;
+   if (this.deferredInput?.planId === id) {
+    this.deferredInput = null;
+    this.checkpoint();
+   }
+  });
+ }
+ reschedulePlan(id,start){return this.changeSchedule("reschedule",(state,now)=>{
+  this.assertScheduleAllowed(start,now);
+  return {state:lifecycle.reschedule(state,{planId:id,start,now}),id};
+ });}
+ async transition(work){if(this.transitioning)throw Error('A Plan transition is already in progress.');if(this.readOnly)throw this.error;if(this.conflict)throw Error('Resolve the recovered Plan first.');this.transitioning=true;this.emit();try{return await work();}finally{this.transitioning=false;this.emit();this.schedule();}}
+ async saveTransition(state,kind,planId){
+  this.state=lifecycle.normalize(state);
+  this.pendingTransition={planId,kind};
+  this.undoAction=null;this.undoPlanId=null;
+  this.sequence++;
+  this.checkpoint();
+  await this.flush();
+  this.pendingTransition=null;
+ }
+ async endPlan(id,status){
+  if(this.oathProtects(id))throw Error("End the Oath before finishing its Plan.");
+  if(this.pendingTransition)return this.ensureLifecycle();
+  return this.transition(async()=>{
+   await this.flush();
+   await Promise.all([...this.nativeOperations]);
+   const p=this.active();
+   if(!p||p.id!==id)throw Error("The active Plan changed.");
+   if (lifecycle.provisional(p)) {
+    if (status === "finished") throw Error("Add a note or item before finishing this Plan.");
+    const next = this.readState();
+    lifecycle.releaseProvisionalActive(next, id);
+    await this.saveTransition(next, "release-empty", id);
+    return;
+   }
+   const snapshot=await this.capture(p),now=this.now();
+   if(status==="finished"&&this.nextScheduledTime()<=+now)throw Error("A scheduled Plan is due. The current Plan will time out.");
+   if(+now>=Date.parse(p.endsAt))status="day-ended";
+   const state=lifecycle.end(this.state,{planId:id,status,now,snapshot,transitionId:id+":"+status});
+   await this.saveTransition(state,status,id);
+  });
+ }
+ async finishPlan(id){await this.ensureLifecycle();this.requestedFinishId=id;await this.endPlan(id,'finished');if(this.readPlan(id)?.status==='finished'){this.finishedPreviewPlanId=id;this.emit();}}
+ async applyDue(activateId,archiveIds,{oathId=null}={}){
+  return this.transition(async()=>{
+   await this.flush();
+   await Promise.all([...this.nativeOperations]);
+   const sequence=this.sequence,state=this.readState(),now=this.now(),current=state.plansById[state.activePlanId];
+   const target=state.plansById[activateId];
+   const due=archiveIds.map(id=>state.plansById[id]);
+   if ([...due, ...(activateId ? [target] : [])].some(record =>
+    record?.status !== "scheduled" || lifecycle.provisional(record) || Date.parse(record.scheduledAt) > +now)) {
+    throw Error("The scheduled Plans changed. Retry the update.");
+   }
+   const archives=due.map(p=>({record:p,reason:"never-activated",at:p.scheduledAt}));
+   if (target && lifecycle.provisional(current)) lifecycle.releaseProvisionalActive(state, current.id);
+   else if(target&&current){
+    const ended=this.plugin.oath?.current,when=Date.parse(target.scheduledAt);
+    const released=ended?.startedAt!=null&&ended.startedAt<=when&&when<=ended.completedAt;
+    const at=oathId||target.deferredOathId||released?+now:Math.min(Date.parse(current.endsAt),...due.concat(target).map(p=>Date.parse(p.scheduledAt)));
+    archives.push({record:current,reason:"replaced",at:Math.max(at,Date.parse(current.startedAt??current.createdAt))});
+   }
+   for(const {record,reason,at} of archives){
+    lifecycle.archive(state,{planId:record.id,reason,at,now,snapshot:await this.capture(record)});
+   }
+   if(sequence!==this.sequence)throw Error("Plan entries changed during the handoff. Retry the update.");
+   if(oathId){
+    const oath=this.plugin.oath;
+    if(!oath.active||!oath.fulfilled||oath.current.id!==oathId)throw Error("The focus session has changed.");
+    state.focusHandoff={oathId,planId:target.id,entries:clone(target.content.entries)};
+   }else delete state.focusHandoff;
+   const next=target?lifecycle.startScheduled(state,{planId:target.id,now}):state;
+   await this.saveTransition(next,"activate-scheduled",target?.id??archiveIds.at(-1));
+   if(target)this.finishedPreviewPlanId=null;
+  });
+ }
+ focusChoice(id,update){
+  const oath=this.plugin.oath;
+  return oath.enqueue(async()=>{
+   if(!this.focusPrompts().some(p=>p.id===id))throw Error("This Plan is no longer waiting for focus.");
+   const oathId=oath.current.id;
+   if(update){
+    if(Date.parse(this.readPlan(id).scheduledAt)<=Date.parse(this.published().lastScheduledActivation??""))throw Error("A later Plan is already active.");
+    await this.applyDue(id,[],{oathId});
+    await oath.focusChanged();
+   }else await this.transition(async()=>{
+    const state=this.readState();
+    state.plansById[id].deferredOathId=oathId;
+    await this.saveTransition(state,"defer-scheduled",id);
+   });
+  });
+ }
+ ensureLifecycle(){
+  if(this.lifecycleWork)return this.lifecycleWork;
+  if(this.transitioning||this.disposed||this.restoring)return Promise.resolve();
+  this.lifecycleWork=this.advanceLifecycle().then(()=>{
+   this.retryDelay=0;
+  },error=>{
+   this.retryDelay=Math.min(30000,(this.retryDelay||500)*2);
+   throw error;
+  }).finally(()=>{this.lifecycleWork=null;this.schedule();});
+  return this.lifecycleWork;
+ }
+ async advanceLifecycle(){
+  if(this.pendingTransition){
+   const pending=this.pendingTransition;
+   await this.transition(async()=>{await this.flush();this.pendingTransition=null;});
+   if(pending.kind==="activate-scheduled"&&this.plugin.oath?.active)await this.plugin.oath.focusChanged?.();
+   if(this.requestedFinishId&&this.readPlan(this.requestedFinishId)?.status==='finished'){this.finishedPreviewPlanId=this.requestedFinishId;this.emit();}
+  }
+  if (this.interruptedPlanner) {
+   await this.finalizePlanner();
+   this.interruptedPlanner = false;
+  }
+  const oath=this.plugin.oath,p=this.active(),due=this.duePlans();
+  if(this.enrollingOathId||oath?.active){
+   if(oath?.fulfilled)this.emit();
+   return;
+  }
+  if(oath?.current?.state==="scheduled"&&oath.commitmentDeadline?.()>+this.now())return;
+  if(due.length){
+   const latest=due.at(-1),watermark=Date.parse(this.published().lastScheduledActivation??"");
+   const activate=!(Date.parse(latest.scheduledAt)<=watermark);
+   await this.applyDue(activate?latest.id:null,(activate?due.slice(0,-1):due).map(p=>p.id));
+   if(!activate&&p&&+this.now()>=Date.parse(p.endsAt))await this.endPlan(p.id,"day-ended");
+  }else if(p&&!this.oathProtects(p.id)&&+this.now()>=Date.parse(p.endsAt))await this.endPlan(p.id,'day-ended');
+ }
+ schedule(){
+  clearTimeout(this.dayTimer);
+  if(this.disposed||this.restoring||this.conflict||this.readOnly)return;
+  const now=+this.now(),oath=this.plugin.oath;
+  const focused=!!(oath?.active||this.enrollingOathId),reserved=oath?.current?.state==="scheduled"&&oath.commitmentDeadline?.()>now;
+  const future=this.listScheduled().map(p=>Date.parse(p.scheduledAt)).filter(t=>Number.isFinite(t)&&(!(focused||reserved)||t>now));
+  const p=this.active();
+  if(p&&!focused&&!reserved&&!this.oathProtects(p.id))future.push(Date.parse(p.endsAt));
+  if(reserved)future.push(oath.commitmentDeadline());
+  if(this.pendingTransition)future.push(now+1000);
+  if(!future.length)return;
+  this.dayTimer=setTimeout(()=>void this.ensureLifecycle().catch(error=>{this.status=error.message;this.emit();}),Math.min(2147483647,Math.max(this.retryDelay??0,5,Math.min(...future)-now)));
+  this.dayTimer.unref?.();
+ }
+ start(){
+  const resume=()=>void this.ensureLifecycle().catch(error=>{this.status=error.message;this.emit();});
+  globalThis.document?.addEventListener('visibilitychange',resume);
+  globalThis.window?.addEventListener('focus',resume);
+  let signature;
+  const stop=this.plugin.oath?.onChange(()=>{const oath=this.plugin.oath,next=JSON.stringify([oath.current?.id,oath.current?.state,oath.fulfilled]);if(next!==signature){signature=next;resume();}});
+  this.plugin.register(()=>{this.disposed=true;stop?.();clearTimeout(this.dayTimer);globalThis.document?.removeEventListener('visibilitychange',resume);globalThis.window?.removeEventListener('focus',resume);});
+  resume();
+ }
  dismissHomePlan(id){if(this.finishedPreviewPlanId===id)this.finishedPreviewPlanId=null;this.emit();}
  subscribe(component,fn){this.listeners.add(fn);const stop=()=>this.listeners.delete(fn);component?.register(stop);return stop;}
  emit(){for(const fn of [...this.listeners])try{fn();}catch(error){console.error(error);}}
  checkpoint(){if(this.restoring)return true;try{this.recovery.put({version:2,base:this.rawBase,desired:this.state,sequence:this.sequence,inflight:this.inflight,pendingFile:this.pendingFile,pending:this.pendingTransition,deferredInput:this.deferredInput});this.protected=true;return true;}catch(error){this.protected=false;this.error=error;return false;}}
- mutate(change,{note=false,undo=null,system=false}={}){if(!system)this.assertEditable();else if(this.readOnly||this.conflict||this.restoring)throw this.error??Error('Plan recovery needs review.');const next=this.read();change(next);normalize(next);const p=this.active();if(p){p.content={note:next.note,entries:clone(next.entries)};p.navigation=clone(next.entries);if(!system)p.touched=true;}this.state.fileOperationCursor=next.fileOperationCursor;this.state.legacyReview=next.legacyReview;lifecycle.normalize(this.state);this.sequence++;if(undo)this.undoAction=undo;this.checkpoint();this.status="Saving...";this.emit();clearTimeout(this.timer);if(note&&this.protected)this.timer=setTimeout(()=>void this.flush().catch(()=>{}),500);else void this.flush().catch(()=>{});}
- referenceEntries(){return Object.values(this.state.plansById).flatMap(p=>p.status==='active'?p.content.entries:p.navigation);}
- mutateReferences(change){if(this.readOnly||this.conflict||this.restoring)throw Error('Plan recovery needs review.');const state=clone(this.state),entries=Object.values(state.plansById).flatMap(p=>p.status==='active'?p.content.entries:p.navigation),projection={entries,fileOperationCursor:state.fileOperationCursor};change(projection);state.fileOperationCursor=projection.fileOperationCursor;for(const p of Object.values(state.plansById))if(p.status==='active')p.navigation=clone(p.content.entries);lifecycle.normalize(state);this.state=state;this.sequence++;this.checkpoint();void this.flush().catch(()=>{});}
- setNote(text,id=this.state.activePlanId){try{this.assertEditable(id);this.mutate(p=>p.note=text,{note:true});}catch(error){this.deferredInput={planId:id,text,observedAt:this.now().toISOString()};this.checkpoint();throw error;}}
- add(entries){const added=[];this.mutate(p=>{const keys=new Set(p.entries.map(identity));for(const entry of entries)if(!keys.has(identity(entry))){keys.add(identity(entry));p.entries.push(clone(entry));added.push(entry.id);}},{undo:p=>p.entries=p.entries.filter(e=>!added.includes(e.id))});return added.length;}
- remove(id){const i=this.draft.entries.findIndex(e=>e.id===id),entry=this.draft.entries[i];if(!entry)return;const after=this.draft.entries[i+1]?.id;this.mutate(p=>p.entries=p.entries.filter(e=>e.id!==id),{undo:p=>{if(!p.entries.some(e=>identity(e)===identity(entry)))p.entries.splice(after?Math.max(0,p.entries.findIndex(e=>e.id===after)):p.entries.length,0,clone(entry));}});}
- move(id,to){const before=this.draft.entries.map(e=>e.id);this.mutate(p=>{const i=p.entries.findIndex(e=>e.id===id);if(i<0)return;const [entry]=p.entries.splice(i,1);p.entries.splice(Math.max(0,Math.min(to,p.entries.length)),0,entry);},{undo:p=>{p.entries.sort((a,b)=>{const ai=before.indexOf(a.id),bi=before.indexOf(b.id);return (ai<0?Infinity:ai)-(bi<0?Infinity:bi);});}});}
- undo(){const action=this.undoAction;this.undoAction=null;if(action)this.mutate(action);}
- async flush(){if(this.restoring)return;if(this.readOnly)throw this.error;clearTimeout(this.timer);if(this.conflict)throw Error('Resolve the recovered Plan first.');if(this.saving){await this.saving;return this.flush();}if(JSON.stringify(this.state)===JSON.stringify(this.rawBase))return;
- const target=clone(this.state),seq=this.sequence;target.revision=this.baseState.revision+1;this.inflight=JSON.stringify(target);this.checkpoint();
- this.saving=this.store.updatePlan(data=>{if(JSON.stringify(data.globalPlan??null)!==JSON.stringify(this.rawBase))throw Object.assign(Error('Plan changed on disk. Reload to review your recovered draft.'),{code:'PLAN_CONFLICT'});data.globalPlan=target;}).then(data=>{this.error=null;this.rawBase=clone(data.globalPlan);this.baseState=lifecycle.normalize(data.globalPlan);this.plugin.projectWizard.data.globalPlan=clone(this.baseState);this.state.revision=this.baseState.revision;this.inflight=null;if(seq===this.sequence&&!this.pendingFile&&!this.deferredInput){try{this.recovery.clear();this.protected=true;}catch(error){this.error=error;}this.status='Saved';}else{this.checkpoint();this.status='Saving...';}}).catch(error=>{this.error=error;this.status=this.checkpoint()?'Changes kept locally - Retry':'Could not protect these changes';throw error;}).finally(()=>{this.saving=null;this.emit();});await this.saving;if(seq!==this.sequence)return this.flush();
+ mutate(change,{id=this.state.activePlanId,note=false,undo=null,system=false}={}){
+  if(!system)this.assertEditable(id);
+  else if(this.readOnly||this.conflict||this.restoring)throw this.error??Error('Plan recovery needs review.');
+  const state=clone(this.state),p=state.plansById[id],next={...this.projection(state),...clone(p?.content??{note:"",entries:[]})};
+  change(next);
+  const content=normalize(next);
+  if(p){
+   if(this.oathProtects(id)&&p.content.entries.length&&!content.entries.length)throw Error("Keep at least one item in the Plan while its Oath is in effect.");
+   p.content={note:content.note,entries:content.entries};
+   p.navigation=clone(content.entries);
+   if (!system && p.plannerSession && p.status === "scheduled" && !lifecycle.hasContent(p)) {
+    p.status = "draft";
+    delete p.deferredOathId;
+   }
+   if (!system && p.status === "draft" && p.scheduledAt && lifecycle.hasContent(p)) {
+    const start = lifecycle.localTime(new Date(p.scheduledAt));
+    try {
+     this.assertScheduleAllowed(start, this.now());
+     p.status = "scheduled";
+    } catch {
+     // Preserve the work even when the proposed start has to be changed.
+    }
+   }
+   if(!system)p.touched=true;
+  }
+  state.fileOperationCursor=content.fileOperationCursor;
+  state.legacyReview=content.legacyReview;
+  this.state=lifecycle.normalize(state);
+  this.sequence++;
+  if(undo){this.undoAction=undo;this.undoPlanId=id;}
+  this.checkpoint();this.status="Saving...";this.emit();clearTimeout(this.timer);
+  if(note&&this.protected)this.timer=setTimeout(()=>void this.flush().catch(()=>{}),500);
+  else void this.flush().catch(()=>{});
  }
- async resolveConflict(restore){const recovered=this.conflict;if(!recovered)return;if(restore){const desired=lifecycle.normalize(recovered.desired);if(desired.activePlanId&&this.baseState.activePlanId&&desired.activePlanId!==this.baseState.activePlanId)throw Error('Competing active Plans require Audit Hub data review; both drafts are preserved.');for(const [id,p]of Object.entries(this.baseState.plansById)){const other=desired.plansById[id];if(!other){if(p.status==='active')throw Error('Resolve competing Plan drafts in Audit Hub data.');desired.plansById[id]=clone(p);}else if(p.status!=='active'&&JSON.stringify(p)!==JSON.stringify(other))throw Error('Historical Plan versions conflict. Both copies need Audit Hub data review.');}this.state=lifecycle.normalize(desired);this.sequence++;}else this.state=clone(this.baseState);this.conflict=null;this.checkpoint();await this.flush();}
- async closeSafe(){if(this.readOnly)return true;try{await this.flush();return true;}catch{return this.protected;}}
- async directAdd(entries){try{await this.ensureLifecycle();if(entries.some(e=>e.kind==="file"))await this.references.audit();if(!this.active())await this.createPlan(entries);else {const count=this.add(entries);await this.flush();}const count=entries.length;const {Notice}=require("obsidian");const notice=new Notice(count?`${count} added to plan` : "Already in plan");if(count&&notice.noticeEl){const button=notice.noticeEl.createEl("button",{text:"Undo"});button.onclick=()=>this.undo();}}catch{new(require("obsidian").Notice)(this.status);}}
+ referenceEntries(){
+  const plans=Object.values(this.state.plansById);
+  return plans.flatMap(p => lifecycle.editable(p) ? p.content.entries : p.navigation);
+ }
+ mutateReferences(change){
+  if(this.readOnly||this.conflict||this.restoring)throw Error('Plan recovery needs review.');
+  const state=clone(this.state),plans=Object.values(state.plansById);
+  const entries=plans.flatMap(p => lifecycle.editable(p) ? p.content.entries : p.navigation);
+  const projection={entries,fileOperationCursor:state.fileOperationCursor};
+  change(projection);
+  state.fileOperationCursor=projection.fileOperationCursor;
+  for(const p of plans)if(lifecycle.editable(p))p.navigation=clone(p.content.entries);
+  lifecycle.normalize(state);
+  this.state=state;this.sequence++;this.checkpoint();void this.flush().catch(()=>{});
+ }
+ setNote(text,id=this.state.activePlanId){try{this.mutate(p=>p.note=text,{id,note:true});}catch(error){this.deferredInput={planId:id,text,observedAt:this.now().toISOString()};this.checkpoint();throw error;}}
+ add(entries,id=this.state.activePlanId){const added=[];this.mutate(p=>{const keys=new Set(p.entries.map(identity));for(const entry of entries)if(!keys.has(identity(entry))){keys.add(identity(entry));p.entries.push(clone(entry));added.push(entry.id);}},{id,undo:p=>p.entries=p.entries.filter(e=>!added.includes(e.id))});return added.length;}
+ remove(entryId,id=this.state.activePlanId){this.assertEditable(id);const entries=this.state.plansById[id].content.entries,i=entries.findIndex(e=>e.id===entryId),entry=entries[i];if(!entry)return;const after=entries[i+1]?.id;this.mutate(p=>p.entries=p.entries.filter(e=>e.id!==entryId),{id,undo:p=>{if(!p.entries.some(e=>identity(e)===identity(entry)))p.entries.splice(after?Math.max(0,p.entries.findIndex(e=>e.id===after)):p.entries.length,0,clone(entry));}});}
+ move(entryId,to,id=this.state.activePlanId){this.assertEditable(id);const before=this.state.plansById[id].content.entries.map(e=>e.id);this.mutate(p=>{const i=p.entries.findIndex(e=>e.id===entryId);if(i<0)return;const [entry]=p.entries.splice(i,1);p.entries.splice(Math.max(0,Math.min(to,p.entries.length)),0,entry);},{id,undo:p=>{p.entries.sort((a,b)=>{const ai=before.indexOf(a.id),bi=before.indexOf(b.id);return (ai<0?Infinity:ai)-(bi<0?Infinity:bi);});}});}
+ undo(id=this.undoPlanId){const action=this.undoPlanId===id&&this.undoAction;if(action){this.mutate(action,{id});this.undoAction=null;this.undoPlanId=null;}}
+ async flush(){if(this.restoring)return;if(this.readOnly)throw this.error;clearTimeout(this.timer);if(this.conflict)throw Error('Resolve the recovered Plan first.');if(this.saving){await this.saving;return this.flush();}if(JSON.stringify(this.state)===JSON.stringify(this.rawBase)){
+  if(this.status==="Saving..."){this.status="Saved";this.emit();}
+  return;
+ }
+ // An initial admission that missed its start while waiting to be saved stays editable.
+ for (const record of Object.values(this.state.plansById)) {
+  if (!record.plannerSession || record.status !== "scheduled" || +new Date(record.scheduledAt) > +this.now()) continue;
+  const saved = this.baseState.plansById[record.id];
+  if (saved?.status === "scheduled" && saved.scheduledAt === record.scheduledAt) continue;
+  record.status = "draft";
+  delete record.deferredOathId;
+ }
+ const target = clone(this.state), seq = this.sequence, previousWrite = this.inflight;
+ target.revision = this.baseState.revision + 1;
+ this.inflight = JSON.stringify(target);
+ this.checkpoint();
+ this.saving=this.store.updatePlan(data => {
+  const disk = JSON.stringify(data.globalPlan ?? null);
+  if (disk === this.inflight) return;
+  if (previousWrite && disk === previousWrite) {
+   // The previous write reached disk even though the caller never received it.
+   target.revision = data.globalPlan.revision + 1;
+   this.inflight = JSON.stringify(target);
+   this.checkpoint();
+  } else if (disk !== JSON.stringify(this.rawBase)) {
+   throw Object.assign(Error('Plan changed on disk. Reload to review your recovered draft.'), { code: 'PLAN_CONFLICT' });
+  }
+  data.globalPlan = target;
+ }).then(data=>{this.error=null;this.rawBase=clone(data.globalPlan);this.baseState=lifecycle.normalize(data.globalPlan);this.plugin.projectWizard.data.globalPlan=clone(this.baseState);this.state.revision=this.baseState.revision;this.inflight=null;
+  if(seq===this.sequence&&!this.pendingFile&&!this.deferredInput){try{this.recovery.clear();this.protected=true;}catch(error){this.error=error;}}
+  else this.checkpoint();
+  this.status=seq===this.sequence?"Saved":"Saving...";
+ }).catch(error=>{this.error=error;this.status=this.checkpoint()?'Changes kept locally - Retry':'Could not protect these changes';throw error;}).finally(()=>{this.saving=null;this.emit();this.schedule();});await this.saving;if(seq!==this.sequence)return this.flush();
+ }
+ async resolveConflict(restore){
+  const recovered=this.conflict;
+  if(!recovered)return;
+  const desired=lifecycle.normalize(restore?recovered.desired:this.baseState);
+  const lockedId=this.plugin.oath?.focus?.planId??this.plugin.oath?.current?.planId;
+  if(this.oathProtects(lockedId)&&(desired.activePlanId!==lockedId||!desired.plansById[lockedId]?.content.entries.length))
+   throw Error("End the Oath before resolving this Plan conflict.");
+  if(restore){
+   if(desired.activePlanId&&this.baseState.activePlanId&&desired.activePlanId!==this.baseState.activePlanId)
+    throw Error("Competing active Plans require Audit Hub data review. Both drafts are preserved.");
+   for(const [id,p] of Object.entries(this.baseState.plansById)){
+    const other=desired.plansById[id];
+    if(!other){
+     if(p.status==="active")throw Error("Resolve competing Plan drafts in Audit Hub data.");
+     desired.plansById[id]=clone(p);
+    }else if(p.status!=="active"&&JSON.stringify(p)!==JSON.stringify(other)){
+     throw Error("Plan versions conflict. Both copies need Audit Hub data review.");
+    }
+   }
+   this.sequence++;
+  }
+  this.state=lifecycle.normalize(desired);
+  this.conflict=null;
+  this.checkpoint();
+  await this.flush();
+ }
+ async closePlanner(){
+  if (this.lifecycleWork) await this.lifecycleWork;
+  if (this.pendingTransition) await this.ensureLifecycle();
+  await this.finalizePlanner();
+  return this.closeSafe();
+ }
+ async closeSafe(){
+  if(this.readOnly)return true;
+  try{await this.flush();return true;}catch{return this.protected;}
+ }
+ async directAdd(entries){
+  const {Notice}=require("obsidian"),{ownNoticeColors}=__hubRequire("lib/ui/color-system.js");
+  try{
+   await this.ensureLifecycle();if(entries.some(e=>e.kind==="file"))await this.references.audit();
+   const id=this.active()?.id??await this.createPlan(),count=this.add(entries,id);
+   await this.flush();
+   const notice=ownNoticeColors(new Notice(count?`${count} added to plan`:"Already in plan"));
+   if(count&&notice.noticeEl){const button=notice.noticeEl.createEl("button",{text:"Undo"});button.onclick=()=>{try{this.undo(id);}catch(error){ownNoticeColors(new Notice(error.message));}};}
+  }catch(error){ownNoticeColors(new Notice(error.message));}
+ }
 }
 module.exports={GlobalPlanService};
 
@@ -13633,8 +14386,14 @@ class HubNavigationHistory {
     }
     rememberWorkspace(context) {
         this.initialize();
-        this.state.workspaceHistory = rememberHistory(this.state.workspaceHistory.filter(id => typeof id === "string"), context.projectId);
+        const previous = this.state.workspaceHistory;
+        const next = rememberHistory(previous.filter(id => typeof id === "string"), context.projectId);
+        this.state.workspaceHistory = next;
+        if (next.length !== previous.length || next.some((id, index) => id !== previous[index])) {
+            this.modes.app.workspace.trigger?.("hub:workspace-history");
+        }
     }
+    recentWorkspaceIds() { return [...(this.state.workspaceHistory ?? [])]; }
     rememberFile(context, file = null) {
         if (!(file instanceof TFile)) return;
         this.initialize();
@@ -13756,106 +14515,6 @@ class HubNavigationHistory {
 }
 
 module.exports = { HubNavigationHistory };
-
-},
-"lib/services/oath-candidate-read.js": function (module, exports, __hubRequire) {
-"use strict";
-const { taskGroups } = __hubRequire("lib/domain/task-planning.js");
-const { taskKey, sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
-const { oathRequirements, validateOath } = __hubRequire("lib/domain/oath.js");
-const consumers = new WeakMap();
-const sameReference = (a,b) => !!a && !!b && taskKey(a) === taskKey(b) && a.nativeReference?.taskRevision === b.nativeReference?.taskRevision;
-
-function preserveCandidateInteraction(body, render) {
-    const focused = body.ownerDocument.activeElement, row = body.contains(focused) ? focused.closest(".hub-oath-task-row") : null;
-    const key = row?.oathCandidateKey, index = row ? [...row.querySelectorAll("button,input,[tabindex]")].indexOf(focused) : -1, scroll = body.scrollTop;
-    render(); body.scrollTop = scroll;
-    if (key && !focused.isConnected) {
-        const next = [...body.querySelectorAll(".hub-oath-task-row")].find(item => item.oathCandidateKey === key);
-        (index >= 0 ? next?.querySelectorAll("button,input,[tabindex]")[index] : next)?.focus({ preventScroll: true });
-    }
-}
-function createOathCandidateRead(service, component) {
-    const plugin = service.plugin, listeners = new Set();
-    let closed = false, generation = 0, workspace = null, pending = null;
-    let indexedTasks = [], preparedAt = null;
-    const state = { status: "idle", tasks: [], diagnostics: [], error: null };
-    const notify = () => { for (const callback of [...listeners]) callback(); };
-    let panel = null;
-    const stops = [];
-    const session = { invalidate() {}, close() { panel?.close();panel=null;stops.splice(0).forEach(stop=>stop()); } };
-    let active = consumers.get(plugin);
-    if (!active) {
-        consumers.set(plugin, active = new Set());
-        plugin.register(() => { for (const close of [...active]) close(); active.clear(); consumers.delete(plugin); });
-    }
-    const signature = ref => { const context = service.resolveWorkspace(ref); return context ? JSON.stringify([context.path, context.root, context.status]) : null; };
-    async function refresh() {
-        if (closed || !workspace) return null;
-        const ticket = ++generation, ref = { type: workspace.type, id: workspace.id }, context = signature(ref);
-        state.status = "loading"; state.error = null; notify();
-        const work = (async () => {
-            try {
-                if (!context) throw new Error("Choose an available Active Project or Resource.");
-                const query = await panel.read();
-                if (!query || closed || generation !== ticket) return null;
-                if (signature(ref) !== context) { session.invalidate(); return refresh(); }
-                if (query.availability !== "current") throw Error("Native Oath candidates are unavailable.");
-                indexedTasks = query.tasks.filter(task=>!task.completed&&!task.nativeReadOnly);
-                preparedAt = service.now();
-                const groups = taskGroups(indexedTasks, new Date(preparedAt));
-                state.tasks = [...groups.active, ...groups.future]; state.diagnostics = query.diagnostics;
-                if (query.availability !== "current") throw new Error("The Oath candidate read is incomplete.");
-                state.status = "ready"; state.error = null; notify(); return state.tasks;
-            } catch (error) {
-                if (closed || generation !== ticket) return null;
-                state.status = "error"; state.error = error; notify(); return null;
-            }
-        })();
-        pending = work; return work;
-    }
-    function close() { if (closed) return; closed = true; generation++; session.close(); state.status = "closed"; listeners.clear(); active.delete(close); }
-    active.add(close); component.register(close);
-    const available = (tasks, ref = workspace) => !closed && sameWorkspace(workspace, ref) &&
-        service.ready(workspace) && !!service.resolveWorkspace(ref) && state.status !== "error" && state.status !== "idle" &&
-        tasks.every(task => state.tasks.some(current => sameReference(task, current)));
-    const requirements = draft => oathRequirements(draft, service.now()).map(field => {
-        if (field.key === "Workspace" && field.complete && !service.resolveWorkspace(draft.workspace)) return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
-        if (field.key === "Tasks" && !service.ready()) return { ...field, complete: false, error: "Wait for native tasks to finish loading." };
-        if (field.key === "Tasks" && (state.status === "error" || closed)) return { ...field, complete: false, error: "Tasks could not be loaded. Try again." };
-        if (field.key === "Tasks" && state.status === "loading" && !state.tasks.length) return { ...field, complete: false, error: "Wait for the task index to finish loading." };
-        if (field.key === "Tasks" && field.complete && !available(draft.tasks, draft.workspace)) return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
-        return field;
-    });
-    return {
-        state, requirements, available, close,
-        tasks() {
-            if (preparedAt !== null && preparedAt !== service.now()) {
-                preparedAt = service.now(); const groups = taskGroups(indexedTasks, new Date(preparedAt));
-                state.tasks = [...groups.active, ...groups.future];
-            }
-            return state.tasks;
-        },
-        onChange(callback) { listeners.add(callback); return () => listeners.delete(callback); },
-        selectWorkspace(ref) {
-            if (sameWorkspace(workspace, ref)) return pending;
-            workspace = ref ? { type: ref.type, id: ref.id } : null; generation++; pending = null;
-            session.close();
-            if(workspace) panel=plugin.nativeTaskHost.nativeTasks.createPanelRead({plugin,component:{register:stop=>stops.push(stop)},workspace,changed:()=>{if(!closed)void refresh();}});
-            indexedTasks = []; preparedAt = null; state.tasks = []; state.status = "idle"; state.error = null;
-            return workspace ? refresh() : Promise.resolve(null);
-        },
-        read() { return pending ?? refresh(); },
-        retry() { session.invalidate(); return refresh(); },
-        enrollmentDraft(draft) {
-            validateOath(draft, service.now());
-            const missing = requirements(draft).find(field => !field.complete);
-            if (missing) throw Error(missing.error);
-            return { ...draft, workspace:{...draft.workspace},tasks:draft.tasks.map(task=>JSON.parse(JSON.stringify(task))) };
-        }
-    };
-}
-module.exports = { createOathCandidateRead, preserveCandidateInteraction, sameReference };
 
 },
 "lib/services/oath-fullscreen.js": function (module, exports, __hubRequire) {
@@ -14260,7 +14919,6 @@ module.exports = { StrictOathCoordinator };
 "lib/services/oath.js": function (module, exports, __hubRequire) {
 "use strict";
 const { randomUUID } = require("crypto");
-const { taskGroups } = __hubRequire("lib/domain/task-planning.js");
 const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = __hubRequire("lib/domain/oath.js");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
@@ -14284,7 +14942,7 @@ class HubOathService {
     }
     get bucket() { return this.plugin.projectWizard.data.oathsByDevice?.[this.deviceId] ?? { current: null, history: [] }; }
     get current() { return normalizeOath(this.bucket.current); }
-    get fulfilled() { return this.current?.state === "fulfilled" || this.current?.fulfilledAt != null ||
+    get fulfilled() { return this.current?.state === "fulfilled" || this.current?.fulfilledAt != null || fulfilmentTime(this.current,this.now())!=null ||
         !!this.pendingFulfilment && this.pendingFulfilment.id === this.current?.id; }
     get committed() { return isCommitted(this.current); }
     get active() { return this.current?.state === "active"; }
@@ -14313,7 +14971,7 @@ class HubOathService {
         });
     }
     strictSignature(draft) {
-        return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace,
+        return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace, draft.planId, draft.planEntryIds,
             draft.tasks?.map(taskKey), draft.applications ?? null, draft.applicationCheckMode ?? "automatic", draft.manualApplicationReviewAcknowledged === true]);
     }
     async reviewStrict(draft) {
@@ -14332,11 +14990,6 @@ class HubOathService {
         const host = this.plugin.nativeTaskHost;
         return !!host && (ref ? host.matches(ref) && (host.nativeTasks.availabilityFor?.(ref) ?? host.nativeTasks.availability()) === "current" : host.nativeTasks.availability() === "current");
     }
-    workspaces(type) {
-        const wizard = this.plugin.projectWizard;
-        return type === "resource" ? wizard.getResourceTypes() :
-            wizard.getProjectRecords().filter(context => context.status === "active");
-    }
     resolveWorkspace(ref, eligible = true) {
         if (!validWorkspace(ref)) return null;
         const wizard = this.plugin.projectWizard;
@@ -14344,24 +14997,86 @@ class HubOathService {
         if (!sameWorkspace(ref, workspaceRef(context)) || !this.app.vault.getAbstractFileByPath(context.path)) return null;
         return eligible && ref.type === "project" && context.status !== "active" ? null : context;
     }
-    get workspace() { return this.resolveWorkspace(this.current?.workspace, false); }
+    get focus() {
+        const oath=this.current;
+        if(!oath)return null;
+        const handoff=this.active?this.plugin.globalPlan?.focusHandoff?.(oath.id):null;
+        return handoff?{...oath,planId:handoff.planId,...this.focusSelection(handoff.entries)}:oath;
+    }
+    get focusWorkspaces(){const focus=this.focus;return focus?.workspaces??(focus?.workspace?[focus.workspace]:[]);}
+    get workspace(){return this.focusWorkspaces.map(ref=>this.resolveWorkspace(ref,false)).find(Boolean)??null;}
+    commitmentDeadline(){
+        const oath=this.current;
+        if(!this.committed||this.fulfilled)return null;
+        return (this.active?oath.startedAt:oath.scheduledAt)+oath.durationMs;
+    }
+    durationLimit(draft){
+        const start=draft.start==="scheduled"?draft.scheduledAt:this.now();
+        if(!Number.isFinite(start))return Infinity;
+        const next=this.plugin.globalPlan?.nextScheduledTime?.()??Infinity;
+        return Math.max(0,next-start);
+    }
+    async focusChanged(){
+        this.work=(this.focus?.tasks??[]).map(ref=>({ref,task:this.work.find(item=>taskKey(item.ref)===taskKey(ref))?.task??null}));
+        this.emit();
+        void this.refresh();
+        const context=this.plugin.workspaceModes?.currentContext?.();
+        if(context&&!this.canOpen(context,false)){
+            try{await this.enterWorkspace();}
+            catch(error){this.error(error);}
+        }
+    }
     ownsTask(ref, task) { return sameWorkspace(ref, task.nativeReference?.owner); }
-    workspaceTasks(ref) {
-        this.ensureCommittedRead();
-        if (!this.resolveWorkspace(ref) || !this.ready(ref)) return [];
-        const panel = this.taskPanels.get(JSON.stringify([ref.type,ref.id])), snapshot = panel?.snapshot();
-        if (snapshot?.availability !== "current") return [];
-        const groups = taskGroups(snapshot.tasks.filter(task => !task.completed && !task.nativeReadOnly), new Date(this.now()));
-        return [...groups.active,...groups.future];
+    activePlan() {
+        const plan = this.plugin.globalPlan?.active();
+        return plan?.content.entries.length && this.now() < Date.parse(plan.endsAt) ? plan : null;
+    }
+    selectedIds(draft,plan){
+        const entries=plan.content.entries,ids=new Set(draft.planEntryIds??[]);
+        const tasks=new Map(entries.filter(entry=>entry.kind==="task").map(entry=>[taskKey(entry.reference),entry.id]));
+        for(const task of draft.tasks??[])ids.add(tasks.get(taskKey(task)));
+        return ids;
+    }
+    focusSelection(entries, resolved=[]){
+        const live=new Map(resolved.map(item=>[item.entry.id,item]));
+        const scopes=new Map(),tasks=[],files=[];
+        const add=ref=>{if(validWorkspace(ref))scopes.set(JSON.stringify([ref.type,ref.id]),{type:ref.type,id:ref.id});};
+        const planItems=entries.map(entry=>{
+            const item=live.get(entry.id),ref=entry.reference,label=item?.label??entry.lastKnownLabel??"Unavailable item";
+            if(entry.kind==="task"){
+                const owner=item?.task?.nativeReference?.owner??ref.ownerHint;
+                add(owner);
+                tasks.push({id:ref.taskId,authorityId:ref.authorityId,owner,text:label});
+            }else if(entry.kind==="workspace")add(ref);
+            else {
+                add(entry.intendedContext??ref.sourceWorkspace);
+                if(!entry.unavailableReason)files.push(ref.path);
+            }
+            return {id:entry.id,kind:entry.kind,label};
+        });
+        const workspaces=[...scopes.values()];
+        return {workspaces,workspace:workspaces[0]??null,planItems,tasks,files};
+    }
+    async readPlanItems(plan){
+        if(!plan)return [];
+        const entries=plan.content.entries;
+        if(this.plugin.globalPlan.references)return this.plugin.globalPlan.references.resolve(entries);
+        return entries.map(entry=>({entry,label:entry.lastKnownLabel}));
+    }
+    planRequirement(draft) {
+        const p = this.activePlan();
+        if (!p || draft.planId !== p.id) return "An active Plan with at least one item is required to take an Oath.";
+        if (draft.start === "scheduled" && draft.scheduledAt >= Date.parse(p.endsAt)) return "Schedule the Oath before the active Plan day ends.";
+        const entries = new Set(p.content.entries.map(entry=>entry.id));
+        if ([...this.selectedIds(draft,p)].some(id=>!entries.has(id))) return "Selected items changed in the active Plan. Review your selection.";
+        return "";
     }
     setupRequirements(draft) {
-        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
+        const planned = this.planRequirement(draft);
         return oathRequirements(draft, this.now()).map(field => {
-            if (field.key === "Workspace" && field.complete && !this.resolveWorkspace(draft.workspace))
-                return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
-            if (field.key === "Tasks" && !this.ready(draft.workspace)) return { ...field, complete: false, error: "Wait for native tasks to finish loading." };
-            if (field.key === "Tasks" && field.complete && draft.tasks.some(task => !available.has(taskKey(task))))
-                return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
+            if (field.key === "Tasks" && planned) return { ...field, complete: false, error: planned };
+            if(field.key==="Duration"&&field.complete&&draft.durationMs>this.durationLimit(draft))
+                return {...field,complete:false,error:"The minimum Oath duration must end before or at the next scheduled Plan."};
             return field;
         });
     }
@@ -14371,26 +15086,24 @@ class HubOathService {
         if (missing) throw Error(missing.error);
     }
     projectWorkspaceForPath(path) {
-        if (!this.active || this.current.workspace?.type !== "project" || typeof path !== "string") return null;
-        const project = this.workspace;
-        if (!project) return null;
+        if (!this.active || typeof path !== "string") return null;
         const contains = root => path === root || path.startsWith(root + "/");
-        if (contains(project.root)) return project;
-        // Resolve the live relationship by stable folder ID on every check.
-        // Renames, new shares and detachments must not leave a cached allowance.
-        const ids = project.resourceFolderIds ?? [];
-        return ids.length && this.plugin.projectWizard.getResourceFolders(ids).some(folder => contains(folder.path))
-            ? project : null;
+        return this.focusWorkspaces.filter(ref=>ref.type==="project").map(ref=>this.resolveWorkspace(ref,false)).find(project=>{
+            if(!project)return false;
+            const ids=project.resourceFolderIds??[];
+            return contains(project.root)||(ids.length&&this.plugin.projectWizard.getResourceFolders(ids).some(folder=>contains(folder.path)));
+        })??null;
     }
     canOpen(reference, notify = true) {
         if (!this.active || !reference) return true;
         const wizard = this.plugin.projectWizard;
         const path = typeof reference === "string" ? reference : reference.path;
+        if(this.focus?.files?.includes(path))return true;
         if (this.projectWorkspaceForPath(path)) return true;
         const context = typeof reference === "object" && workspaceRef(reference) ? reference :
             wizard.getResourceById(path) || wizard.getResourceForPath(path) ||
             wizard.getProjectById(path) || wizard.getProjectForPath(path);
-        if (!context || sameWorkspace(this.current.workspace, workspaceRef(context))) return true;
+        if (!context || this.focusWorkspaces.some(ref=>sameWorkspace(ref,workspaceRef(context)))) return true;
         if (notify) this.notice("Locked during this Oath");
         return false;
     }
@@ -14408,7 +15121,12 @@ class HubOathService {
     async enterWorkspace() {
         const context = this.workspace;
         if (context) await this.plugin.workspaceModes?.openProjectFull(context);
+        else if(this.focus?.files?.[0]){
+            const file=this.app.vault.getAbstractFileByPath(this.focus.files[0]);
+            if(file)await this.app.workspace?.getLeaf(false)?.openFile(file);
+        }else await this.plugin.workspaceModes?.openHome();
     }
+    hasFocusTarget(){return !!(this.workspace||this.focus?.files?.length||this.plugin.globalPlan?.focusHandoff?.(this.current?.id));}
     onChange(callback, clock = false) { const set = clock ? this.clockListeners : this.listeners; set.add(callback); return () => set.delete(callback); }
     notify(listeners) { for (const callback of listeners) { try { callback(); } catch (error) { console.error("Oath view update failed", error); } } }
     emit() { this.notify(this.listeners); this.tickDisplay(); }
@@ -14426,9 +15144,9 @@ class HubOathService {
         try {
             if (this.active && this.isStrict) {
                 await this.recoverStrict();
-                if (this.active && this.workspace) await this.enterWorkspace();
+                if (this.active && this.hasFocusTarget()) await this.enterWorkspace();
             } else if (this.active) {
-                if (!this.workspace) await this.invalidateWorkspace();
+                if (!this.hasFocusTarget()) await this.invalidateWorkspace();
                 else { await this.returnToFullscreen(); await this.enterWorkspace(); }
             }
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
@@ -14463,17 +15181,23 @@ class HubOathService {
         this.committedReadStop?.(); this.committedReadStop = null;
     }
     async resolveWork() {
-        if (!this.committed || !this.ready() || this.disposed || this.readClosed) return false;
+        if (!this.committed || this.disposed || this.readClosed) return false;
         this.ensureCommittedRead();
-        const oath = this.current, revision = this.readRevision ?? 0, sequence = this.readSequence = (this.readSequence ?? 0) + 1;
-        const scope = () => { const context = this.resolveWorkspace(oath.workspace, false); return JSON.stringify(context ? [context.path, context.root] : null); };
-        const signature = scope(), commitment = JSON.stringify([oath.id, oath.workspace, oath.tasks]);
+        const focus = this.focus, revision = this.readRevision ?? 0, sequence = this.readSequence = (this.readSequence ?? 0) + 1;
+        const commitment = JSON.stringify([focus.id, focus.planId, focus.tasks]);
+        const scopes=new Map(focus.tasks.filter(ref=>validWorkspace(ref.owner)).map(ref=>[JSON.stringify(ref.owner),ref.owner]));
+        const results=new Map(await Promise.all([...scopes].map(async ([key,owner])=>{
+            if(!this.ready(owner))return [key,null];
+            try{const runtime=this.plugin.nativeTaskHost.runtime(owner);return [key,{result:await runtime.list(),authority:runtime.info().authority.authorityId}];}
+            catch{return [key,null];}
+        })));
         const current = () => !this.disposed && !this.readClosed && this.committed && sequence === this.readSequence && revision === (this.readRevision ?? 0) &&
-            commitment === JSON.stringify([this.current.id, this.current.workspace, this.current.tasks]);
-        const runtime = this.plugin.nativeTaskHost.runtime(oath.workspace), result = await runtime.list();
+            commitment === JSON.stringify([this.focus.id, this.focus.planId, this.focus.tasks]);
         if (!current()) return false;
-        if (scope() !== signature) { this.needsRead = true; return false; }
-        const work = oath.tasks.map(ref => ({ ref, task: ref.authorityId === runtime.info().authority.authorityId ? result.tasks.find(task=>task.id===ref.id && this.ownsTask(oath.workspace,task)) ?? null : null }));
+        const work=focus.tasks.map(ref=>{
+            const found=results.get(JSON.stringify(ref.owner));
+            return {ref,task:found?.authority===ref.authorityId?found.result.tasks.find(task=>task.id===ref.id&&this.ownsTask(ref.owner,task))??null:null};
+        });
         this.readDiagnostics = [];
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
         this.work = work;
@@ -14496,9 +15220,13 @@ class HubOathService {
         if (this.isStrict && this.active && !this.strict.owns(this.current.id, this.current.strictSessionId)) {
             await this.recoverStrict(); return;
         }
-        if (this.isStrict && this.active && !this.workspace) await this.invalidateWorkspace();
+        if (this.isStrict && this.active && !this.hasFocusTarget()) await this.invalidateWorkspace();
         const starting = this.current.state === "scheduled" && this.now() >= this.current.scheduledAt;
-        const changed = readTasks || starting ? await this.resolveWork() : false;
+        let changed = false;
+        if (readTasks || starting) {
+            try { changed = await this.resolveWork(); }
+            catch (error) { console.error("Could not refresh Oath tasks", error); }
+        }
         if (starting) await this.activate();
         const fulfilled = await this.markFulfilled();
         if (this.isStrict && this.active && this.now() - (this.current.lastObservedAt ?? this.current.startedAt) >= 30000)
@@ -14507,7 +15235,7 @@ class HubOathService {
     }
     captureFulfilment() {
         if (!this.active || this.current.fulfilledAt != null) return;
-        const at = fulfilmentTime(this.current, this.work, this.now());
+        const at = fulfilmentTime(this.current, this.now());
         if (at != null && this.pendingFulfilment?.id !== this.current.id) this.pendingFulfilment = { id: this.current.id, at };
     }
     async markFulfilled() {
@@ -14521,62 +15249,72 @@ class HubOathService {
         this.emit(); return true;
     }
     async activate() {
+        if (!await this.checkStartWindow()) return false;
         if (this.isStrict) return this.activateStrict();
-        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
+        if (!this.hasFocusTarget()) { await this.invalidateWorkspace(); return false; }
         const owned = await this.fullscreen.enter();
         if (!this.fullscreen.isFull() && !owned) throw Error("Enforced fullscreen is unavailable on this device.");
         try {
-            if (!this.resolveWorkspace(this.current.workspace)) { await this.invalidateWorkspace(); return false; }
+            if (!await this.checkStartWindow()) { await this.fullscreen.exit();return false; }
+            if (!this.hasFocusTarget()) { await this.invalidateWorkspace(); return false; }
             await this.persist({ ...this.current, state: "active", startedAt: this.now(), fullscreenOwned: owned });
         } catch (error) { await this.fullscreen.exit(); throw error; }
         this.plugin.reportEligibility?.observe(this.workspace, "oath-started");
         await this.enterWorkspace();
         this.emit();
     }
+    async checkStartWindow(){
+        const oath=this.current,p=this.activePlan();
+        if(!oath?.planId||p?.id===oath.planId&&oath.durationMs<=this.durationLimit({start:"now"}))return true;
+        await this.persist(null);
+        this.work=[];
+        this.emit();
+        this.notice("The Oath could not begin within its Plan's available time.");
+        return false;
+    }
     take(draft) {
-        if (draft.mode === "strict") draft = { ...draft, workspace: { ...draft.workspace },
-            tasks: draft.tasks?.map(task => ({ ...task })), applications: draft.applications?.slice(), strictConfirmation: { ...draft.strictConfirmation } };
+        draft = JSON.parse(JSON.stringify(draft));
         return this.enqueue(async () => {
             if (this.committed) throw Error("There is already an active or scheduled Oath on this device.");
             this.validateDraft(draft);
-            let policy = strictPolicy(draft, this.strictApplications);
-            if (policy.mode === "strict") {
-                const review = this.strictReviews.get(draft.strictConfirmation?.nonce);
-                if (!this.strictEnabled || !this.strict.enabled || !review || review.expires < this.now() || review.signature !== this.strictSignature(draft) || draft.strictConfirmation.version !== review.policy.confirmationVersion)
-                    throw Error("Review and confirm the Strict Oath restrictions before taking it.");
-                policy = JSON.parse(JSON.stringify(review.policy));
-                const preflight = await this.strict.preflight(policy);
-                if (draft.start !== "scheduled" && !preflight.ready) {
-                    this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
-                    throw Error(preflight.blockers.length ? "Resolve the possible non-permitted applications or confirm manual review, then retry." : preflight.warnings.join(" "));
-                }
-            }
-            if (!this.ready(draft.workspace)) throw Error("Wait for native tasks to finish loading.");
-            const runtime = this.plugin.nativeTaskHost.runtime(draft.workspace), snapshot = await runtime.list(), seen = new Set();
-            const refs = (draft.tasks ?? []).map(selected => {
-                const ref = selected.nativeReference, task = snapshot.tasks.find(task=>task.id===ref?.taskId);
-                if (!task || task.completed || task.nativeReadOnly || !this.ownsTask(draft.workspace,task) || task.nativeReference.authorityId!==ref.authorityId || task.nativeReference.taskRevision!==ref.taskRevision) throw Error("A selected native task changed. Refresh the Oath selection.");
-                if (seen.has(task.id)) throw Error("Select each task once.");seen.add(task.id);
-                return { id:task.id,authorityId:ref.authorityId,owner:{...ref.owner},text:task.text };
-            });
-            if (!this.resolveWorkspace(draft.workspace)) throw Error("The selected workspace is no longer available.");
-            const now = this.now();
-            await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
-                scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
-                durationMs: draft.durationMs, fulfilledAt: null, workspace: workspaceRef(this.resolveWorkspace(draft.workspace)),
-                tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false,
-                ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
-            this.strictReviews.clear();
-            this.work = refs.map(ref=>({ref,task:snapshot.tasks.find(task=>task.id===ref.id)}));
-            try {
-                if (draft.start !== "scheduled") { await this.activate(); await this.markFulfilled(); }
-            } catch (error) {
-                // The commitment was already saved. Reconciliation retries a
-                // failed state transition; do not invite taking a second Oath.
-                this.error(error);
-            }
-            this.emit();
+            return this.plugin.globalPlan.withOathPlan(draft.planId, plan => this.commitPlanOath(draft, plan));
         });
+    }
+    async commitPlanOath(draft, plan) {
+        this.validateDraft(draft);
+        let policy = strictPolicy(draft, this.strictApplications);
+        if (policy.mode === "strict") {
+            const review = this.strictReviews.get(draft.strictConfirmation?.nonce);
+            if (!this.strictEnabled || !this.strict.enabled || !review || review.expires < this.now() || review.signature !== this.strictSignature(draft) || draft.strictConfirmation.version !== review.policy.confirmationVersion)
+                throw Error("Review and confirm the Strict Oath restrictions before taking it.");
+            policy = JSON.parse(JSON.stringify(review.policy));
+            const preflight = await this.strict.preflight(policy);
+            if (draft.start !== "scheduled" && !preflight.ready) {
+                this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
+                throw Error(preflight.blockers.length ? "Resolve the possible non-permitted applications or confirm manual review, then retry." : preflight.warnings.join(" "));
+            }
+        }
+        const resolved=await this.readPlanItems(plan);
+        this.validateDraft(draft);
+        const selected=this.selectedIds(draft,plan);
+        const selection=this.focusSelection(plan.content.entries.filter(entry=>selected.has(entry.id)),resolved);
+        const now = this.now();
+        await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
+            scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
+            durationMs: draft.durationMs, fulfilledAt: null, planId: plan.id,...selection,
+            state: "scheduled", completedAt: null, fullscreenOwned: false,
+            ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
+        this.strictReviews.clear();
+        const tasks=new Map(resolved.filter(item=>item.task).map(item=>[taskKey(item.task),item.task]));
+        this.work=selection.tasks.map(ref=>({ref,task:tasks.get(taskKey(ref))??null}));
+        try {
+            if (draft.start !== "scheduled") { await this.activate(); await this.markFulfilled(); }
+        } catch (error) {
+            // The commitment was already saved. Reconciliation retries a
+            // failed state transition; do not invite taking a second Oath.
+            this.error(error);
+        }
+        this.emit();
     }
     async #finish(state, completedAt = this.now()) {
         const record = { ...this.current, state, completedAt, fullscreenOwned: false };
@@ -14588,6 +15326,7 @@ class HubOathService {
         }
         else await this.fullscreen.exit();
         this.work = []; this.emit(); this.notice(state === "fulfilled" ? "Oath fulfilled." : "Oath broken.");
+        await this.plugin.globalPlan?.ensureLifecycle?.().catch(error=>this.error(error));
         
     }
     // Every UI/native exit request goes here. Only an explicit destructive
@@ -14620,13 +15359,14 @@ class HubOathService {
     async activateStrict() {
         if (this.now() < (this.nextStrictAttempt ?? 0)) return false;
         this.nextStrictAttempt = this.now() + 5000;
-        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
+        if (!this.hasFocusTarget()) { await this.invalidateWorkspace(); return false; }
         const oath = this.current;
         try {
             const prepared = await this.strict.prepare(oath);
             if (!prepared.ready) { this.strictStatus = { ...prepared.preflight, status: "waiting" }; this.emit(); return false; }
             if (this.disposed) { await this.strict.release(oath.id); return false; }
-            if (!this.resolveWorkspace(oath.workspace)) { await this.strict.release(oath.id); await this.invalidateWorkspace(); return false; }
+            if (!await this.checkStartWindow()) { await this.strict.release(oath.id);return false; }
+            if (!this.hasFocusTarget()) { await this.strict.release(oath.id); await this.invalidateWorkspace(); return false; }
             await this.persist({ ...oath, state: "active", startedAt: this.now(), lastObservedAt: this.now(), strictSessionId: prepared.sessionId, fullscreenOwned: false });
             this.strict.commit(oath.id);
         } catch (error) {
@@ -14728,7 +15468,7 @@ module.exports = { PhaseTaskRead, taskKey };
 "use strict";
 const {clone}=__hubRequire("lib/domain/global-plan.js");
 class PlanDraft {
- constructor(storage,vault){this.storage=storage;this.key="itacan-plan-draft:"+vault;}
+ constructor(storage,vault,namespace="itacan-plan-draft"){this.storage=storage;this.key=namespace+":"+vault;}
  read(){const text=this.storage.getItem(this.key);return text?JSON.parse(text):null;}
  put(record){this.storage.setItem(this.key,JSON.stringify(clone(record)));}
  clear(){this.storage.removeItem(this.key);}
@@ -14739,6 +15479,7 @@ module.exports={PlanDraft};
 "lib/services/plan-references.js": function (module, exports, __hubRequire) {
 "use strict";
 const {entryFor,refOf,clone}=__hubRequire("lib/domain/global-plan.js");
+const {sameOrInside}=__hubRequire("lib/domain/plan-relevance.js");
 const same=(a,b)=>a?.type===b?.type&&a?.id===b?.id;
 class PlanReferences {
  constructor(plugin,plan){this.plugin=plugin;this.plan=plan;this.known=new Map();this.verified=false;this.tasks=plugin.nativeTaskHost.nativeTasks.createReferenceRead({component:plugin,changed:()=>plan.emit()});
@@ -14751,24 +15492,209 @@ class PlanReferences {
  taskEntry(task){return entryFor("task",{authorityId:task.nativeReference.authorityId,taskId:task.id,ownerHint:task.owner},{lastKnownLabel:task.text});}
  fileEntry(file,context){const source=this.plugin.projectWizard.getContextForPath(file.path);return entryFor("file",{path:file.path,sourceWorkspace:source?refOf(source):null},{intendedContext:context??(source?refOf(source):undefined),lastKnownLabel:file.name});}
  workspaceEntry(w){return entryFor("workspace",refOf(w),{lastKnownLabel:w.name??w.label});}
- observe(stage,operationId,intent,result){try{if(stage==="prepared"){const saved=this.plan.pendingFile?.operationId===operationId?this.plan.pendingFile.intent:null;const tracked=saved??{...clone(intent),planBindings:this.plan.referenceEntries().filter(e=>e.kind==="file"&&(e.reference.path===intent.from||e.reference.path.startsWith(intent.from+"/"))).map(e=>({id:e.id,path:e.reference.path}))};this.known.set(operationId,tracked);this.plan.pendingFile={operationId,intent:tracked};this.plan.checkpoint();}else if(stage==="cancelled"){this.known.delete(operationId);if(this.plan.pendingFile?.operationId===operationId){this.plan.pendingFile=null;this.plan.checkpoint();}}else{if(intent&&!this.known.has(operationId))this.known.set(operationId,clone(intent));void this.audit().catch(error=>{this.verified=false;console.error("Plan reference audit",error);this.plan.emit();});}}catch(error){console.error("Plan observer",error);}}
+ observe(stage,operationId,intent){
+  try{
+   if(stage==="prepared"){
+    const saved=this.plan.pendingFile?.operationId===operationId?this.plan.pendingFile.intent:null;
+    const tracked=saved??{...clone(intent),planBindings:this.plan.referenceEntries()
+     .filter(entry=>entry.kind==="file"&&sameOrInside(entry.reference.path,intent.from))
+     .map(entry=>({id:entry.id,path:entry.reference.path}))};
+    this.known.set(operationId,tracked);
+    this.plan.pendingFile={operationId,intent:tracked};
+    this.plan.checkpoint();
+   }else if(stage==="cancelled"){
+    this.known.delete(operationId);
+    if(this.pending?.operationId===operationId)this.pending=null;
+    if(this.plan.pendingFile?.operationId===operationId){
+     this.plan.pendingFile=null;
+     this.plan.checkpoint();
+    }
+   }else{
+    if(intent&&!this.known.has(operationId))this.known.set(operationId,clone(intent));
+    const current=this.auditing;
+    const read=current?current.catch(()=>{}).then(()=>this.audit()):this.audit();
+    void read.catch(error=>console.error("Plan reference audit",error));
+   }
+  }catch(error){console.error("Plan observer",error);}
+ }
+ fileOperationPending(path){
+  return [...this.known.values(),this.pending?.intent].some(intent=>intent&&intent.kind!=="copy"&&sameOrInside(path,intent.from));
+ }
  async audit(){if(this.auditing)return this.auditing;this.auditing=this.auditInside().catch(error=>{this.verified=false;this.plan.emit();throw error;}).finally(()=>{this.auditing=null;});return this.auditing;}
  async auditInside(){const authority=this.plugin.nativeTaskHost.runtime(this.plugin.nativeTaskHost.nativeTasks.owners[0]).info().authority.authorityId;let cursor=this.plan.draft.fileOperationCursor;const wrong=cursor&&cursor.authorityId!==authority;
   let page=await this.plugin.nativeTaskHost.files.request({action:"receiptsSince",cursor:wrong?null:cursor});
   if(!cursor&&(!this.plan.referenceEntries().some(e=>e.kind==="file")||page.head.sequence===0)){this.plan.mutateReferences(p=>p.fileOperationCursor={...page.head,authorityId:authority});this.pending=page.pending;this.verified=true;this.plan.emit();return;}
   if(wrong||!page.valid||!cursor){this.plan.mutateReferences(p=>{for(const e of p.entries)if(e.kind==="file")e.unavailableReason="unresolved";p.fileOperationCursor={...page.head,authorityId:authority};});this.pending=page.pending;this.verified=true;this.plan.emit();return;}
   do{for(const receipt of page.receipts){const intent=this.known.get(receipt.operationId)??(this.plan.pendingFile?.operationId===receipt.operationId?this.plan.pendingFile.intent:null);
-    this.plan.mutateReferences(p=>{if(receipt.fileOperation&&receipt.kind!=="copy")for(const e of p.entries){if(e.kind!=="file")continue;if(!intent){e.unavailableReason="unresolved";continue;}const old=e.reference.path;if(intent.planBindings&&!intent.planBindings.some(b=>b.id===e.id&&b.path===old))continue;if(old!==intent.from&&!old.startsWith(intent.from+"/"))continue;if(receipt.kind==="trash"){if(!this.plugin.app.vault.getAbstractFileByPath(old))e.unavailableReason="deleted";}else if(!receipt.partial){e.reference.path=intent.to+old.slice(intent.from.length);const owner=this.plugin.projectWizard.getContextForPath(e.reference.path);e.reference.sourceWorkspace=owner?refOf(owner):null;}}p.fileOperationCursor={authorityId:authority,operationId:receipt.operationId,sequence:receipt.sequence};});
+    this.plan.mutateReferences(p=>{
+     if(receipt.fileOperation&&!receipt.cancelled&&receipt.kind!=="copy")for(const entry of p.entries){
+      if(entry.kind!=="file"||entry.unavailableReason)continue;
+      if(!intent){entry.unavailableReason="unresolved";continue;}
+      const path=entry.reference.path;
+      if(intent.planBindings&&!intent.planBindings.some(binding=>binding.id===entry.id&&binding.path===path))continue;
+      if(!sameOrInside(path,intent.from))continue;
+      if(receipt.partial){
+       entry.unavailableReason=receipt.kind==="trash"&&!this.plugin.app.vault.getAbstractFileByPath(path)?"deleted":"unresolved";
+      }else if(receipt.kind==="trash"){
+       // A confirmed trash receipt records the old file, even if the path has been reused.
+       entry.unavailableReason="deleted";
+      }else{
+       entry.reference.path=intent.to+path.slice(intent.from.length);
+       const owner=this.plugin.projectWizard.getContextForPath(entry.reference.path);
+       entry.reference.sourceWorkspace=owner?refOf(owner):null;
+      }
+     }
+     p.fileOperationCursor={authorityId:authority,operationId:receipt.operationId,sequence:receipt.sequence};
+    });
     this.known.delete(receipt.operationId);if(this.plan.pendingFile?.operationId===receipt.operationId)this.plan.pendingFile=null;
    }if(!page.more)break;page=await this.plugin.nativeTaskHost.files.request({action:"receiptsSince",cursor:this.plan.draft.fileOperationCursor});}while(true);
   this.pending=page.pending;this.verified=true;this.plan.checkpoint();this.plan.emit();
  }
- async resolve(entries=this.plan.draft.entries){const taskEntries=entries.filter(e=>e.kind==="task"),tasks=await this.tasks.read(taskEntries.map(e=>e.reference)).catch(()=>taskEntries.map(()=>({availability:"unavailable"})));let ti=0;return entries.map(entry=>{if(entry.kind==="task"){const result=tasks[ti++];return {entry,...result,label:result.task?.text??entry.lastKnownLabel,context:this.workspace(result.task?.owner??entry.reference.ownerHint)};}if(entry.kind==="workspace"){const context=this.workspace(entry.reference);return {entry,context,label:context?.name??context?.label??entry.lastKnownLabel,availability:context?"current":"missing"};}const file=this.plugin.app.vault.getAbstractFileByPath(entry.reference.path),pending=this.pending?.intent;const affected=pending&&(entry.reference.path===pending.from||entry.reference.path.startsWith(pending.from+"/"));const fileState=entry.unavailableReason??(!this.verified||affected?"temporary":!file||Array.isArray(file.children)?"missing":"available");return {entry,file,context:this.workspace(entry.intendedContext),label:file?.name??entry.lastKnownLabel,fileState,availability:fileState==="available"?"current":fileState==="temporary"?"unavailable":"missing"};});}
- async open(item){if(item.entry.kind==="file")await this.audit();const [fresh]=await this.resolve([item.historical?(this.plan.readPlan(item.planId)?.navigation.find(e=>e.id===item.entry.id)??item.entry):(this.plan.draft.entries.find(e=>e.id===item.entry.id)??item.entry)]);if(fresh.availability!=="current")throw Error("This reference is unavailable. Retry or relink it in Plan.");if(fresh.entry.kind==="task")return this.tasks.edit(fresh.task);const path=fresh.entry.kind==="file"?fresh.entry.reference.path:fresh.context.path;if(this.plugin.oath?.canOpen(path)===false)return;if(fresh.entry.kind==="workspace"&&this.plugin.workspaceModes)return this.plugin.workspaceModes.openProjectFull(fresh.context);if(this.plugin.workspaceModes)return this.plugin.workspaceModes.openProjectNote(path);await this.plugin.app.workspace.getLeaf(false).openFile(this.plugin.app.vault.getAbstractFileByPath(path));}
+ async resolve(entries=this.plan.draft.entries){
+  const taskEntries=entries.filter(entry=>entry.kind==="task");
+  const tasks=taskEntries.length?await this.tasks.read(taskEntries.map(entry=>entry.reference))
+   .catch(()=>taskEntries.map(()=>({availability:"unavailable"}))):[];
+  let taskIndex=0;
+  return entries.map(entry=>{
+   if(entry.kind==="task"){
+    const result=tasks[taskIndex++];
+    return {entry,...result,label:result.task?.text??entry.lastKnownLabel,context:this.workspace(result.task?.owner??entry.reference.ownerHint)};
+   }
+   if(entry.kind==="workspace"){
+    const context=this.workspace(entry.reference);
+    return {entry,context,label:context?.name??context?.label??entry.lastKnownLabel,availability:context?"current":"missing"};
+   }
+   const path=entry.reference.path,file=this.plugin.app.vault.getAbstractFileByPath(path);
+   const fileState=entry.unavailableReason??(!this.verified||this.fileOperationPending(path)?"temporary":
+    !file||Array.isArray(file.children)?"missing":"available");
+   return {entry,file,context:this.workspace(entry.intendedContext),label:file?.name??entry.lastKnownLabel,fileState,
+    availability:fileState==="available"?"current":fileState==="temporary"?"unavailable":"missing"};
+  });
+ }
+ async open(item){if(item.entry.kind==="file")await this.audit();const plan=item.planId&&this.plan.readPlan(item.planId);
+  const entry=(plan?(plan.content?.entries??plan.navigation):this.plan.draft.entries).find(e=>e.id===item.entry.id);
+  if(!entry)throw Error("This reference is no longer in the Plan.");
+  const [fresh]=await this.resolve([entry]);if(fresh.availability!=="current")throw Error("This reference is unavailable. Retry or relink it in Plans.");if(fresh.entry.kind==="task")return this.tasks.edit(fresh.task);const path=fresh.entry.kind==="file"?fresh.entry.reference.path:fresh.context.path;if(this.plugin.oath?.canOpen(path)===false)return;if(fresh.entry.kind==="workspace"&&this.plugin.workspaceModes)return this.plugin.workspaceModes.openProjectFull(fresh.context);if(this.plugin.workspaceModes)return this.plugin.workspaceModes.openProjectNote(path);await this.plugin.app.workspace.getLeaf(false).openFile(this.plugin.app.vault.getAbstractFileByPath(path));}
  async recommendation(){await this.plan.ensureLifecycle();if(!this.plan.active())return null;await this.audit();await this.plan.flush();const committed=clone(this.plan.base);const items=await this.resolve(committed.entries);for(const item of items){if(item.availability!=="current"||item.task?.completed)continue;const context=item.context,path=item.entry.kind==="file"?item.entry.reference.path:context?.path;if(this.plugin.oath?.active&&(item.entry.kind==="task"||this.plugin.oath.canOpen(path,false)===false))continue;const workspaceId=context?(context.contextKind==="resource"?"resource:"+context.resourceType:context.projectId):null;const target=item.entry.kind==="task"?{kind:"native-task",authorityId:item.task.nativeReference.authorityId,taskId:item.task.id,owner:item.task.owner,workspaceId}:item.entry.kind==="file"?{kind:"file",path:item.entry.reference.path,workspaceId}:{kind:"workspace",workspaceId};return {title:item.label,explanation:"From your saved plan.",actionLabel:"Open "+item.label,target,reason:"global-plan"};}if(committed.note||committed.entries.length)return {title:"Your plan",explanation:committed.note.slice(0,300)||"Review your completed or unavailable planned items.",actionLabel:"Review plan",target:{kind:"plan",planId:this.plan.active()?.id},reason:"global-plan"};return null;}
  async candidates(){await this.audit().catch(()=>{this.verified=false;});const tasks=await this.tasks.all().catch(error=>{this.taskError=error;return [];}),workspaces=this.workspaces();return [...tasks.map(t=>({entry:this.taskEntry(t),label:t.text,workspace:t.owner,completed:t.completed,task:t})),...this.plugin.contextSearch.fileSnapshot().files.filter(f=>f.kind==="files").map(f=>({entry:this.fileEntry(f.file),label:f.title,workspace:refOf(f.owner),path:f.path})),...workspaces.map(w=>({entry:this.workspaceEntry(w),label:w.name??w.label,workspace:refOf(w)}))];}
 }
 module.exports={PlanReferences};
+
+},
+"lib/services/plan-relevance.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { derivePlanRelevance, sameOrInside } = __hubRequire("lib/domain/plan-relevance.js");
+const { refOf } = __hubRequire("lib/domain/global-plan.js");
+const { createNativeTaskLocations } = __hubRequire("lib/services/native-task-locations.js");
+
+class PlanRelevance {
+    constructor(plugin) {
+        this.plugin = plugin;
+        this.plan = plugin.globalPlan;
+        this.locations = createNativeTaskLocations(plugin);
+        this.snapshot = derivePlanRelevance(null, [], null);
+        this.listeners = new Set();
+        this.generation = 0;
+        const invalidate = () => this.invalidate();
+        this.plan.subscribe(plugin, invalidate);
+        const stopOath = plugin.oath?.onChange(invalidate);
+        const { vault, metadataCache } = plugin.app;
+        for (const event of ["create", "rename", "delete"]) {
+            if (vault.on) plugin.registerEvent(vault.on(event, invalidate));
+        }
+        if (metadataCache?.on) {
+            const dashboards = new WeakSet(vault.getMarkdownFiles().filter(file => this.workspaceFile(file)));
+            const resourcePaths = new Set(plugin.projectWizard.getResourceTypes().map(resource => resource.path));
+            plugin.registerEvent(metadataCache.on("changed", file => {
+                const wasDashboard = dashboards.has(file);
+                const isDashboard = resourcePaths.has(file.path) || this.workspaceFile(file);
+                if (isDashboard) dashboards.add(file);
+                else if (wasDashboard) dashboards.delete(file);
+                if (isDashboard || wasDashboard) invalidate();
+            }));
+        }
+        plugin.register(() => {
+            this.disposed = true;
+            stopOath?.();
+            this.listeners.clear();
+        });
+        invalidate();
+    }
+
+    workspaceFile(file) {
+        const type = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter?.type;
+        return type === "project" || type === "resource";
+    }
+
+    subscribe(component, callback) {
+        this.listeners.add(callback);
+        const stop = () => this.listeners.delete(callback);
+        component?.register(stop);
+        return stop;
+    }
+
+    publish(snapshot) {
+        if (snapshot.signature === this.snapshot.signature) return;
+        this.snapshot = snapshot;
+        for (const callback of this.listeners) {
+            try { callback(snapshot); }
+            catch (error) { console.error("Updating Plan relevance", error); }
+        }
+    }
+
+    invalidate() {
+        this.generation++;
+        const active = this.plan.active(), oath = this.plugin.oath;
+        if ((active?.id ?? null) !== this.snapshot.planId) {
+            this.publish(derivePlanRelevance(active, [], oath?.active ? oath.focus : null));
+        }
+        if (this.queued || this.disposed) return;
+        this.queued = true;
+        queueMicrotask(() => {
+            this.queued = false;
+            void this.refresh().catch(error => console.error("Resolving Plan relevance", error));
+        });
+    }
+
+    async refresh() {
+        if (this.disposed) return;
+        const generation = this.generation;
+        const active = this.plan.active(), oath = this.plugin.oath;
+        const focus = oath?.active ? oath.focus : null;
+        if (!active?.content.entries.length) {
+            this.publish(derivePlanRelevance(active, [], focus));
+            return;
+        }
+        const { vault } = this.plugin.app, wizard = this.plugin.projectWizard;
+        const available = context => context && !context.deleted && vault.getAbstractFileByPath(context.path);
+        const items = (await this.plan.references.resolve(active.content.entries)).filter(item => {
+            if (item.entry.kind === "workspace" || item.entry.kind === "task") return available(item.context);
+            return true;
+        });
+        if (this.disposed || generation !== this.generation) return;
+        this.publish(derivePlanRelevance(active, items, focus, {
+            fileOwner: path => {
+                const owner = wizard.getContextForPath(path);
+                return available(owner) ? refOf(owner) : null;
+            },
+            intendedProject: (ref, path) => {
+                if (ref?.type !== "project") return null;
+                const project = wizard.getProjectById(ref.id);
+                if (!available(project)) return null;
+                const attached = wizard.getResourceFolders(project.resourceFolderIds ?? []);
+                return attached.some(folder => Array.isArray(vault.getAbstractFileByPath(folder.path)?.children) &&
+                    sameOrInside(path, folder.path)) ? ref : null;
+            },
+            taskLocation: task => {
+                try { return this.locations.resolve(task.nativeReference.owner, task.location); }
+                catch { return null; }
+            }
+        }));
+    }
+}
+
+module.exports = { PlanRelevance };
 
 },
 "lib/services/presets.js": function (module, exports, __hubRequire) {
@@ -14900,7 +15826,6 @@ module.exports = { HubPresets };
 // Reporting eligibility only. No interaction history, duration, or productivity scoring.
 const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
 const { savedReportContext } = __hubRequire("lib/domain/report-context.js");
-const { validateFocusItems } = __hubRequire("lib/domain/focus.js");
 const clone = value => JSON.parse(JSON.stringify(value ?? {}));
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const validScore = n => Number.isInteger(n) && n >= 0 && n <= 4;
@@ -14913,12 +15838,12 @@ function stored(data, date, id) {
 }
 function publish(wizard, data) {
     // Keep unrelated state that may have advanced while persistence was pending.
-    for (const key of ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice", "reportFocusByDate", "pendingFocus"]) {
+    for (const key of ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice"]) {
         if (has(data, key)) { wizard.data[key] = data[key]; if (key in wizard) wizard[key] = data[key]; }
     }
 }
 async function saveProgress(wizard, input) {
-    const { date, entries = [], cutoffs = {}, dismiss = {}, deviceId = wizard.store.deviceId, focus } = input;
+    const { date, entries = [], cutoffs = {}, dismiss = {}, deviceId = wizard.store.deviceId } = input;
     if (!parseLocalISODate(date) || date > localISODate()) throw Error("Choose today or an earlier date.");
     const seen = new Set();
     for (const entry of entries) {
@@ -14926,7 +15851,6 @@ async function saveProgress(wizard, input) {
         if (has(entry, "rating") && entry.rating !== null && !validScore(entry.rating)) throw Error("Invalid progress rating.");
         if (has(entry, "summary") && (typeof entry.summary !== "string" || entry.summary.length > 1000)) throw Error("Reflection must contain at most 1000 characters.");
     }
-    const focusItems = focus === undefined ? undefined : validateFocusItems(focus);
     const mutate = data => {
         for (const entry of entries) {
             const previous = stored(data, date, entry.id);
@@ -14952,10 +15876,6 @@ async function saveProgress(wizard, input) {
                     [entry.id.startsWith("resource:") ? "resourceName" : "projectName"]: previous.log?.resourceName ?? previous.log?.projectName ?? workspace?.label ?? workspace?.name ?? "Unavailable workspace",
                     timestamp: previous.log?.timestamp || Date.now(), updatedAt: Date.now() };
             }
-        }
-        if (focusItems !== undefined) {
-            data.reportFocusByDate = { ...data.reportFocusByDate, [date]: { items: focusItems } };
-            if (date === localISODate()) data.pendingFocus = { sourceDate: date, items: focusItems };
         }
         const buckets = data.reportEngagementByDevice ??= {};
         const days = buckets[deviceId] ??= {};
@@ -16199,6 +17119,7 @@ module.exports = { taskWorkspaces, taskLocations };
 },
 "lib/services/task-sync.js": function (module, exports, __hubRequire) {
 "use strict";
+const { mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
 
@@ -16208,7 +17129,7 @@ function mountTaskSync(plugin,host,service){
  const labels={starting:'starting',syncing:'working',current:'ready',waiting:'waiting for earlier changes',conflict:'review conflicts','enrollment-required':'review enrollment',error:'needs attention',disabled:'off'};
  async function refresh(){if(closed||loading)return;loading=true;try{status=await service.syncStatus();await host.setSyncStatus(status);const gitError=status.gitProjects?.find(p=>p.state==='error');const scopeError=status.gitProjects?.find(p=>p.state==='error'&&p.code==='GIT_SERIES_SCOPE');const scopeKey=scopeError?scopeError.projectId+':'+scopeError.error:null;if(scopeKey&&scopeKey!==scopeNotice)ownNoticeColors(new Notice('File and task changes remain committed locally. Shared Project publication is paused because a recurring series spans private and shared owners; other changes in that Project stream may also wait. Open Task synchronization for details.',15000));scopeNotice=scopeKey;item.setText('Task sync: '+(gitError?'Git needs attention':labels[status.state]??status.state));item.title=gitError?.error??status.error??'OneDrive synchronizes personal devices; explicitly shared Projects exchange tasks through your manual Git workflow. Click for details.';}catch{item.setText('Task sync: reconnecting');}finally{loading=false;}}
  class SyncModal extends Modal{
-  async onOpen(){ ownModalColors(this);const body=this.contentEl;body.empty();body.createEl('h2',{text:'Task synchronization'});body.createEl('p',{text:'Task databases stay on each computer. OneDrive carries committed task changes through Work/.itacan-task-sync. Shared Project tasks also travel through their .itacan-tasks folders using your manual Git commits and pulls. Ready means this device has reconciled the files currently available here.'});
+  async onOpen(){ ownModalColors(this);const body=this.contentEl;body.empty();body.createEl('h2',{text:'Task synchronization'});mountModalSeparators(this);body.createEl('p',{text:'Task databases stay on each computer. OneDrive carries committed task changes through Work/.itacan-task-sync. Shared Project tasks also travel through their .itacan-tasks folders using your manual Git commits and pulls. Ready means this device has reconciled the files currently available here.'});
    body.createEl('p',{text:'Status: '+(labels[status.state]??status.state)});if(status.error)body.createEl('p',{text:status.error});for(const project of status.gitProjects??[]){body.createEl('h3',{text:'Git Project: '+(project.path??project.projectId??'configuration')});body.createEl('p',{text:(labels[project.state]??project.state)+(project.error?' ? '+project.error:'')});}
    if(status.state==='enrollment-required'){
     body.createEl('p',{text:'This computer already has independent tasks. Merge preserves their Task identities and History in this database, adds the shared baseline, and publishes these tasks to your other devices. Task identities overlapping the baseline stop enrollment for manual review. Conflicting later changes are preserved for review.'});
@@ -16745,6 +17666,108 @@ function mountTransientEffects(root) {
 module.exports = { mountTransientEffects };
 
 },
+"lib/ui/calendar-events.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { localISODate, formatTime } = __hubRequire("lib/domain/dates.js");
+
+const queries = new WeakMap();
+
+function calendarQuery(provider, from, to) {
+    let ranges = queries.get(provider);
+    if (!ranges) queries.set(provider, ranges = new Map());
+    const key = from.format("YYYY-MM-DD") + "/" + to.format("YYYY-MM-DD");
+    const cached = ranges.get(key);
+    if (cached && (cached.result === undefined && !cached.failed || Date.now() < cached.expires)) return cached;
+    const query = { failed: false, expires: 0 };
+    ranges.set(key, query);
+    while (ranges.size > 24) ranges.delete(ranges.keys().next().value);
+    query.promise = Promise.resolve().then(() => provider.runQuery({
+        from: from.clone().startOf("day"), to: to.clone().endOf("day"),
+        view: "agenda", group: "none", calendars: [], excludeCalendars: [],
+        accounts: [], excludeAccounts: [], fields: ["time", "title"], columns: ["date", "time", "title"],
+        limit: 100, hiddenTitles: [], allDay: "include", hideDeclined: true, hideCancelled: true,
+        use24HourTime: true, dateHeadingFormat: "dddd, D MMMM YYYY", tableDateFormat: "DD/MM/YYYY",
+        descriptionLength: 0, emptyMessage: "Nothing scheduled.", refresh: 0, showRefreshButton: false
+    })).then(result => {
+        query.result = result;
+        query.expires = Date.now() + 60000;
+        return result;
+    }, error => {
+        query.failed = true;
+        throw error;
+    });
+    return query;
+}
+
+function queryCalendarEvents(provider, from, to) {
+    return calendarQuery(provider, from, to).promise;
+}
+
+function renderCalendarEvent(parent, event) {
+    const row = parent.createDiv({ cls: "home-calendar-row hub-calendar-event" });
+    row.createSpan({ cls: "home-calendar-time", text: event.allDay ? "All day" : formatTime(event.start) });
+    const details = row.createDiv({ cls: "home-calendar-info" });
+    details.createSpan({ cls: "home-calendar-title", text: event.title, attr: { title: event.title } });
+    if (event.location) details.createDiv({ cls: "home-calendar-location", text: event.location });
+}
+
+function createCalendarEventReader(app, win, changed) {
+    let current, disposed = false;
+    return {
+        read(days) {
+            const provider = app.plugins?.plugins?.["google-calendar-agenda"];
+            if (!provider?.runQuery || !win.moment) return { days: new Map(), message: "External calendar unavailable." };
+            const from = localISODate(days[0]), to = localISODate(days.at(-1));
+            const key = from + "/" + to;
+            if (current?.key === key && current.provider === provider) return current;
+            const result = current = { key, provider, days: new Map(), message: "Loading calendar events…" };
+            const weeks = [];
+            for (let index = 0; index < days.length; index += 7) {
+                weeks.push([days[index], days[Math.min(index + 6, days.length - 1)]]);
+            }
+            const requested = weeks.map(([start, end]) =>
+                calendarQuery(provider, win.moment(localISODate(start)), win.moment(localISODate(end))));
+            function receive(responses, loading = false) {
+                if (disposed || current !== result) return;
+                result.days.clear();
+                const messages = new Set(), events = [];
+                for (const response of responses) {
+                    if (response.status === "rejected") messages.add("Some calendar events could not be loaded.");
+                    else {
+                        for (const warning of response.value.warnings ?? []) messages.add(String(warning));
+                        events.push(...(response.value.events ?? []));
+                    }
+                }
+                result.message = [...messages].join(" ") || (loading ? "Loading calendar events…" : "");
+                events.sort((a, b) => a.start.valueOf() - b.start.valueOf());
+                for (const event of events) {
+                    const date = event.start.format("YYYY-MM-DD");
+                    if (!result.days.has(date)) result.days.set(date, []);
+                    result.days.get(date).push(event);
+                }
+            }
+            const cached = requested.filter(query => query.result !== undefined);
+            receive(cached.map(query => ({ status: "fulfilled", value: query.result })), cached.length < requested.length);
+            if (cached.length === requested.length) return result;
+            Promise.allSettled(requested.map(query => query.promise)).then(responses => {
+                receive(responses);
+                if (!disposed && current === result) changed();
+            }).catch(() => {
+                if (disposed || current !== result) return;
+                result.message = "Calendar events could not be loaded.";
+                changed();
+            });
+            return result;
+        },
+        reset() { current = null; },
+        dispose() { disposed = true; current = null; }
+    };
+}
+
+module.exports = { queryCalendarEvents, renderCalendarEvent, createCalendarEventReader };
+
+},
 "lib/ui/capture-actions.js": function (module, exports, __hubRequire) {
 "use strict";
 const { action } = __hubRequire("lib/ui/capture-modal.js");
@@ -16956,7 +17979,7 @@ module.exports = { openCaptureAction, createCaptureLocations, operationMode };
 "use strict";
 const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
 
-const { createModalHeader } = __hubRequire("lib/ui/window-title.js");
+const { createModalHeader, mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 const { Modal } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
@@ -17009,6 +18032,9 @@ class CaptureModal extends Modal {
     }
     close() { if (!this.busy) super.close(); }
     finish() { this.busy = false; this.close(); }
+    mountSeparators(footer) {
+        mountModalSeparators(this, { footer });
+    }
     onClose() {
         this.closed = true; this.stop?.(); this.form?.destroy(); this.contentEl.empty();
         this.options.onClose?.();
@@ -17028,6 +18054,7 @@ class CaptureConfirmation extends CaptureModal {
         action(actions, this.options.confirmLabel, null, () => {
             this.resolve?.(true); this.resolve = null; this.close();
         }, this.options.destructive ? "mod-warning" : "mod-cta");
+        this.mountSeparators(actions);
         cancel.focus();
     }
     onClose() { this.resolve?.(false); this.resolve = null; super.onClose(); }
@@ -17966,6 +18993,105 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
 module.exports = { mountContextSearch };
 
 },
+"lib/ui/controls.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Menu } = require("obsidian");
+const { ownMenuColors } = __hubRequire("lib/ui/color-system.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { bindMenuToggle } = __hubRequire("lib/ui/menu-toggle.js");
+const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
+
+function createIconAction(host, label, icon, action) {
+    const button = host.createEl("button", { cls: "hub-button-plain hub-icon-action hub-control-icon",
+        attr: { type: "button", "aria-label": label } });
+    setHubIcon(button.createSpan({ cls: "hub-icon-action-glyph", attr: { "aria-hidden": "true" } }), icon);
+    setHubTooltip(button, label);
+    if (action) button.addEventListener("click", action);
+    return button;
+}
+
+function createPanelAction(host, label, action) {
+    const button = host.createEl("button", { cls: "hub-panel-action hub-panel-add",
+        attr: { type: "button", "aria-label": "Add " + label.toLowerCase(), "aria-haspopup": "dialog" } });
+    setHubIcon(button.createSpan({ attr: { "aria-hidden": "true" } }), "plus");
+    button.createSpan({ text: label });
+    button.addEventListener("click", action);
+    return button;
+}
+
+const projectStatuses = [["active", "Active"], ["future", "Future"], ["shelved", "Shelved"]];
+
+function projectStatusLabels(projects) {
+    return projectStatuses.map(([status, label]) =>
+        label + " (" + projects.filter(project => !project.deleted && project.status === status).length + ")");
+}
+
+// These members may live in different panels or in different dashboards.
+function sizeDashboardButton(button, group, projects = []) {
+    if (!button) return;
+    const labels = group === "top-actions"
+        ? [["Today"], ["Planner"], ["Task", "plus"]]
+        : [...projectStatusLabels(projects).map(label => [label]), ["Project", "plus"], ["Report", "plus"]];
+    let content = button.querySelector(":scope > .hub-button-width-label");
+    if (!content) {
+        content = button.ownerDocument.createElement("span");
+        content.className = "hub-button-width-label";
+        content.append(...button.childNodes);
+        button.append(content);
+        button.classList.add("hub-button-width-member");
+    }
+    const key = JSON.stringify(labels);
+    if (button.dataset.hubWidthLabels === key) return;
+    button.dataset.hubWidthLabels = key;
+    for (const old of button.querySelectorAll(":scope > .hub-button-width-probe")) old.remove();
+    for (const [label, icon] of labels) {
+        const probe = button.createSpan({ cls: "hub-button-width-probe", attr: { "aria-hidden": "true", inert: "" } });
+        if (icon) setHubIcon(probe.createSpan(), icon);
+        probe.createSpan({ text: label });
+    }
+}
+
+function bindChoiceMenu(trigger, { options, selected, choose, label }) {
+    let menu;
+    const stopToggle = bindMenuToggle(trigger, { isOpen: () => !!menu, close: () => menu?.hide() });
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    if (label) disclosureIcons(trigger);
+    function open() {
+        if (menu) { menu.hide(); return; }
+        const active = menu = ownMenuColors(new Menu());
+        for (const [id, title] of options) {
+            active.addItem(item => item.setTitle(title).setChecked(id === selected()).onClick(() => {
+                choose(id);
+                if (label) label.textContent = title;
+            }));
+        }
+        active.onHide(() => {
+            if (menu !== active) return;
+            menu = null;
+            trigger.setAttribute("aria-expanded", "false");
+            const focused = trigger.ownerDocument.activeElement;
+            if (trigger.isConnected && (focused === trigger.ownerDocument.body || active.dom?.contains(focused))) {
+                trigger.focus({ preventScroll: true });
+            }
+        });
+        trigger.setAttribute("aria-expanded", "true");
+        const bounds = trigger.getBoundingClientRect();
+        active.showAtPosition({ x: bounds.left, y: bounds.bottom });
+    }
+    trigger.addEventListener("click", open);
+    return () => {
+        trigger.removeEventListener("click", open);
+        stopToggle();
+        menu?.hide();
+    };
+}
+
+module.exports = { createIconAction, createPanelAction, bindChoiceMenu, projectStatusLabels, sizeDashboardButton };
+
+},
 "lib/ui/daily-brief-control.js": function (module, exports, __hubRequire) {
 "use strict";
 const { setIcon } = require("obsidian");
@@ -18115,10 +19241,8 @@ const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-he
 
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate, formatDate, formatTime, formatDateTime } = __hubRequire("lib/domain/dates.js");
-const { activitySummary, recordedWorkSummary } = __hubRequire("lib/domain/report-context.js");
+const { renderDetailsChevron } = __hubRequire("lib/ui/disclosure.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
-const { renderHistoryIcon } = __hubRequire("lib/ui/dashboard-ui.js");
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
 function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath = "Home.md") {
     const element = parent.createDiv({ cls, text });
@@ -18130,22 +19254,6 @@ function time(parent, timestamp) {
     const date = new Date(Number(timestamp));
     if (!(Number(timestamp) > 0) || !Number.isFinite(date.getTime())) return;
     parent.createEl("time", { cls: "hub-report-time", text: formatTime(date), attr: { datetime: date.toISOString(), title: formatDateTime(date) } });
-}
-
-function sectionIcon(parent, name) {
-    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true", "data-icon": name } });
-    if (name === "rotate-ccw-clock") renderHistoryIcon(icon);
-    else if (name === "goal") setHubIcon(icon, name);
-    else setIcon(icon, name);
-}
-
-function focusSection(parent, heading, items, empty, markdown) {
-    const section = parent.createDiv({ cls: "hub-report-section hub-report-focus" });
-    const label = section.createEl("h3", { cls: "hub-report-section-heading" });
-    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "goal");
-    label.createSpan({ text: heading });
-    if (!items.length) section.createDiv({ cls: "hub-report-empty", text: empty });
-    for (const text of items) reportText(section, text, markdown);
 }
 
 function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component, availability = "current" } = {}) {
@@ -18183,7 +19291,9 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
 
 function renderReportEvidence(parent, context, markdown, component) {
     const disclosure = parent.createEl("details", { cls: "hub-report-recorded-work" });
-    disclosure.createEl("summary", { text: recordedWorkSummary(context) });
+    const summary = disclosure.createEl("summary");
+    renderDetailsChevron(summary);
+    summary.createSpan({ text: "View work done" });
     const body = disclosure.createDiv();
     renderReportEvidenceDetails(body, context, markdown, component);
     for (const oath of context.oaths ?? []) body.createDiv({ cls: "hub-report-evidence-row", text: "Oath fulfilled \u00b7 " + formatTime(new Date(oath.fulfilledAt)) });
@@ -18197,14 +19307,8 @@ function renderReportEvidenceDetails(parent, context, markdown, component) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
         return evidence;
     }
-    const disclosure = evidence.createEl("details", { cls: "hub-report-activity" });
-    const summary = disclosure.createEl("summary");
-    sectionIcon(summary, "rotate-ccw-clock");
-    summary.createSpan({ cls: "hub-report-section-label", text: "Activity summary" });
-    summary.createSpan({ cls: "hub-report-activity-count", text: activitySummary(context.activity) });
-    const chevron = summary.createSpan({ cls: "hub-report-chevron", attr: { "aria-hidden": "true" } });
-    setIcon(chevron, "chevron-right");
-    const entries = disclosure.createDiv({ cls: "hub-report-activity-list" });
+    evidence.createEl("h3", { text: "File and workspace activity" });
+    const entries = evidence.createDiv({ cls: "hub-report-activity-list" });
     const icons = { created: "file", edited: "file-pen-line", deleted: "trash-2", renamed: "pencil-line",
         "project-created": "folder-plus", "project-deleted": "trash-2", "project-renamed": "folder-pen" };
     for (const entry of context.activity) {
@@ -18235,18 +19339,7 @@ function renderDailyReport(parent, day, markdown, plugin, component) {
             report.summary ? "hub-report-text hub-report-summary hub-report-reflection" : "hub-report-empty",
             workspace?.path || workspace?.hubPath || report.path || report.hubPath || "Home.md");
         renderReportEvidence(card, report.context, markdown, component);
-        focusSection(card, "Focus for this day", report.context.focus, "No focus set for this day.", markdown);
-        focusSection(card, "Next focus", day.nextFocus.filter(item => item.projectId === report.projectId)
-            .map(item => item.text), "No next focus recorded.", markdown);
     }
-    // The shared editor can target a workspace with no report (or the other scope).
-    // Retain those intentions once, with their recorded workspace labels.
-    const ids = new Set(day.reports.map(report => report.projectId));
-    const otherFocus = day.nextFocus.filter(item => !ids.has(item.projectId));
-    if (otherFocus.length) focusSection(parent, "Next focus · other workspaces", otherFocus.map(item =>
-        item.projectName ? `${item.projectName}: ${item.text}` : item.text), "", markdown);
-    if (day.sharedFocus?.length) focusSection(parent, "Focus for this day · shared",
-        day.sharedFocus.map(item => item.text), "", markdown);
 }
 
 function reportTitle(date, editing = false) {
@@ -18262,12 +19355,10 @@ class DailyReportModal extends Modal {
         });
         setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted",
             text: "A summary of your work and progress for the day" }));
-        this.contentEl.createDiv({ cls: "hub-project-advancement-divider" });
         this.renderComponent = new Component();
         this.renderComponent.load();
         const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });
         renderDailyReport(this.contentEl, this.day, markdown, this.plugin, this.renderComponent);
-        this.contentEl.addClass("hub-report-footer-layout");
         const actions = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
         layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
         if (this.onEdit) actions.createEl("button", { text: "Edit progress" }).addEventListener("click", () => {
@@ -18278,7 +19369,82 @@ class DailyReportModal extends Modal {
     onClose() { this.renderComponent?.unload(); this.contentEl.empty(); }
 }
 
-module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, renderTaskProgress, focusSection };
+module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, renderTaskProgress };
+
+},
+"lib/ui/dashboard-calendar.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Component } = require("obsidian");
+const { createTaskUi } = __hubRequire("lib/ui/tasks.js");
+const { renderTaskSchedule } = __hubRequire("lib/ui/task-view-calendar.js");
+const { createCalendarEventReader } = __hubRequire("lib/ui/calendar-events.js");
+const { locationBreadcrumb } = __hubRequire("lib/domain/native-task-location.js");
+const { taskKey } = __hubRequire("lib/domain/oath-workspace.js");
+
+function mountDashboardCalendar({ plugin, panel, compact, signal, readItems, reader, availability, onEdit, openTasks }) {
+    const component = new Component();
+    component.load();
+    const host = panel.createDiv({ cls: "hub-dashboard-calendar", attr: { hidden: "" } });
+    const doc = host.ownerDocument;
+    const state = { scheduleView: "upcoming", anchor: new Date() };
+    const pending = new Set();
+    const events = createCalendarEventReader(plugin.app, doc.defaultView, render);
+    const ui = createTaskUi({ app: plugin.app, component, body: host, onEdit, oath: plugin.oath, plan: plugin.globalPlan,
+        planRelevance: plugin.planRelevance, inlineOath: true,
+        mutate: reader?.actions?.mutate, editTask: reader?.actions?.editTask });
+    let active = false;
+
+    function render() {
+        if (!active || !ui.beginRender(render)) return;
+        const focused = doc.activeElement;
+        const control = host.contains(focused) ? focused.dataset.scheduleControl : null;
+        const row = host.contains(focused) ? focused.closest("[data-task-key]") : null;
+        const focusIndex = row ? [...row.querySelectorAll("input, button")].indexOf(focused) : -1;
+        const scrollTop = host.querySelector(".hub-task-local-scroll")?.scrollTop ?? 0;
+        const scrollLeft = host.querySelector(".hub-task-local-scroll")?.scrollLeft ?? 0;
+        const items = readItems();
+        const owners = new Map(items.map(item => [taskKey(item.task), item.owner.name ?? item.owner.label]));
+        const status = availability();
+        host.empty();
+        if (status !== "current") host.createDiv({ cls: "hub-task-view-note", attr: { role: "status" },
+            text: status === "loading" ? "Loading tasks…" : "Some tasks are unavailable." });
+        renderTaskSchedule(host, items.map(item => item.task).filter(task => !task.completed), {
+            ui, pending, locationScope: null, now: new Date(), embeddedSchedule: true, events, openTasks,
+            create: options => plugin.openTaskCreator({ ...options, locationWorkspace: null }),
+            render, apply: onEdit, toggleTask: (task, done) => reader.toggle(task, done),
+            focusOrder: ui.focusOrder,
+            locationLabel: task => locationBreadcrumb(task, null)?.label ?? owners.get(taskKey(task)) ?? "",
+            phaseLabel: task => plugin.planning?.phaseFor(task)?.name
+        }, state);
+        host.querySelector(".hub-task-local-scroll")?.scrollTo(scrollLeft, scrollTop);
+        if (control) host.querySelector('[data-schedule-control="' + control + '"]')?.focus({ preventScroll: true });
+        if (row) {
+            const replacement = [...host.querySelectorAll("[data-task-key]")].find(item => item.dataset.taskKey === row.dataset.taskKey);
+            replacement?.querySelectorAll("input, button")[focusIndex]?.focus({ preventScroll: true });
+        }
+    }
+
+    signal.addEventListener("abort", () => {
+        active = false;
+        events.dispose();
+        host.remove();
+        compact.hidden = false;
+        component.unload();
+    }, { once: true });
+    return { render, setExpanded(value) {
+        if (active === value) return;
+        active = value;
+        host.hidden = !active;
+        compact.hidden = active;
+        if (active) { events.reset(); render(); }
+    }, today() {
+        state.anchor = new Date();
+        render();
+    } };
+}
+
+module.exports = { mountDashboardCalendar };
 
 },
 "lib/ui/dashboard-frame.js": function (module, exports, __hubRequire) {
@@ -18322,7 +19488,7 @@ function createDashboardFrame(container, component, className, page = null) {
     const layoutWork = [];
     const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
     const frame = {
-        root, current,
+        root, current, signal: controller.signal,
         abort: () => { controller.abort(); if (!root.isConnected) disposeColors(); },
         defer: task => work.push(task),
         // Geometry needs attached, styled DOM, but must precede the first paint.
@@ -18817,7 +19983,640 @@ function disclosureIcons(button) {
         setIcon(icon, name);
     }
 }
-module.exports = { disclosureIcons };
+function renderDetailsChevron(summary) {
+    const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+    summary.classList.add("hub-details-summary");
+    const marker = summary.createSpan({ cls: "hub-details-chevron", attr: { "aria-hidden": "true" } });
+    for (const [state, name] of [["closed", "chevron-right"], ["open", "chevron-down"]]) {
+        setHubIcon(marker.createSpan({ cls: "is-" + state }), name);
+    }
+}
+module.exports = { disclosureIcons, renderDetailsChevron };
+
+},
+"lib/ui/expanded-panels.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { createImmediateHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+
+let hostId = 0;
+const selectedPanels = new WeakMap();
+
+function mountExpansionHost({ host, panels, signal, stateOwner = host, stateKey = null }) {
+    const doc = host.ownerDocument;
+    const win = doc.defaultView;
+    const viewport = host.closest(".markdown-preview-view, .view-content");
+    const motion = win.matchMedia("(prefers-reduced-motion: reduce)");
+    const events = new win.AbortController();
+    const listen = (node, name, callback) => node.addEventListener(name, callback, { signal: events.signal });
+    const id = "hub-panel-host-" + ++hostId;
+    const tooltips = createImmediateHubTooltip(host);
+    const nav = doc.createElement("div");
+    nav.className = "hub-expansion-tabs";
+    nav.setAttribute("role", "tablist");
+    nav.setAttribute("aria-label", "Dashboard panels");
+    nav.style.setProperty("--hub-expansion-peer-count", panels.length - 1);
+
+    function createLane(name, track = doc.createElement("div")) {
+        const lane = doc.createElement("div");
+        lane.className = "hub-expansion-lane hub-expansion-" + name;
+        track.classList.add("hub-expansion-track");
+        lane.append(track);
+        return lane;
+    }
+
+    const navigation = createLane("navigation", nav);
+
+    function button(className, label, icon) {
+        const control = doc.createElement("button");
+        control.type = "button";
+        control.className = className;
+        control.setAttribute("aria-label", label);
+        const artwork = control.appendChild(doc.createElement("span"));
+        artwork.className = "hub-expansion-icon";
+        if (className.includes("hub-expansion-toggle")) artwork.classList.add("hub-expansion-visual-slot");
+        artwork.setAttribute("aria-hidden", "true");
+        setHubIcon(artwork, icon);
+        return control;
+    }
+
+    const toggleClasses = " hub-expansion-toggle hub-button-plain hub-icon-action";
+    const collapseControl = button("hub-expansion-collapse" + toggleClasses, "Collapse panel", "minimize");
+    const scrollPositions = new Map();
+    let active = null, slot = null, phase = "compact", animation = null, cleanupMotion = null;
+    const entries = panels.map((panel, index) => {
+        const { element, header, surface = header.parentElement, title, icon, navigationLabel = title } = panel;
+        const trigger = button("hub-expansion-trigger" + toggleClasses, "Expand " + title, "expand");
+        const tab = button("hub-expansion-tab hub-button-plain hub-icon-action", navigationLabel, icon);
+        const label = tab.appendChild(doc.createElement("span"));
+        label.textContent = navigationLabel;
+        label.setAttribute("aria-hidden", "true");
+        label.className = "hub-expansion-label";
+        tab.id = id + "-tab-" + index;
+        tab.setAttribute("role", "tab");
+        const generatedId = !element.id;
+        if (generatedId) element.id = id + "-panel-" + index;
+        for (const control of [tab, trigger]) control.setAttribute("aria-controls", element.id);
+        trigger.setAttribute("aria-expanded", "false");
+        tooltips.bind(trigger, { title: "Expand " + title, description: "" });
+        tooltips.bind(tab, { title: navigationLabel, description: "" });
+        const actions = createLane("actions");
+        actions.firstElementChild.append(...(panel.actions ?? []).filter(Boolean));
+        const center = panel.center && createLane("center");
+        if (center) {
+            panel.center.before(center);
+            center.firstElementChild.append(panel.center);
+            header.classList.add("hub-expansion-has-center");
+        }
+        header.classList.add("hub-expansion-header");
+        surface.classList.add("hub-dashboard-panel");
+        const headerBand = doc.createElement("div");
+        headerBand.className = "hub-expansion-header-band";
+        header.before(headerBand);
+        headerBand.append(header);
+        header.append(actions, trigger);
+        nav.append(tab);
+        const entry = { ...panel, surface, headerBand, trigger, tab, actions, center, generatedId, scrollOwners: [element, ...(panel.scrollOwners ?? [])],
+            role: element.getAttribute("role"),
+            labelledBy: element.getAttribute("aria-labelledby") };
+        for (const heading of entry.compactHeading ?? []) {
+            heading.classList.add("hub-expansion-compact-heading");
+            const iconSlot = heading.querySelector("svg")?.parentElement;
+            if (iconSlot) iconSlot.classList.add("hub-panel-heading-slot");
+        }
+        listen(trigger, "click", () => select(entry));
+        listen(tab, "click", () => select(entry));
+        return entry;
+    });
+    tooltips.bind(collapseControl, { title: "Collapse panel", description: "" });
+    const originalTabIndex = host.getAttribute("tabindex");
+    host.setAttribute("tabindex", "-1");
+    host.classList.add("hub-expansion-host");
+
+    function revealInLane(lane, control) {
+        const view = lane.getBoundingClientRect();
+        const box = control.getBoundingClientRect();
+        const offset = box.left < view.left ? box.left - view.left : Math.max(0, box.right - view.right);
+        if (offset) lane.scrollBy({ left: offset / (lane.currentCSSZoom || 1), behavior: "instant" });
+    }
+
+    function revealFocus(control) {
+        if (doc.activeElement !== control) return;
+        const view = viewport?.getBoundingClientRect();
+        const box = control.getBoundingClientRect();
+        const top = Math.max(0, view?.top ?? 0);
+        const bottom = Math.min(win.innerHeight, view?.bottom ?? win.innerHeight);
+        const offset = box.top < top ? box.top - top : Math.max(0, box.bottom - bottom);
+        if (offset) (viewport ?? win).scrollBy({ top: offset / (viewport?.currentCSSZoom || 1), behavior: "instant" });
+    }
+
+    function sizeHost() {
+        if (!active || !host.isConnected || !host.clientWidth || animation) return;
+        const box = host.getBoundingClientRect();
+        const scale = host.currentCSSZoom || 1;
+        const status = doc.querySelector(".status-bar");
+        const bottom = Math.min(win.innerHeight, viewport?.getBoundingClientRect().bottom ?? Infinity,
+            status?.getClientRects().length ? status.getBoundingClientRect().top : Infinity);
+        // Adding the scroll offset keeps the host size independent of outer page scrolling.
+        const top = box.top + (viewport?.scrollTop ?? win.scrollY) * (viewport?.currentCSSZoom || 1);
+        const style = win.getComputedStyle(host);
+        const token = (name, fallback) => parseFloat(style.getPropertyValue(name)) || fallback;
+        const target = token("--hub-full-view-top-row-height", 320) + token("--hub-panel-gap", 12)
+            + token("--hub-full-view-bottom-row-height", 404);
+        const height = Math.round(Math.min(target, Math.max(320, (bottom - top) / scale - 12)));
+        const dimension = height + "px";
+        if (host.style.getPropertyValue("--hub-expanded-height") !== dimension) {
+            host.style.setProperty("--hub-expanded-height", dimension);
+        }
+    }
+
+    function stopMotion() {
+        const previous = animation;
+        animation = null;
+        previous?.cancel();
+        const cleanup = cleanupMotion;
+        cleanupMotion = null;
+        cleanup?.();
+    }
+
+    function updateTabs() {
+        for (const entry of entries) {
+            const selected = entry === active;
+            entry.tab.setAttribute("aria-selected", String(selected));
+            entry.tab.tabIndex = selected ? 0 : -1;
+        }
+    }
+
+    function hideNeighbors(hidden, animate = false) {
+        for (const entry of entries) {
+            const hide = hidden && entry !== active;
+            const element = entry.element;
+            const changed = element.classList.contains("hub-panel-muted") !== hide;
+            const opacity = win.getComputedStyle(element).opacity;
+            element.inert = hide;
+            element.classList.toggle("hub-panel-muted", hide);
+            for (const effect of element.getAnimations().filter(effect => effect.id === id + "-fade")) effect.cancel();
+            if (animate && changed) {
+                const effect = element.animate([{ opacity, visibility: "visible" },
+                    { opacity: hide ? 0 : 1, visibility: "visible" }], { duration: 190, easing: "ease-out" });
+                effect.id = id + "-fade";
+            }
+        }
+    }
+
+    function expandElement(entry) {
+        entry.onBeforeExpand?.();
+        // Keep the original grid position available when the panel is absolutely positioned.
+        slot = doc.createElement(entry.element.localName);
+        slot.className = entry.element.className + " hub-expansion-slot";
+        slot.classList.remove("hub-panel-muted");
+        slot.style.setProperty("--hub-slot-height", entry.element.offsetHeight + "px");
+        slot.inert = true;
+        entry.element.before(slot);
+        entry.element.classList.add("hub-panel-expanded");
+        entry.header.classList.add("hub-expanded-header");
+        entry.trigger.setAttribute("aria-expanded", "true");
+        entry.header.prepend(navigation);
+        entry.header.append(collapseControl);
+        entry.element.setAttribute("role", "tabpanel");
+        entry.element.setAttribute("aria-labelledby", entry.tab.id);
+    }
+
+    function releaseElement(entry) {
+        slot?.remove();
+        slot = null;
+        entry.element.classList.remove("hub-panel-expanded");
+        entry.header.classList.remove("hub-expanded-header");
+        entry.trigger.setAttribute("aria-expanded", "false");
+        for (const [name, value] of [["role", entry.role], ["aria-labelledby", entry.labelledBy]]) {
+            if (value === null) entry.element.removeAttribute(name);
+            else entry.element.setAttribute(name, value);
+        }
+        entry.onExpandedChange?.(false);
+    }
+
+    function visualBounds(element) {
+        const box = element.getBoundingClientRect();
+        if (!animation || !element.classList.contains("hub-panel-moving")) return box;
+        const clip = win.getComputedStyle(element).clipPath;
+        const insets = clip.slice(6).split(" ").map(parseFloat);
+        if (!Number.isFinite(insets[0])) return box;
+        const scale = element.currentCSSZoom || 1;
+        const right = Number.isFinite(insets[1]) ? insets[1] : insets[0];
+        const bottom = Number.isFinite(insets[2]) ? insets[2] : insets[0];
+        return { top: box.top, left: box.left, width: box.width - right * scale, height: box.height - bottom * scale };
+    }
+
+    function headerParts(entry, expanded) {
+        return expanded ? [navigation, collapseControl, entry.center].filter(Boolean)
+            : [...(entry.compactHeading ?? []), entry.trigger];
+    }
+
+    function snapshot(entry, nodes) {
+        const bounds = entry.element.getBoundingClientRect(), scale = entry.element.currentCSSZoom || 1;
+        return nodes.filter(node => node?.getClientRects().length).map(node => {
+            const box = node.getBoundingClientRect();
+            const copy = node.cloneNode(true);
+            for (const member of [copy, ...copy.querySelectorAll("[id]")]) member.removeAttribute("id");
+            copy.classList.add("hub-expansion-copy");
+            copy.inert = true;
+            copy.setAttribute("aria-hidden", "true");
+            Object.assign(copy.style, {
+                top: (box.top - bounds.top) / scale + "px", left: (box.left - bounds.left) / scale + "px",
+                width: box.width / scale + "px", height: box.height / scale + "px"
+            });
+            if (node.scrollTop) copy.dataset.scrollTop = node.scrollTop;
+            return copy;
+        });
+    }
+
+    function animateBounds(entry, from, to, { closing = false, outgoing = [], finish } = {}) {
+        const element = entry.element;
+        const sameBounds = ["top", "left", "width", "height"].every(key => Math.abs(from[key] - to[key]) < 1);
+        if (motion.matches || !from.width || !to.width || sameBounds) { finish?.(); return; }
+
+        const base = element.getBoundingClientRect(), scale = element.currentCSSZoom || 1;
+        const duration = 220, halfway = duration / 2;
+        const width = Math.max(base.width, from.width, to.width);
+        const height = Math.max(base.height, from.height, to.height);
+        const frame = box => ({
+            transform: "translate(" + (box.left - base.left) / scale + "px, " + (box.top - base.top) / scale + "px)",
+            clipPath: "inset(0px " + (width - box.width) / scale + "px " + (height - box.height) / scale + "px 0px round 6px)"
+        });
+        const styles = { width: element.style.width, height: element.style.height };
+        element.style.width = width / scale + "px";
+        element.style.height = height / scale + "px";
+        const gutters = [...element.querySelectorAll(".hub-scrollbar, .hub-expansion-lane, .home-project-grid, .home-resource-grid")]
+            .filter(node => node.getClientRects().length).map(node => {
+                const computed = win.getComputedStyle(node);
+                const vertical = node.offsetWidth - node.clientWidth - parseFloat(computed.borderLeftWidth) - parseFloat(computed.borderRightWidth);
+                const horizontal = node.offsetHeight - node.clientHeight - parseFloat(computed.borderTopWidth) - parseFloat(computed.borderBottomWidth);
+                const previous = [node.style.paddingRight, node.style.paddingBottom];
+                if (vertical > 0) node.style.paddingRight = parseFloat(computed.paddingRight) + vertical + "px";
+                if (horizontal > 0) node.style.paddingBottom = parseFloat(computed.paddingBottom) + horizontal + "px";
+                return [node, previous];
+            });
+        host.classList.add("hub-expansion-moving");
+        element.classList.add("hub-panel-moving");
+        element.append(...outgoing);
+        for (const copy of outgoing) copy.scrollTop = Number(copy.dataset.scrollTop ?? 0);
+        const fades = [];
+        const fade = (nodes, start, end, delay = 0) => {
+            for (const node of nodes) {
+                if (node) fades.push(node.animate([{ opacity: start }, { opacity: end }],
+                    { duration: halfway, delay, fill: "both", easing: "linear" }));
+            }
+        };
+        const inactive = [];
+        let midpoint;
+        const gate = nodes => {
+            for (const node of nodes) {
+                if (node && !node.inert) { node.inert = true; inactive.push(node); }
+            }
+        };
+        const bodies = entry.transitionBodies;
+        const headerEdgeSpace = (element.getBoundingClientRect().width -
+            entry.header.getBoundingClientRect().width) / scale;
+        if (closing) {
+            const expanded = [...headerParts(entry, true), bodies?.expanded];
+            fade(expanded, 1, 0);
+            gate(expanded);
+            midpoint = win.setTimeout(() => {
+                element.classList.add("hub-expansion-show-compact");
+                entry.header.style.inlineSize = Math.max(0, to.width / scale - headerEdgeSpace) + "px";
+                if (bodies) entry.onExpandedChange?.(false);
+                const compact = [...headerParts(entry, false), bodies?.compact];
+                gate(compact);
+                fade(compact, 0, 1);
+            }, halfway);
+        } else {
+            const incoming = [...headerParts(entry, true), bodies?.expanded];
+            gate(incoming);
+            fade(outgoing, 1, 0);
+            fade(incoming, 0, 1, halfway);
+        }
+
+        const effect = element.animate([frame(from), frame(to)],
+            { duration, easing: "cubic-bezier(.2,.75,.25,1)", fill: "both" });
+        animation = effect;
+        cleanupMotion = () => {
+            win.clearTimeout(midpoint);
+            for (const fadeEffect of fades) fadeEffect.cancel();
+            for (const node of inactive) node.inert = false;
+            for (const copy of outgoing) copy.remove();
+            for (const [node, [right, bottom]] of gutters) {
+                node.style.paddingRight = right;
+                node.style.paddingBottom = bottom;
+            }
+            Object.assign(element.style, styles);
+            entry.header.style.removeProperty("inline-size");
+            element.classList.remove("hub-panel-moving", "hub-expansion-show-compact");
+            host.classList.remove("hub-expansion-moving");
+        };
+        effect.onfinish = () => {
+            if (animation !== effect) return;
+            stopMotion();
+            finish?.();
+        };
+    }
+
+    function select(entry, quietly = false) {
+        if (active === entry && phase !== "collapsing") return;
+        const previous = active;
+        const from = visualBounds((previous ?? entry).element);
+        const outgoing = !previous && !quietly && !motion.matches
+            ? snapshot(entry, [...headerParts(entry, false), entry.transitionBodies?.compact]) : [];
+        const wasClosing = phase === "collapsing";
+        stopMotion();
+        active = entry;
+        phase = quietly ? "expanded" : "expanding";
+        selectedPanels.set(stateOwner, { stateKey, title: entry.title });
+        host.classList.add("hub-has-expanded-panel");
+        host.classList.remove("hub-expansion-closing");
+        if (previous !== entry) {
+            if (previous) {
+                for (const scroller of previous.scrollOwners) {
+                    scrollPositions.set(scroller, { top: scroller.scrollTop, left: scroller.scrollLeft });
+                }
+                releaseElement(previous);
+                previous.onLayout?.(false);
+            }
+            expandElement(entry);
+        }
+        updateTabs();
+        sizeHost();
+        if (entry !== previous || wasClosing) entry.onExpandedChange?.(true);
+        hideNeighbors(true, !quietly && !motion.matches && (!previous || wasClosing));
+        tooltips.dismiss();
+        if (!quietly && !motion.matches) host.focus({ preventScroll: true });
+        const finish = () => {
+            phase = "expanded";
+            sizeHost();
+            if (!quietly) {
+                entry.tab.focus({ preventScroll: true });
+                revealInLane(navigation, entry.tab);
+                revealFocus(entry.tab);
+            }
+            entry.onLayout?.(true);
+        };
+        revealInLane(navigation, entry.tab);
+        for (const scroller of entry.scrollOwners) {
+            const position = scrollPositions.get(scroller);
+            if (position) scroller.scrollTo({ ...position, behavior: "instant" });
+        }
+        if (!quietly) animateBounds(entry, from, entry.element.getBoundingClientRect(), { outgoing, finish });
+        else finish();
+    }
+
+    function finishCollapse(restoreFocus = true) {
+        const previous = active;
+        if (!previous) return;
+        // A pointer click in Obsidian can leave focus on the document during collapse.
+        const focused = doc.activeElement;
+        const shouldRestoreFocus = host.contains(focused) || focused === doc.body;
+        releaseElement(previous);
+        active = null;
+        phase = "compact";
+        tooltips.dismiss();
+        navigation.remove();
+        collapseControl.remove();
+        host.classList.remove("hub-has-expanded-panel", "hub-expansion-closing");
+        host.style.removeProperty("--hub-expanded-height");
+        scrollPositions.clear();
+        hideNeighbors(false);
+        if (restoreFocus && shouldRestoreFocus) {
+            previous.trigger.focus({ preventScroll: true });
+            revealFocus(previous.trigger);
+        }
+        previous.onLayout?.(false);
+    }
+
+    function collapse() {
+        if (!active || phase === "collapsing") return;
+        const from = visualBounds(active.element);
+        stopMotion();
+        selectedPanels.delete(stateOwner);
+        phase = "collapsing";
+        if (!motion.matches && host.contains(doc.activeElement)) host.focus({ preventScroll: true });
+        host.classList.add("hub-expansion-closing");
+        hideNeighbors(false, !motion.matches);
+        const target = slot.getBoundingClientRect();
+        animateBounds(active, from, target, { closing: true, finish: finishCollapse });
+    }
+
+    listen(nav, "keydown", event => {
+        const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+        if (!keys.includes(event.key)) return;
+        event.preventDefault();
+        const index = entries.findIndex(entry => entry.tab === event.target);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 :
+            (index + (event.key === "ArrowRight" ? 1 : -1) + entries.length) % entries.length;
+        entries[index].tab.tabIndex = -1;
+        entries[next].tab.tabIndex = 0;
+        entries[next].tab.focus({ preventScroll: true });
+    });
+    listen(collapseControl, "click", collapse);
+    listen(host, "focusin", event => {
+        const lane = event.target.closest(".hub-expansion-header > .hub-expansion-lane");
+        if (lane) revealInLane(lane, event.target);
+    });
+    listen(host, "keydown", event => {
+        if (event.key !== "Escape" || !active || event.defaultPrevented || event.isComposing) return;
+        if (event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog], [role=menu]")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        collapse();
+    });
+    listen(motion, "change", () => {
+        if (!motion.matches) return;
+        stopMotion();
+        if (phase === "collapsing") finishCollapse();
+        else if (active) {
+            phase = "expanded";
+            hideNeighbors(true);
+            active.tab.focus({ preventScroll: true });
+            active.onLayout?.(true);
+        }
+    });
+
+    const resize = new win.ResizeObserver(sizeHost);
+    resize.observe(host);
+    if (viewport) resize.observe(viewport);
+    listen(win, "resize", sizeHost);
+    function dispose() {
+        if (events.signal.aborted) return;
+        signal.removeEventListener("abort", dispose);
+        events.abort();
+        resize.disconnect();
+        stopMotion();
+        finishCollapse(false);
+        tooltips.dispose();
+        host.classList.remove("hub-expansion-host");
+        if (originalTabIndex === null) host.removeAttribute("tabindex");
+        else host.setAttribute("tabindex", originalTabIndex);
+        for (const entry of entries) {
+            const { element, header, headerBand, surface, trigger, actions, center, generatedId, compactHeading } = entry;
+            surface.classList.remove("hub-dashboard-panel");
+            header.classList.remove("hub-expansion-header", "hub-expansion-has-center");
+            trigger.remove();
+            actions.replaceWith(...actions.firstElementChild.childNodes);
+            if (center) center.replaceWith(...center.firstElementChild.childNodes);
+            headerBand.replaceWith(header);
+            if (generatedId) element.removeAttribute("id");
+            for (const heading of compactHeading ?? []) {
+                heading.classList.remove("hub-expansion-compact-heading");
+                heading.querySelector("svg")?.parentElement.classList.remove("hub-panel-heading-slot");
+            }
+        }
+    }
+    signal.addEventListener("abort", dispose, { once: true });
+    const selection = selectedPanels.get(stateOwner);
+    const remembered = selection?.stateKey === stateKey && entries.find(entry => entry.title === selection.title);
+    if (remembered) select(remembered, true);
+    return {
+        open(title) {
+            const entry = entries.find(entry => entry.title === title);
+            if (entry) select(entry);
+        },
+        reveal(title) {
+            if (!active) return;
+            const entry = entries.find(entry => entry.title === title);
+            if (entry) select(entry, true);
+        },
+        reset() {
+            if (selectedPanels.get(stateOwner)?.stateKey === stateKey) selectedPanels.delete(stateOwner);
+            stopMotion();
+            finishCollapse(false);
+        },
+        dispose
+    };
+}
+
+module.exports = { mountExpansionHost };
+
+},
+"lib/ui/expanded-tasks.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Component } = require("obsidian");
+const { createTaskUi } = __hubRequire("lib/ui/tasks.js");
+const { taskCard, button, empty } = __hubRequire("lib/ui/task-view-primitives.js");
+const { sortTasks } = __hubRequire("lib/domain/task-views.js");
+const { locationBreadcrumb } = __hubRequire("lib/domain/native-task-location.js");
+const { taskKey } = __hubRequire("lib/domain/oath-workspace.js");
+const { workspaceRef } = __hubRequire("lib/services/native-task-locations.js");
+
+const { bindChoiceMenu } = __hubRequire("lib/ui/controls.js");
+
+const viewStates = new WeakMap();
+const sorts = [["suggested", "Suggested order"], ["due", "Due date"], ["necessity", "Importance"], ["task", "Name"]];
+const controls = "button, input, select, [tabindex='0']";
+function mountExpandedTasks({ plugin, panel, compactBody, signal, stateOwner, stateKey, workspace = null,
+    readItems, availability, reader, onEdit }) {
+    const app = plugin.app, doc = panel.ownerDocument;
+    const component = new Component();
+    component.load();
+    let byScope = viewStates.get(stateOwner);
+    if (!byScope) viewStates.set(stateOwner, byScope = new Map());
+    if (!byScope.has(stateKey)) byScope.set(stateKey, {
+        sort: "suggested", grouped: false
+    });
+    const state = byScope.get(stateKey);
+    const locationScope = workspace ? workspaceRef(workspace) : null;
+    const host = panel.createDiv({ cls: "hub-expanded-task-view", attr: { hidden: "" } });
+    const bar = host.createDiv({ cls: "hub-expanded-task-controls" });
+    if (!workspace) {
+        const group = button(bar, "Group by workspace", () => {
+            state.grouped = !state.grouped;
+            group.setAttribute("aria-pressed", String(state.grouped));
+            group.classList.toggle("is-active", state.grouped);
+            render();
+        }, "hub-panel-action");
+        group.setAttribute("aria-pressed", String(state.grouped));
+        group.classList.toggle("is-active", state.grouped);
+    }
+    const sort = bar.createEl("button", { cls: "hub-panel-action hub-task-sort", attr: {
+        type: "button", "aria-label": "Sort tasks"
+    } });
+    const label = sort.createSpan({ text: sorts.find(([id]) => id === state.sort)[1] });
+    component.register(bindChoiceMenu(sort, { options: sorts, selected: () => state.sort,
+        choose: value => { state.sort = value; render(); }, label }));
+    const status = host.createDiv({ cls: "hub-expanded-task-status", attr: { role: "status" } });
+    const content = host.createDiv({ cls: "hub-expanded-task-content" });
+    const pending = new Set();
+    let active = false, disposed = false, scrollTop = 0;
+    const ui = createTaskUi({ app, component, body: content, onEdit, oath: plugin.oath, plan: plugin.globalPlan,
+        planRelevance: plugin.planRelevance,
+        inlineOath: true, mutate: reader?.actions?.mutate, editTask: reader?.actions?.editTask,
+        phaseLabel: task => plugin.planning?.phaseFor(task)?.name });
+
+    function appendTasks(list, tasks, context) {
+        const { prioritized, ordinary } = ui.partitionPlan(tasks);
+        const groups = ui.groups(state.sort === "suggested" ? ordinary : tasks);
+        if (state.sort === "suggested") {
+            for (const task of prioritized) taskCard(list, task, context);
+            for (const task of [...groups.active, ...groups.future]) taskCard(list, task, context);
+        } else {
+            for (const task of sortTasks([...groups.active, ...groups.future], state.sort)) taskCard(list, task, context);
+        }
+        for (const task of groups.completed) taskCard(list, task, context);
+    }
+
+    function render() {
+        if (!active || disposed || !ui.beginRender(render)) return;
+        const focused = doc.activeElement;
+        const focusedRow = content.contains(focused) && focused.closest("[data-task-id]");
+        const focusedIndex = focusedRow ? [...focusedRow.querySelectorAll(controls)].indexOf(focused) : -1;
+        scrollTop = content.querySelector(".hub-expanded-task-list")?.scrollTop ?? scrollTop;
+        const readState = availability();
+        status.textContent = readState === "current" ? "" : readState === "loading" ? "Loading tasks…" : "Some tasks may be unavailable.";
+        status.hidden = !status.textContent;
+        const items = readItems(), owners = new Map(items.map(item => [taskKey(item.task), item.owner.name ?? item.owner.label]));
+        const tasks = items.map(item => workspace && readState !== "current" ? { ...item.task, nativeReadOnly: true } : item.task);
+        content.empty();
+        const context = {
+            ui, pending, locationScope, now: new Date(),
+            render, apply: onEdit, toggleTask: (task, done) => reader.toggle(task, done),
+            locationLabel: task => locationBreadcrumb(task, locationScope)?.label ?? owners.get(taskKey(task)) ?? "",
+            phaseLabel: task => plugin.planning?.phaseFor(task)?.name
+        };
+        const list = content.createDiv({ cls: "hub-expanded-task-list hub-scrollbar" });
+        if (state.grouped && !workspace) {
+            const groups = new Map();
+            for (const task of tasks) {
+                const owner = task.nativeReference.owner;
+                const key = JSON.stringify([owner.type, owner.id]);
+                if (!groups.has(key)) groups.set(key, { label: owners.get(taskKey(task)) ?? owner.id, tasks: [] });
+                groups.get(key).tasks.push(task);
+            }
+            for (const group of [...groups.values()].sort((a, b) => a.label.localeCompare(b.label))) {
+                const section = list.createEl("section");
+                section.createEl("h3", { text: group.label });
+                appendTasks(section, group.tasks, context);
+            }
+        } else appendTasks(list, tasks, context);
+        if (!tasks.length && readState === "current") empty(list, "No tasks.");
+        list.scrollTop = scrollTop;
+        if (focusedRow) {
+            const replacement = [...content.querySelectorAll("[data-task-key]")].find(row => row.dataset.taskKey === focusedRow.dataset.taskKey);
+            (replacement?.querySelectorAll(controls)[focusedIndex] ?? sort).focus({ preventScroll: true });
+        }
+    }
+    function setExpanded(value) {
+        if (disposed || active === value) return;
+        active = value;
+        compactBody.hidden = active;
+        host.hidden = !active;
+        if (active) render();
+    }
+    signal.addEventListener("abort", () => {
+        disposed = true; compactBody.hidden = false; component.unload(); host.remove();
+    }, { once: true });
+    return { render, setExpanded, host };
+}
+
+module.exports = { mountExpandedTasks };
 
 },
 "lib/ui/file-icons.js": function (module, exports, __hubRequire) {
@@ -18847,9 +20646,11 @@ module.exports = { fileIcon };
 "lib/ui/file-operation-recovery.js": function (module, exports, __hubRequire) {
 "use strict";
 const {Modal}=require("obsidian"),{ownModalColors}=__hubRequire("lib/ui/color-system.js");
+const { mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 function openFileOperationRecovery(plugin){
  plugin.fileOperationRecoveryModal?.close();let disposed=false;
  const modal=plugin.fileOperationRecoveryModal=new Modal(plugin.app);modal.titleEl.setText("File operation recovery");
+ mountModalSeparators(modal);
  async function render(){
   modal.contentEl.empty();const pending=await plugin.fileOperations.list();
   if(disposed)return;
@@ -18873,6 +20674,178 @@ function openFileOperationRecovery(plugin){
  modal.onOpen=()=>void render().catch(error=>{if(!disposed)modal.contentEl.setText(error.message);});ownModalColors(modal);modal.open();return modal;
 }
 module.exports={openFileOperationRecovery};
+
+},
+"lib/ui/file-preview.js": function (module, exports, __hubRequire) {
+"use strict";
+const { mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
+
+const { Modal, TFile } = require("obsidian");
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+const { createIconAction } = __hubRequire("lib/ui/controls.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+
+const images = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"]);
+const textLimit = 512 * 1024;
+const imageLimit = 24 * 1024 * 1024;
+
+function createPreviewRenderer(vault, host, canPreview) {
+    let generation = 0;
+    const message = text => host.createDiv({ cls: "hub-file-preview-message", text, attr: { role: "status" } });
+    function clear() { generation++; host.replaceChildren(); host.scrollTop = 0; }
+    async function render(path) {
+        clear();
+        const ticket = generation;
+        if (!path) { message("Select a file to preview."); return; }
+        if (!canPreview(path)) { message("This file is unavailable during the Oath."); return; }
+        const file = vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) { message("File unavailable."); return; }
+        host.createEl("h3", { cls: "hub-file-preview-title", text: file.name });
+        const type = file.extension.toLowerCase();
+        if (images.has(type)) {
+            if (file.stat.size > imageLimit) { message("This image is too large to preview."); return; }
+            const image = host.createEl("img", { attr: { alt: file.basename } });
+            image.addEventListener("error", () => {
+                if (generation !== ticket) return;
+                image.remove(); message("Could not preview this image.");
+            }, { once: true });
+            image.src = vault.getResourcePath(file);
+            return;
+        }
+        if (type !== "md" && type !== "txt") { message("Preview is unavailable for this file type."); return; }
+        if (file.stat.size > textLimit) { message("This file is too large to preview."); return; }
+        const loading = message("Loading preview…");
+        try {
+            const source = await vault.cachedRead(file);
+            if (generation !== ticket) return;
+            loading.remove();
+            // Showing the source keeps note embeds, plugin code and interactive
+            // checkboxes out of this read-only surface.
+            host.createEl("pre", { cls: "hub-file-preview-text", text: source });
+        } catch {
+            if (generation !== ticket) return;
+            loading.textContent = "Could not read this file.";
+        }
+    }
+    return { clear, render };
+}
+
+class FilePreviewModal extends Modal {
+    constructor(app, path, canPreview, onDone) {
+        super(app);
+        this.path = path;
+        this.canPreview = canPreview;
+        this.onDone = onDone;
+    }
+    onOpen() {
+        ownModalColors(this);
+        this.titleEl.setText("File preview");
+        mountModalSeparators(this);
+        this.modalEl.classList.add("hub-file-preview-window");
+        const preview = this.contentEl.createDiv({ cls: "hub-file-preview hub-scrollbar", attr: { tabindex: "0", "aria-label": "File preview" } });
+        preview.addEventListener("keydown", event => {
+            if (event.key !== "Escape") return;
+            event.preventDefault(); event.stopPropagation();
+            this.close();
+        });
+        queueMicrotask(() => { if (preview.isConnected) preview.focus({ preventScroll: true }); });
+        this.renderer = createPreviewRenderer(this.app.vault, preview, this.canPreview);
+        void this.renderer.render(this.path);
+    }
+    onClose() { this.renderer?.clear(); this.onDone(); }
+}
+
+function mountFilePreview({ app, oath, panel, signal, workspaceId, getSelection, updateWidth }) {
+    const doc = panel.ownerDocument;
+    const body = panel.querySelector(".hub-explorer-body");
+    const button = createIconAction(body.querySelector(".hub-explorer-toolbar"), "Preview selected file", "eye");
+    const host = body.createEl("aside", { cls: "hub-file-preview hub-scrollbar", attr: {
+        "aria-label": "File preview", tabindex: "0"
+    } });
+    host.id = "hub-file-preview-" + doc.defaultView.crypto.randomUUID();
+    button.setAttribute("aria-controls", host.id);
+    const canPreview = path => oath?.canOpen(path, false) !== false;
+    const renderer = createPreviewRenderer(app.vault, host, canPreview);
+    const events = new doc.defaultView.AbortController();
+    const storage = doc.defaultView.sessionStorage;
+    const key = "obsidian-hub::file-preview::" + workspaceId;
+    let expanded = false, path = null, rendered = null, modal = null;
+    let enabled = storage.getItem(key) !== "false";
+
+    function sync() {
+        const visible = expanded && enabled;
+        button.disabled = !expanded && !path;
+        const label = expanded ? (visible ? "Hide file preview" : "Show file preview") : "Preview selected file";
+        button.setAttribute("aria-label", label);
+        setHubTooltip(button, label);
+        if (expanded) {
+            button.removeAttribute("aria-haspopup");
+            button.setAttribute("aria-pressed", String(visible));
+            button.setAttribute("aria-controls", host.id);
+        } else {
+            button.setAttribute("aria-haspopup", "dialog");
+            button.removeAttribute("aria-pressed");
+            button.removeAttribute("aria-controls");
+        }
+        const layoutChanged = host.hidden === visible;
+        host.hidden = !visible;
+        body.classList.toggle("is-previewing", visible);
+        if (layoutChanged) updateWidth();
+        if (visible) {
+            if (rendered !== path) { rendered = path; void renderer.render(path); }
+        } else { rendered = undefined; renderer.clear(); }
+    }
+    function selectionChanged(event) { path = event.detail.path; sync(); }
+    function show(filePath) {
+        if (expanded && enabled) { path = filePath; sync(); return; }
+        modal?.close();
+        const selected = [...panel.querySelectorAll(".hub-explorer-contents [data-path]")].find(row => row.dataset.path === filePath);
+        const focus = panel.contains(doc.activeElement) ? doc.activeElement : selected;
+        modal = new FilePreviewModal(app, filePath, canPreview, () => {
+            modal = null;
+            if (!events.signal.aborted && focus?.isConnected) focus.focus({ preventScroll: true });
+        });
+        modal.open();
+    }
+    panel.addEventListener("hub-explorer-file-selection", selectionChanged, { signal: events.signal });
+    button.addEventListener("click", () => {
+        if (!expanded) { if (path) show(path); return; }
+        enabled = !enabled;
+        storage.setItem(key, String(enabled));
+        path = getSelection();
+        sync();
+    }, { signal: events.signal });
+    const update = file => {
+        if (expanded && enabled && file.path === path) void renderer.render(path);
+        if (modal?.path === file.path) void modal.renderer?.render(modal.path);
+    };
+    const refs = ["modify", "delete"].map(name => app.vault.on(name, update));
+    refs.push(app.vault.on("rename", (file, oldPath) => {
+        if (path === oldPath) { path = file.path; sync(); }
+        if (modal?.path === oldPath) { modal.path = file.path; void modal.renderer?.render(file.path); }
+    }));
+    const stopOath = oath?.onChange(() => {
+        if (expanded && enabled) void renderer.render(path);
+        if (modal) void modal.renderer?.render(modal.path);
+    });
+    function dispose() {
+        if (events.signal.aborted) return;
+        signal.removeEventListener("abort", dispose);
+        events.abort(); refs.forEach(ref => app.vault.offref(ref)); stopOath?.();
+        modal?.close(); renderer.clear();
+        body.classList.remove("is-previewing");
+        host.remove(); button.remove(); updateWidth();
+    }
+    signal.addEventListener("abort", dispose, { once: true });
+    path = getSelection();
+    sync();
+    return { show, dispose, setExpanded(active) {
+        if (events.signal.aborted) return;
+        expanded = active; path = getSelection(); sync();
+    } };
+}
+
+module.exports = { mountFilePreview };
 
 },
 "lib/ui/focus-restoration.js": function (module, exports, __hubRequire) {
@@ -19589,6 +21562,7 @@ class InboxModal extends CaptureModal {
         this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:[' ','Enter'].includes(event.key)?at:null;if(n!==null){event.preventDefault();if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&![' ','Enter'].includes(event.key))rows[n].focus();else void this.changeSelection(rows[n].dataset.captureId,event,true)}});
         this.detail=body.createEl("section",{cls:"hub-inbox-detail",attr:{"aria-label":"Item details",tabindex:"-1"}});
         const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
+        this.mountSeparators(footer);
         this.stop=this.service.onChange(()=>{if(this.busy)this.needsRefresh=true;else this.refresh()});
         this.deleteKey=e=>{if(e.key==='Delete'&&!e.repeat&&!e.target.closest('input,textarea,select,[contenteditable],.menu')&&!this.busy&&!this.confirmation&&this.checkedIds.size<2){e.preventDefault();void this.remove(this.selectedId)}};this.modalEl.addEventListener('keydown',this.deleteKey);
         this.refresh();this.list.scrollTop=this.options.resumeState?.scrollTop??0;this.filterButtons[0].button.focus();
@@ -20023,6 +21997,7 @@ class MusicItemModal extends CaptureModal {
         const footer = form.createDiv({ cls: "hub-capture-actions" });
         action(footer, "Cancel", null, () => this.close());
         const save = footer.createEl("button", { cls: "mod-cta", text: this.item ? "Save" : "Add music", attr: { type: "submit" } });
+        this.mountSeparators(footer);
         form.addEventListener("submit", event => {
             event.preventDefault();
             if (!form.reportValidity()) return;
@@ -20247,7 +22222,7 @@ module.exports = { mountMusicSettings };
 "use strict";
 const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
 
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 const { Modal } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { action } = __hubRequire("lib/ui/capture-modal.js");
@@ -20296,6 +22271,7 @@ class MusicModal extends Modal {
         const footer = this.contentEl.createDiv({ cls: "hub-capture-actions hub-music-actions" });
         action(footer, "Music settings", "settings", () => this.openSettings());
         action(footer, "Close", null, () => this.close());
+        mountModalSeparators(this, { header, footer });
         this.stop = this.controller.onChange(state => this.renderState(state));
         this.stopLibrary = this.library.onChange(() => this.renderList());
         this.renderList(); this.controller.attach(this.surface);
@@ -20433,9 +22409,10 @@ module.exports = { MusicModal, mountMusicControl, formatTime };
 "use strict";
 const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
 
+const { mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 function openNativeTaskRecovery(plugin){
  const {Modal,Notice}=require('obsidian');
- class Recovery extends Modal{onOpen(){ ownModalColors(this);this.titleEl.setText('Local task recovery');const host=plugin.nativeTaskHost;this.contentEl.createEl('p',{text:'Tasks are stored on this device. Task synchronization is unavailable.'});const pending=host.pendingOperations();this.contentEl.createEl('p',{text:pending.length?pending.length+' original operation(s) await confirmation.':'No unconfirmed task operations.'});for(const c of pending)this.contentEl.createEl('code',{text:c.operationId});if(pending.length){const button=this.contentEl.createEl('button',{text:'Retry original operations',cls:'mod-cta'});button.onclick=async()=>{button.disabled=true;try{await host.retryPending();this.close();ownNoticeColors(new Notice('Task operations confirmed.'))}catch(e){ownNoticeColors(new Notice(e.message));button.disabled=false}};}}}
+ class Recovery extends Modal{onOpen(){ ownModalColors(this);this.titleEl.setText('Local task recovery');mountModalSeparators(this);const host=plugin.nativeTaskHost;this.contentEl.createEl('p',{text:'Tasks are stored on this device. Task synchronization is unavailable.'});const pending=host.pendingOperations();this.contentEl.createEl('p',{text:pending.length?pending.length+' original operation(s) await confirmation.':'No unconfirmed task operations.'});for(const c of pending)this.contentEl.createEl('code',{text:c.operationId});if(pending.length){const button=this.contentEl.createEl('button',{text:'Retry original operations',cls:'mod-cta'});button.onclick=async()=>{button.disabled=true;try{await host.retryPending();this.close();ownNoticeColors(new Notice('Task operations confirmed.'))}catch(e){ownNoticeColors(new Notice(e.message));button.disabled=false}};}}}
  const modal=new Recovery(plugin.app);modal.open();return modal;
 }
 module.exports={openNativeTaskRecovery};
@@ -20716,19 +22693,22 @@ function createOathTaskSection(service, body, component) {
     // Reuse the service clock; task rows only rerender on ordinary state changes.
     if (service) component.register(service.onChange(updateClock, true));
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
-    function partition(items, wrap = task => task) {
-        if (!service?.active) return { ordinary: items, pinned: [], missing: [] };
-        const selected = oathTaskOrder(service.current);
+    function partition(items, wrap = task => task, allows = () => true) {
+        if (!service?.active)return { ordinary:items,pinned:[],missing:[] };
+        const focus=service.focus??service.current;
+        const work=service.work.filter(item=>allows(item.ref?.owner??item.task?.nativeReference?.owner??focus.workspace));
+        const selected = oathTaskOrder({...focus,tasks:(focus.tasks??[]).filter(ref=>allows(ref.owner??focus.workspace))});
+        if(!work.length&&!selected.size)return {ordinary:items,pinned:[],missing:[]};
         const selectedTask = task => selected.has(taskKey(task));
         return { ordinary: items.filter(item => !selectedTask(taskOf(item))),
-            pinned: service.work.filter(item => item.task).map(item => wrap(item.task)),
-            missing: service.work.filter(item => !item.task), oath: service.current };
+            pinned: work.filter(item => item.task).map(item => wrap(item.task)),
+            missing: work.filter(item => !item.task), progress:oathProgress(work),oath:focus };
     }
     function render(plan, renderTask) {
         status = null;
-        if (!plan.oath?.tasks.length) return;
+        if (!plan.progress?.total) return;
         const { setIcon } = require("obsidian");
-        const progress = oathProgress(service.work);
+        const progress = plan.progress;
         const box = body.createDiv({ cls: "hub-oath-pinned" });
         const heading = box.createDiv({ cls: "hub-oath-pinned-heading" });
         const title = heading.createDiv({ cls: "hub-oath-pinned-title" });
@@ -20758,25 +22738,18 @@ module.exports = { createOathTaskSection };
 const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 const { ownMenuColors, ownModalColors } = __hubRequire("lib/ui/color-system.js");
 
-const { hasKeyboardFocus, focusControl } = __hubRequire("lib/ui/focus-restoration.js");
-const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
-const { createTaskUi, createTaskRow, renderReadOnlyTask } = __hubRequire("lib/ui/tasks.js");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { renderReadOnlyTask } = __hubRequire("lib/ui/tasks.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { parseLocalISODate, formatDate, formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { bindNativeDateTimePicker } = __hubRequire("lib/ui/date-time.js");
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
 const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
 const { bindMenuToggle, mountDisclosure } = __hubRequire("lib/ui/menu-toggle.js");
-const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-const { openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
-const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
-const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
-const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
-const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
+const { taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = __hubRequire("lib/domain/oath.js");
 const { mountOathApplications } = __hubRequire("lib/ui/oath-applications.js");
-const { createOathCandidateRead, preserveCandidateInteraction } = __hubRequire("lib/services/oath-candidate-read.js");
 
 const dateLabel = time => formatDateTime(new Date(time));
 const OATH_COPY = Object.freeze({
@@ -20789,14 +22762,12 @@ const OATH_COPY = Object.freeze({
 // Obsidian aliases bare "fullscreen" to "maximize"; the Lucide ID bypasses that alias.
 const duringOathRows = [
     ["lucide-fullscreen", "Itacan enters and remains in fullscreen"],
-    ["shield-user", "Your selected workspace and tasks remain the focus"],
+    ["shield-user", "Your selected Plan items remain the focus"],
     ["info", "External websites and notifications are not restricted"]
 ];
 function endingOathRows(draft) {
     return [
-        ["circle-check", draft.tasks.length
-            ? `Fulfilled after ${oathDuration(draft.durationMs)} or when all selected tasks are complete, whichever comes first`
-            : `The Oath is fulfilled after ${oathDuration(draft.durationMs)}`],
+        ["circle-check", `The Oath is fulfilled after ${oathDuration(draft.durationMs)}`],
         ["triangle-alert", draft.mode === "strict" ? "Ordinary early exit is unavailable until fulfillment" : "Ending before fulfillment will break the Oath"],
         ["timer-off", "After fulfillment, you may remain Oathbound and continue working"],
         ["clipboard-clock", "The result is recorded in Oath History"]
@@ -20822,136 +22793,6 @@ function oathRow(group, icon, text, label = null) {
 }
 let choiceGroupId = 0;
 
-function selectionRow(ui, body, task) {
-    const parts = createTaskRow(body, task);
-    parts.row.classList.add("hub-oath-task-row");
-    parts.checkbox.disabled = true;
-    parts.checkbox.tabIndex = -1;
-    ui.bind(parts.row, parts.textEl, task, () => task.path, { selection: true, normalSource: true });
-    parts.checkbox.removeAttribute("aria-label");
-    parts.checkbox.removeAttribute("title");
-    parts.checkbox.setAttribute("aria-hidden", "true");
-    // Markdown links and the completion square are presentation only here.
-    parts.row.addEventListener("click", event => {
-        if (event.target.closest("a,input")) { event.preventDefault(); event.stopImmediatePropagation(); }
-    }, true);
-    return parts.row;
-}
-
-function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus) {
-    const { Modal, Component } = require("obsidian");
-    class Picker extends Modal {
-        onOpen() { ownModalColors(this);
-            this.modalEl.classList.add("hub-oath-dialog", "hub-oath-workspace-picker");
-            this.contentEl.classList.add("hub-button-scope");
-            this.contentEl.createEl("h2", { text: type === "project" ? "Select project" : "Select resource" });
-            const search = type === "project" ? this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
-                attr: { placeholder: "Search projects...", "aria-label": "Search projects" } }) : null;
-            const body = this.contentEl.createDiv({ cls: "hub-oath-workspace-grid is-" + type });
-            this.owner = new Component(); this.owner.load();
-            // Placement editing is intentionally unavailable in a selection modal.
-            const paintImage = createCardImageRenderer(body, this.owner,
-                key => ({ initial: service.plugin.projectWizard.data.headerImagePlacements?.[key] }), service.plugin.cardImageCache);
-            const renderImage = (element, url, options) => paintImage(element, url, { ...options, readOnly: true });
-            const cards = createWorkspaceCards({ app: service.app, root: body, component: this.owner, renderImage,
-                categories: () => service.plugin.projectWizard.getCategories() });
-            const render = () => {
-                body.empty();
-                const query = search?.value.toLocaleLowerCase().trim() ?? "";
-                const positions = service.plugin.projectWizard.data.projectCardOrder?.active ?? [];
-                const contexts = service.workspaces(type).filter(context => (context.name ?? context.label).toLocaleLowerCase().includes(query));
-                if (type === "project") contexts.sort((a, b) =>
-                    (positions.indexOf(a.projectId) < 0 ? Infinity : positions.indexOf(a.projectId)) -
-                    (positions.indexOf(b.projectId) < 0 ? Infinity : positions.indexOf(b.projectId)));
-                for (const context of contexts) {
-                    const card = cards.render(body, context, (event, card) => {
-                        const ref = workspaceRef(context);
-                        if (!service.resolveWorkspace(ref)) { render(); return; }
-                        this.keyboardSelection = hasKeyboardFocus(card, event);
-                        onSelect(ref); this.close();
-                    });
-                    const isSelected = sameWorkspace(selected, workspaceRef(context));
-                    card.classList.toggle("is-selected", isSelected);
-                    card.setAttribute("aria-pressed", String(isSelected));
-                }
-                if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: type === "project" ? "No matching Active Projects." : "No matching Resources." });
-            };
-            search?.addEventListener("input", render);
-            this.owner.register(service.onChange(render));
-            this.contentEl.createDiv({ cls: "hub-oath-actions" }).createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-            render(); layoutModal(this, { headerEnd: search ?? this.contentEl.querySelector("h2"), body }); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
-        }
-        onClose() { this.owner?.unload(); this.contentEl.empty(); if (this.keyboardSelection) restoreFocus?.(); }
-    }
-    const modal = new Picker(service.app); modal.open(); return modal;
-}
-
-function openOathPicker(service, workspace, selected, onSelect, candidateRead = null) {
-    const { Modal, Component } = require("obsidian");
-    class Picker extends Modal {
-        onOpen() { ownModalColors(this);
-            this.modalEl.classList.add("hub-oath-dialog", "hub-oath-picker");
-            this.contentEl.classList.add("hub-button-scope");
-            this.contentEl.createEl("h2", { text: "Add tasks" });
-            const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search", attr: { placeholder: "Search tasks...", "aria-label": "Search tasks" } });
-            const body = this.contentEl.createDiv({ cls: "hub-oath-picker-tasks hub-option-group project-tasks-body" });
-            const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
-            const cancel = actions.createEl("button", { text: "Cancel" });
-            const add = actions.createEl("button", { cls: "mod-cta", text: "Add tasks" });
-            this.owner = new Component(); this.owner.load();
-            const candidates = candidateRead ?? createOathCandidateRead(service, this.owner);
-            if (!candidateRead) void candidates.selectWorkspace(workspace);
-            const existing = new Set(selected.map(taskKey)), chosen = new Map();
-            const ui = createTaskUi({ app: service.app, component: this.owner, body });
-            const update = () => { add.disabled = !chosen.size || !candidates.available([...chosen.values()], workspace); };
-            const render = () => preserveCandidateInteraction(body, () => {
-                ui.beginRender(render); body.empty();
-                const available = candidates.tasks();
-                const query = search.value.toLocaleLowerCase().trim();
-                const groups = ui.groups([...new Map([...available, ...chosen.values()].map(task => [taskKey(task), task])).values()]);
-                const tasks = [...groups.active, ...groups.future].filter(task => `${task.text} ${task.path}`.toLocaleLowerCase().includes(query));
-                for (const task of tasks) {
-                    const row = selectionRow(ui, body, task), key = taskKey(task), included = existing.has(key);
-                    row.oathCandidateKey = key;
-                    row.setAttribute("role", "button"); row.tabIndex = included ? -1 : 0;
-                    row.setAttribute("aria-label", (included ? "Already selected: " : "Select task: ") + task.text);
-                    row.setAttribute("aria-disabled", String(included));
-                    const paint = () => {
-                        row.classList.toggle("is-selected", included || chosen.has(key));
-                        row.classList.toggle("is-already-selected", included);
-                        row.setAttribute("aria-pressed", String(included || chosen.has(key)));
-                    };
-                    if (included) row.createSpan({ cls: "hub-oath-task-included", text: "Selected" });
-                    const toggle = () => { if (included || !chosen.has(key) && !candidates.available([task], workspace)) return; if (chosen.has(key)) chosen.delete(key); else chosen.set(key, task); paint(); update(); };
-                    row.addEventListener("click", toggle);
-                    row.addEventListener("keydown", event => {
-                        if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
-                    });
-                    paint();
-                }
-                if (!service.ready()) body.createEl("p", { cls: "hub-oath-muted", text: "Loading tasks..." });
-                else if (candidates.state.status === "error") {
-                    const status = body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Tasks could not be loaded. " });
-                    status.createEl("button", { text: "Try again", attr: { type: "button" } }).addEventListener("click", () => { void candidates.retry(); });
-                } else if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() && candidates.state.status === "ready" ? "No matching open tasks." : "Loading tasks..." });
-                if (chosen.size && !candidates.available([...chosen.values()], workspace)) body.createEl("p", { cls: "hub-oath-muted", text: "Selected tasks are no longer available. Update your selection." });
-                update();
-            });
-            cancel.addEventListener("click", () => this.close());
-            add.addEventListener("click", () => {
-                if (!candidates.available([...chosen.values()], workspace)) return;
-                const available = candidates.tasks();
-                onSelect(available.filter(task => chosen.has(taskKey(task)) && !existing.has(taskKey(task))));
-                this.close();
-            });
-            search.addEventListener("input", render);
-            this.owner.register(candidates.onChange(render));
-            render(); layoutModal(this, { headerEnd: search, body }); search.focus();
-        }
-        onClose() { this.owner?.unload(); this.contentEl.empty(); }
-    }
-    const modal = new Picker(service.app); modal.open(); return modal;
-}
 
 function openOathSetup(service) {
     const { Modal, Component, Menu } = require("obsidian");
@@ -20959,24 +22800,36 @@ function openOathSetup(service) {
         onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog");
             this.contentEl.classList.add("hub-button-scope");
-            this.draft = { start: "now", scheduledAt: null, durationMs: null, workspace: null, tasks: [] };
-            this.selectWorkspace(workspaceRef(service.plugin.workspaceModes?.currentContext()));
+            const plan = service.activePlan();
+            this.draft = { start: "now", scheduledAt: null, durationMs: null, planEntryIds: [], planId: plan?.id };
+            if (!this.draft.planId) {
+                createWindowTitle(this.contentEl, "The Oath", "shield-user");
+                this.contentEl.createEl("p", { text: "An active Plan with at least one item is required to take an Oath." });
+                this.contentEl.createEl("button", { text: "Open Plans" }).onclick = () => {
+                    this.close();
+                    __hubRequire("lib/ui/plan.js").openPlan(service.plugin);
+                };
+                mountModalSeparators(this);
+                return;
+            }
             this.choiceGroupId = ++choiceGroupId;
             this.owner = new Component(); this.owner.load();
-            this.candidates = createOathCandidateRead(service, this.owner);
-            this.owner.register(this.candidates.onChange(() => {
-                if (this.contentEl.classList.contains("hub-oath-setup")) this.renderSelected?.();
-            }));
-            void this.candidates.selectWorkspace(this.draft.workspace);
             this.owner.register(service.onChange(() => this.updateNext?.(), true));
+            service.plugin.globalPlan.subscribe(this.owner, () => { void this.refreshItems(); });
+            this.items = plan.content.entries.map(entry => ({ entry, label: entry.lastKnownLabel }));
             this.setup();
+            void this.refreshItems();
         }
-        selectWorkspace(ref) {
-            if (!service.resolveWorkspace(ref) || sameWorkspace(this.draft.workspace, ref)) return;
-            this.draft.workspace = ref;
-            this.draft.tasks = [];
-            this.picker?.close();
-            void this.candidates?.selectWorkspace(ref);
+        async refreshItems() {
+            const generation = this.itemGeneration = (this.itemGeneration ?? 0) + 1;
+            const plan = service.activePlan();
+            const items = plan?.id === this.draft.planId ? await service.readPlanItems(plan).catch(() =>
+                plan.content.entries.map(entry=>({entry,label:entry.lastKnownLabel}))) : [];
+            if (!this.closed && generation === this.itemGeneration) {
+                this.items = items;
+                this.renderItems?.();
+                this.updateNext?.();
+            }
         }
         section(title) {
             const el = this.contentEl.createEl("section", { cls: "hub-oath-section" });
@@ -20986,7 +22839,6 @@ function openOathSetup(service) {
             const group = parent.createDiv({ cls: "hub-oath-choices hub-equal-selectors hub-option-group", attr: { role: "radiogroup", "aria-label": parent.querySelector("h3").textContent } });
             if (name === "duration") group.classList.add("hub-oath-duration-choices");
             if (name === "start") group.classList.add("hub-oath-start-choices");
-            if (name === "workspace") group.classList.add("hub-oath-workspace-choices");
             const radioName = `hub-oath-${this.choiceGroupId}-${name}`;
             for (const [key, label, help] of choices) {
                 const card = group.createEl("label", { cls: "hub-oath-choice" });
@@ -20995,23 +22847,11 @@ function openOathSetup(service) {
                 const copy = card.createSpan({ cls: "hub-oath-choice-copy" });
                 const title = copy.createSpan({ text: label, cls: "hub-oath-choice-title", attr: { id: `${radioName}-${key}` } });
                 radio.setAttribute("aria-labelledby", title.id);
-                if (name === "workspace" && value === key) {
-                    const workspace = service.resolveWorkspace(this.draft.workspace);
-                    if (workspace) copy.prepend(mountWorkspaceThumbnail(copy, service.plugin, workspace));
-                    oathIcon(card, "chevrons-up-down").classList.add("hub-oath-workspace-change");
-                    const tooltip = () => setHubTooltip(title, title.scrollWidth > title.clientWidth ? label : null);
-                    card.addEventListener("pointerover", tooltip);
-                    card.addEventListener("focusin", tooltip);
-                }
                 if (help) {
                     const hint = copy.createSpan({ text: help, cls: "hub-oath-choice-help", attr: { id: `${radioName}-${key}-help` } });
                     radio.setAttribute("aria-describedby", hint.id);
                 }
-                if (name === "workspace") radio.addEventListener("click", () => {
-                    for (const input of group.querySelectorAll("input")) input.checked = input.value === this.draft.workspace?.type;
-                    changed(key);
-                });
-                else radio.addEventListener("change", () => {
+                radio.addEventListener("change", () => {
                     if (!radio.checked) return;
                     changed(key);
                     const selected = this.contentEl.querySelector(`input[name="${radioName}"]:checked`);
@@ -21029,13 +22869,12 @@ function openOathSetup(service) {
             draft.applicationCheckMode = "automatic";
             draft.manualApplicationReviewAcknowledged = false;
             delete draft.strictConfirmation;
-            this.clearSetupEffects(); this.taskOwner?.unload(); this.updateNext = null; this.contentEl.empty();
+            this.clearSetupEffects(); this.updateNext = null; this.contentEl.empty();
             this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
             const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
             setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment" }));
-            const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             if (service.strictEnabled || draft.mode === "strict") {
                 const mode = this.section("Commitment mode");
                 this.choices(mode, "mode", [["ordinary", "Ordinary Oath", "Early exit records a broken Oath"], ["strict", "Strict Oath", "Ordinary early exit is unavailable"]], draft.mode ?? "ordinary", value => {
@@ -21085,7 +22924,7 @@ function openOathSetup(service) {
                 this.scheduledValue = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             }
             dateInput.value = this.scheduledValue ?? "";
-            const startValid = () => this.candidates.requirements(draft).find(item => item.key === "Start").complete;
+            const startValid = () => service.setupRequirements(draft).find(item => item.key === "Start").complete;
             const syncStart = () => {
                 const opened = this.dateDisclosure?.isOpen ?? false;
                 nowRadio.checked = draft.start === "now";
@@ -21127,94 +22966,34 @@ function openOathSetup(service) {
             });
             syncStart();
             const work = this.section(OATH_COPY.work);
-            const choose = type => {
-                this.dateDisclosure.close(); this.unitMenu?.hide();
-                this.picker = openOathWorkspacePicker(service, type, draft.workspace, ref => {
-                    this.selectWorkspace(ref);
-                    this.setup();
-                }, () => focusControl(this.contentEl.querySelector(`.hub-oath-workspace-choices input[value="${type}"]`)));
+            const list = work.createDiv({ cls: "hub-oath-plan-items hub-scrollbar", attr: { role: "group", "aria-label": "Items from the active Plan" } });
+            this.renderItems = () => {
+                const doc = list.ownerDocument, focusId = doc.activeElement?.dataset.oathPlanEntry, scroll = list.scrollTop;
+                list.empty();
+                for (const item of this.items) {
+                    const { entry } = item;
+                    const label = list.createEl("label", { cls: "hub-oath-plan-item" });
+                    const checkbox = label.createEl("input", { type: "checkbox" });
+                    checkbox.dataset.oathPlanEntry = entry.id;
+                    checkbox.checked = draft.planEntryIds.includes(entry.id);
+                    const copy = label.createSpan();
+                    copy.createSpan({ text: item.label ?? entry.lastKnownLabel ?? "Unavailable item" });
+                    const context = item.context?.name ?? item.context?.label;
+                    copy.createSpan({ cls: "hub-oath-muted", text: [entry.kind === "workspace" ? "Workspace" : entry.kind === "file" ? "File" : "Task", context].filter(Boolean).join(" · ") });
+                    checkbox.onchange = () => {
+                        draft.planEntryIds = checkbox.checked ? [...draft.planEntryIds, entry.id] : draft.planEntryIds.filter(id => id !== entry.id);
+                        this.updateNext?.();
+                    };
+                }
+                [...list.querySelectorAll("input")].find(el => el.dataset.oathPlanEntry === focusId)?.focus({ preventScroll: true });
+                list.scrollTop = scroll;
             };
-            const workspaceName = service.resolveWorkspace(draft.workspace)?.name ?? draft.workspace?.name;
-            this.choices(work, "workspace", [
-                ["project", draft.workspace?.type === "project" ? workspaceName : "Project"],
-                ["resource", draft.workspace?.type === "resource" ? workspaceName : "Resource"]
-            ], draft.workspace?.type, choose);
-            this.renderSelected = null;
-            if (draft.workspace) {
-                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options hub-option-group project-tasks-body" });
-                const taskAction = work.createEl("button", { cls: "hub-oath-add-tasks", attr: { type: "button", "aria-label": "Add tasks" } });
-                oathIcon(taskAction, "plus");
-                this.taskOwner = new Component(); this.taskOwner.load();
-                const ui = createTaskUi({ app: service.app, component: this.taskOwner, body });
-                let noOpenTasks = false;
-                this.renderSelected = () => preserveCandidateInteraction(body, () => {
-                    ui.beginRender(this.renderSelected); body.empty();
-                    const ready = service.ready() && this.candidates.state.status === "ready", tasks = this.candidates.tasks();
-                    noOpenTasks = ready && !tasks.length;
-                    // Suggest only the first Task-panel task; selection is always explicit.
-                    const rows = [...new Map([...(tasks.length ? [tasks[0]] : []), ...draft.tasks].map(task => [taskKey(task), task])).values()];
-                    const selected = new Set(draft.tasks.map(taskKey));
-                    for (const task of rows) {
-                        const row = selectionRow(ui, body, task);
-                        const key = taskKey(task);
-                        row.oathCandidateKey = key;
-                        row.classList.add("hub-oath-task-option");
-                        row.classList.toggle("is-selected", selected.has(key));
-                        row.dataset.taskKey = key;
-                        row.setAttribute("role", "button"); row.tabIndex = 0;
-                        row.setAttribute("aria-pressed", String(selected.has(key)));
-                        row.setAttribute("aria-label", `Select for Oath: ${task.text}`);
-                        const toggle = () => {
-                            if (!selected.has(key) && !this.candidates.available([task], draft.workspace)) return;
-                            draft.tasks = selected.has(key) ? draft.tasks.filter(item => taskKey(item) !== key) : [...draft.tasks, task];
-                            this.renderSelected();
-                            [...body.children].find(item => item.dataset.taskKey === key)?.focus();
-                        };
-                        row.addEventListener("click", toggle);
-                        row.addEventListener("keydown", event => {
-                            if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
-                        });
-                        if (selected.has(key)) {
-                            const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain",
-                                attr: { type: "button", "aria-label": `Remove from Oath: ${task.text}` } });
-                            oathIcon(remove, "x");
-                            remove.addEventListener("click", event => {
-                                event.preventDefault(); event.stopPropagation();
-                                draft.tasks = draft.tasks.filter(item => taskKey(item) !== key);
-                                this.renderSelected();
-                                (body.querySelector(".hub-oath-remove-task") ?? body.querySelector(".hub-oath-task-option") ?? taskAction).focus();
-                            });
-                        }
-                    }
-                    if (!service.ready()) body.createEl("p", { cls: "hub-oath-muted", text: "Loading tasks..." });
-                    else if (this.candidates.state.status === "error") body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Tasks could not be loaded. Try again." });
-                    else if (draft.tasks.length && !this.candidates.available(draft.tasks, draft.workspace)) body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Selected tasks must be open tasks from this workspace. Update your selection." });
-                    else if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
-                        `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
-                    taskAction.setAttribute("aria-label", service.ready() && this.candidates.state.status === "error" ? "Retry loading tasks" : noOpenTasks ? "Create task" : "Add tasks");
-                    taskAction.disabled = !service.ready() || !service.resolveWorkspace(draft.workspace);
-                    this.updateNext?.();
-                });
-                this.renderSelected();
-                taskAction.addEventListener("click", () => {
-                    this.dateDisclosure.close(); this.unitMenu?.hide();
-                    if (this.candidates.state.status === "error") { void this.candidates.retry(); return; }
-                    if (noOpenTasks) {
-                        const context = service.resolveWorkspace(draft.workspace);
-                        if (context) this.creator = service.plugin.openTaskCreator({ root: context.root });
-                        return;
-                    }
-                    this.picker = openOathPicker(service, draft.workspace, draft.tasks, tasks => {
-                        draft.tasks = [...new Map([...draft.tasks, ...tasks].map(task => [taskKey(task), task])).values()];
-                        this.renderSelected();
-                    }, this.candidates);
-                });
-            }
+            this.renderItems();
             const duration = this.section(OATH_COPY.duration);
             const durationChoices = this.choices(duration, "duration", [["25", "25 minutes"], ["50", "50 minutes"], ["90", "90 minutes"], ["custom", "Custom"]],
                 this.custom ? "custom" : draft.durationMs == null ? null : String(draft.durationMs / 60000), value => {
                     if (value === "custom") this.customDisclosure.open();
-                    else {
+                    else if(Number(value)*60000<=service.durationLimit(draft)) {
                         this.customDisclosure.close();
                         this.custom = false;
                         draft.durationMs = Number(value) * 60000;
@@ -21247,7 +23026,8 @@ function openOathSetup(service) {
                 if (!customOpen) return;
                 const focused = customCard.contains(customCard.ownerDocument.activeElement);
                 // Only the UI remembers the last commit; the draft keeps durationMs.
-                if (!cancel && validDuration(this.customDuration())) this.committedCustomValue = { ...this.customValue };
+                if (!cancel && validDuration(this.customDuration()) && this.customDuration()<=service.durationLimit(draft))
+                    this.committedCustomValue = { ...this.customValue };
                 else if (this.committedCustomValue) this.customValue = { ...this.committedCustomValue };
                 this.custom = !!this.committedCustomValue;
                 draft.durationMs = this.custom ? this.customDuration() : null;
@@ -21347,14 +23127,25 @@ function openOathSetup(service) {
                 customDoc.removeEventListener("keydown", customKey, true);
             } };
             syncCustom();
+            const limitMessage=duration.createDiv({ cls:"hub-oath-muted" });
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const hint = this.contentEl.createSpan({ cls: "hub-guidance-status", attr: { role: "status", "aria-live": "polite" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
-            this.requirementGroups = { Start: start, Workspace: work, Tasks: work, Duration: duration };
+            this.requirementGroups = { Start: start, Tasks: work, Duration: duration };
             this.updateNext = () => {
-                const missing = this.candidates.requirements(draft).find(item => !item.complete);
+                const limit=service.durationLimit(draft);
+                for(const radio of durationChoices.querySelectorAll("input[type=radio]")){
+                    radio.disabled=radio===customRadio?limit<60000:Number(radio.value)*60000>limit;
+                }
+                const maximum=customEditor?.querySelector("input[type=number]");
+                if(maximum) {
+                    if(Number.isFinite(limit))maximum.max=String(Math.floor(limit/60000)/(this.customValue.unit==="hours"?60:1));
+                    else maximum.removeAttribute("max");
+                }
+                limitMessage.textContent=Number.isFinite(limit)?(limit<60000?"The next Plan starts in less than a minute.":"Maximum before the next Plan: "+oathDuration(Math.floor(limit/60000)*60000)):"";
+                const missing = service.setupRequirements(draft).find(item => !item.complete);
                 next.setAttribute("aria-disabled", String(!!missing));
                 if (!missing) error.textContent = "";
                 if (this.guidedGroup && this.requirementGroups[missing?.key] !== this.guidedGroup) {
@@ -21363,24 +23154,22 @@ function openOathSetup(service) {
                 syncStart();
             };
             this.updateNext();
-            layoutModal(this, { headerEnd, footer: actions });
+            layoutModal(this, { footer: actions });
             next.addEventListener("click", async () => {
                 if (this.reviewing) return;
                 try {
-                    this.candidates.enrollmentDraft(draft);
                     service.validateDraft(draft);
                     this.reviewing = true; next.disabled = true;
                     const review = draft.mode === "strict" ? await service.reviewStrict(draft) : null;
                     if (!this.closed) this.review(review);
                 } catch (problem) {
-                    const missing = this.candidates.requirements(draft).find(item => !item.complete);
+                    const missing = service.setupRequirements(draft).find(item => !item.complete);
                     // An empty choice only needs guidance. Invalid populated
                     // values, unavailable destinations/tasks and index errors
                     // still explain what the user needs to correct or await.
                     const unchosen = missing && {
                         Start: !this.scheduledValue,
-                        Workspace: !draft.workspace,
-                        Tasks: service.ready() && !draft.tasks.length,
+                        Tasks: !draft.planEntryIds.length,
                         Duration: draft.durationMs == null && !this.customValue?.value
                     }[missing.key];
                     error.textContent = unchosen ? "" : missing?.error ?? problem.message;
@@ -21404,22 +23193,19 @@ function openOathSetup(service) {
         }
         review(strictReview = null) {
             const draft = this.draft;
-            this.candidates.enrollmentDraft(draft);
             service.validateDraft(draft);
             this.clearSetupEffects();
-            this.taskOwner?.unload(); this.updateNext = null;
+            this.renderItems = null; this.updateNext = null;
             this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
             const heading = createWindowTitle(this.contentEl, OATH_COPY.confirmation, "shield-user");
             setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath", cls: "hub-oath-muted" }));
-            const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
                 ["clock", "Start time", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
-                [draft.workspace.type === "resource" ? "library" : "folder", draft.workspace.type === "resource" ? "Selected resource" : "Selected project",
-                    service.resolveWorkspace(draft.workspace).name],
-                ["list-todo", "Selected tasks", draft.tasks.map(task => task.text)],
+                ["goal", "Plan items", this.items.filter(item=>draft.planEntryIds.includes(item.entry.id))
+                    .map(item=>item.label??item.entry.lastKnownLabel??"Unavailable item")],
                 ["timer", "Duration", oathDuration(draft.durationMs)]
             ]) {
                 oathRow(summary, icon, value, label);
@@ -21500,16 +23286,16 @@ function openOathSetup(service) {
                 manualChoice.checked = false; manualAck.checked = false;
                 void renewStrictReview();
             });
-            layoutModal(this, { headerEnd, footer: actions });
+            layoutModal(this, { footer: actions });
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
                 if (this.saving || this.reviewing || take.disabled) return; this.saving = true; take.disabled = back.disabled = true; if (refresh) refresh.disabled = true;
-                try { const submitted = this.candidates.enrollmentDraft(draft); await service.take(submitted); this.saving = false; this.close(); }
+                try { await service.take(draft); this.saving = false; this.close(); }
                 catch (problem) { this.saving = false; back.disabled = false; if (refresh) refresh.disabled = false; updateTake(); error.textContent = problem.message; }
             });
         }
         close() { if (!this.saving && !this.reviewing) super.close(); }
-        onClose() { this.closed = true; this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
+        onClose() { this.closed = true; this.clearSetupEffects(); this.owner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Setup(service.app); modal.open(); return modal;
 }
@@ -21556,8 +23342,16 @@ function openOathStatus(service) {
                 for (const uncertain of service.strictStatus?.uncertain ?? []) this.contentEl.createEl("p", { text: `Could not confirm switchability: ${uncertain.title || uncertain.executable || "Untitled window"}`, cls: "hub-oath-muted" });
             }
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
-            for (const ref of oath.tasks) {
-                const task = service.work.find(item => item.ref.id === ref.id)?.task;
+            const focus=service.focus;
+            if (focus.planId) {
+                work.createEl("button", { text: "View Plan" }).onclick = () => {
+                    this.close();
+                    __hubRequire("lib/ui/plan.js").openPlan(service.plugin, focus.planId);
+                };
+                for (const item of focus.planItems ?? []) if (item.kind !== "task") work.createDiv({ text: item.label });
+            }
+            for (const ref of focus.tasks) {
+                const task = service.work.find(item => taskKey(item.ref)===taskKey(ref))?.task;
                 renderReadOnlyTask(work, task || { text: ref.text, path: ref.path }, markdown, { unavailable: !task });
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
@@ -21629,6 +23423,7 @@ async function requestOathExit(service) {
                     try { await service.end(id, "broken"); this.close(); }
                     catch (problem) { this.saving = false; breakOath.disabled = false; error.textContent = problem.message; }
                 });
+                mountModalSeparators(this, { footer: actions });
                 this.dispose = service.onChange(() => { if (!service.active || service.fulfilled) this.close(); });
                 keep.focus();
             }
@@ -21650,6 +23445,38 @@ function mountOathControl(plugin, service) {
     const button = item.createEl("button", { cls: "hub-oath-button", attr: { type: "button" } });
     setIcon(button.createSpan({ cls: "hub-oath-icon" }), "shield-user");
     const label = button.createSpan();
+    const prompt=item.createEl("section",{cls:"hub-oath-plan-prompt",attr:{hidden:"","aria-label":"Scheduled Plan ready"}});
+    const prompts=new Map();
+    let awaiting=false;
+    const plans=plugin.globalPlan;
+    function updatePrompt(){
+        const pending=plans?.focusPrompts()??[],ids=new Set(pending.map(record=>record.id));
+        for(const [id,row] of prompts)if(!ids.has(id)){row.remove();prompts.delete(id);}
+        prompt.hidden=!pending.length;
+        for(const record of pending){
+            if(prompts.has(record.id))continue;
+            const row=prompt.createDiv({cls:"hub-oath-plan-prompt-row"});
+            prompts.set(record.id,row);
+            row.createDiv({text:"Your "+dateLabel(Date.parse(record.scheduledAt))+" Plan is ready. You can stay in focus.",
+                attr:{role:"status","aria-live":"polite"}});
+            const actions=row.createDiv({cls:"hub-oath-plan-prompt-actions"});
+            const update=actions.createEl("button",{text:"Update Plan"});
+            const keep=actions.createEl("button",{text:"Continue current Plan"});
+            const error=row.createDiv({attr:{role:"alert",hidden:""}});
+            update.onclick=()=>void choose(record.id,true,error);
+            keep.onclick=()=>void choose(record.id,false,error);
+        }
+        for(const control of prompt.querySelectorAll("button"))control.disabled=awaiting;
+    }
+    async function choose(id,update,status){
+        if(awaiting)return;
+        awaiting=true;
+        status.hidden=true;
+        updatePrompt();
+        try{await plans.focusChoice(id,update);}
+        catch(error){status.textContent=error.message;status.hidden=false;}
+        finally{awaiting=false;updatePrompt();}
+    }
     let modal = null;
     const open = () => { modal?.close(); modal = service.committed ? openOathStatus(service) : openOathSetup(service); };
     button.addEventListener("click", open);
@@ -21663,155 +23490,263 @@ function mountOathControl(plugin, service) {
             `The Oath · ${shortOathTime(oathTime(oath, service.now()).remainingMs)}${oath.tasks.length ? ` · ${oathProgress(service.work).completed} / ${oath.tasks.length}` : ""}`;
         if (service.isStrict && service.strictStatus?.status === "waiting") label.textContent = "The Oath · Waiting to start";
         if (service.isStrict && service.active && service.strictStatus?.status === "degraded") label.textContent += " · Desktop checks limited";
+        updatePrompt();
     };
     const stop = service.onChange(update, true); update();
-    return { item, open, destroy() { stop(); service.fullscreen.onExitRequest?.(() => {}); exitUi.get(service)?.warning?.close(); modal?.close(); item.remove(); bar.classList.remove("hub-oath-statusbar"); if (fallback) bar.remove(); } };
+    const stopPlans=plans?.subscribe(null,updatePrompt);
+    return { item, open, destroy() { stop(); stopPlans?.(); service.fullscreen.onExitRequest?.(() => {}); exitUi.get(service)?.warning?.close(); modal?.close(); item.remove(); bar.classList.remove("hub-oath-statusbar"); if (fallback) bar.remove(); } };
 }
-module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathControl, requestOathExit };
+module.exports = { openOathSetup, openOathStatus, mountOathControl, requestOathExit };
+
+},
+"lib/ui/plan-delete.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Notice } = require("obsidian");
+const { CaptureConfirmation } = __hubRequire("lib/ui/capture-modal.js");
+const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+const { createIconAction } = __hubRequire("lib/ui/controls.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { hasContent } = __hubRequire("lib/domain/plan-lifecycle.js");
+
+function mountPlanDelete(host, component, plugin, id, onDeleted) {
+    const plan = plugin.globalPlan;
+    const button = createIconAction(host, "Delete Plan", "trash-2", async () => {
+        if (plugin.planDeleteConfirmation) return;
+        try {
+            const record = plan.readPlan(id);
+            if (!record) return;
+            const confirmed = hasContent(record);
+            if (confirmed) {
+                const dialog = plugin.planDeleteConfirmation = new CaptureConfirmation(plugin.app, null, {
+                    title: "Delete this Plan?",
+                    message: "Its note and planned items will be removed from this Plan.",
+                    cancelLabel: "Cancel", confirmLabel: "Delete Plan", destructive: true, returnFocus: button
+                });
+                if (!await dialog.ask()) return;
+            }
+            await plan.deletePlan(id, { confirmed });
+            onDeleted?.();
+        } catch (error) {
+            ownNoticeColors(new Notice(error.message));
+        } finally {
+            plugin.planDeleteConfirmation = null;
+        }
+    });
+    button.classList.add("hub-plan-delete");
+    function update() {
+        const protectedPlan = plan.oathProtects(id);
+        button.disabled = plan.busy || protectedPlan;
+        setHubTooltip(button, protectedPlan ? "End the Oath before deleting its Plan" : "Delete Plan");
+    }
+    plan.subscribe(component, update);
+    update();
+    return button;
+}
+
+module.exports = { mountPlanDelete };
+
+},
+"lib/ui/plan-feedback.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function planFeedback(plan) {
+    const message = plan.status;
+    if (message && message !== "Saved" && message !== "Saving...") return message;
+    if (plan.error) return plan.error.message;
+    if (plan.deferredInput) return "A Plan note edit was preserved locally.";
+    return "";
+}
+
+function showPlanFeedback(element, message) {
+    if (element.textContent !== message) element.textContent = message;
+    element.hidden = !message;
+}
+
+module.exports = { planFeedback, showPlanFeedback };
 
 },
 "lib/ui/plan-finish.js": function (module, exports, __hubRequire) {
 ﻿"use strict";
 const {CaptureConfirmation}=__hubRequire("lib/ui/capture-modal.js");
+const {Notice}=require("obsidian");
+const {ownNoticeColors}=__hubRequire("lib/ui/color-system.js");
+const {setHubIcon}=__hubRequire("lib/ui/icons.js");
 async function confirmFinish(plugin,id,returnFocus){
  if(plugin.planFinishConfirmation)return false;
  const modal=plugin.planFinishConfirmation=new CaptureConfirmation(plugin.app,null,{title:'Finish this plan?',message:'The plan will be preserved. Unfinished tasks will remain unchanged.',cancelLabel:'Keep working',confirmLabel:'Finish plan',returnFocus});
  try{if(!await modal.ask())return false;await plugin.globalPlan.finishPlan(id);return true;}finally{plugin.planFinishConfirmation=null;}
 }
-module.exports={confirmFinish};
+
+function mountFinishPlan({root,component,plugin,planId}) {
+ const plan=plugin.globalPlan;
+ const button=root.createEl("button",{cls:"hub-button-plain hub-icon-action hub-plan-finish",attr:{type:"button"}});
+ const icon=button.createSpan({cls:"hub-icon-action-glyph",attr:{"aria-hidden":"true"}});
+ setHubIcon(icon.createSpan({cls:"hub-icon-action-default"}),"circle-dashed-check");
+ setHubIcon(icon.createSpan({cls:"hub-icon-action-emphasis"}),"circle-check");
+ button.createSpan({text:"Finish Plan"});
+ function update(){
+  const protectedPlan=plan.oathProtects(planId);
+  button.disabled=plan.busy||protectedPlan||!plan.canFinish(planId);
+  button.title=protectedPlan?"End the Oath before finishing its Plan":!plan.canFinish(planId)?"Add a note or item before finishing this Plan":"";
+ }
+ button.onclick=()=>void confirmFinish(plugin,planId,button).catch(error=>ownNoticeColors(new Notice(error.message)));
+ plan.subscribe(component,update);
+ update();
+ return button;
+}
+
+module.exports={confirmFinish,mountFinishPlan};
 
 },
 "lib/ui/plan-home.js": function (module, exports, __hubRequire) {
 "use strict";
-const {Component}=require('obsidian');
-const {setHubIcon}=__hubRequire("lib/ui/icons.js");
-const {localISODate,formatDate}=__hubRequire("lib/domain/dates.js");
-const {createHistoryPager}=__hubRequire("lib/ui/history-pager.js");
-function dateLabel(p){const today=new Date(),yesterday=new Date(today);yesterday.setDate(today.getDate()-1);return p.calendarDate===localISODate(today)?'Today':p.calendarDate===localISODate(yesterday)?'Yesterday':formatDate(p.calendarDate,'numeric');}
-function time(p,stamp){return new Intl.DateTimeFormat('en-GB',{timeZone:p.timeZone,hour:'2-digit',minute:'2-digit'}).format(new Date(stamp));}
-function mountPlanHome({root,component,plugin}){
- const plan=plugin.globalPlan;let historyExpanded=false,child,renderedHistory=false,expandedPlanId=null,pager,loadedCount=50,noteLines=1,notePlanId;const positions={main:0,history:0};
- const footer=root.createDiv({cls:'hub-plan-home-footer'});let footerMode,historyToggle,historyChevron,historyLabel;
- const report=e=>{plan.status=e.message;render();};
- const action=(host,text,run,cls='')=>{const b=host.createEl('button',{text,cls});b.onclick=()=>void Promise.resolve().then(run).catch(report);return b;};
- const header=root.parentElement?.querySelector('.home-panel-title button');
- let headerIcon,headerLabel;
- if(header){
-  header.empty();header.classList.add('hub-panel-action','hub-panel-add');
-  headerIcon=header.createSpan({cls:'hub-task-add-icon',attr:{'aria-hidden':'true'}});setHubIcon(headerIcon,'plus');
-  headerLabel=header.createSpan();
- }
- const newPlan=async()=>{const id=await plan.createPlan();historyExpanded=false;render();__hubRequire("lib/ui/plan.js").openPlan(plugin,id);};
- function render(){
-  const oldNote=root.querySelector(':scope > .hub-plan-note-excerpt:not(.is-empty-note) .hub-plan-note-text');
-  if(oldNote){const line=parseFloat(root.ownerDocument.defaultView.getComputedStyle(oldNote).lineHeight);if(line)noteLines=Math.max(1,Math.min(2,Math.round(oldNote.getBoundingClientRect().height/line)));}
-  const focused=root.contains(document.activeElement)?document.activeElement:null,focusHistory=focused?.closest('[data-history-id]')?.dataset.historyId,focusEntry=focused?.closest('[data-plan-id]')?.dataset.planId;
-  if(pager)loadedCount=Math.max(loadedCount,pager.renderedCount);pager=null;
-  const old=root.querySelector('.hub-plan-history-list')??root.querySelector('.hub-plan-collection');if(old)positions[renderedHistory?'history':'main']=old.scrollTop;
-  child?.unload();child=new Component();child.load();for(const node of [...root.children])if(node!==footer)node.remove();root.classList.add('hub-plan-home');
-  const active=plan.active(),finished=plan.readPlan(plan.finishedPreviewPlanId),p=active??(finished?.status==='finished'?finished:null),records=plan.listHistorical();
-  if(p){historyExpanded=false;expandedPlanId=null;}if(expandedPlanId&&!records.some(r=>r.id===expandedPlanId))expandedPlanId=null;renderedHistory=historyExpanded;
-  if(header){header.hidden=false;headerIcon.hidden=!!active;headerIcon.style.display=active?'none':'';headerLabel.textContent=active?'Edit':'Plan';header.setAttribute('aria-label',active?'Edit plan':'New plan');header.disabled=!!(plan.transitioning||plan.pendingTransition||plan.conflict||plan.readOnly);header.onclick=()=>void Promise.resolve().then(()=>active?__hubRequire("lib/ui/plan.js").openPlan(plugin,active.id):newPlan()).catch(report);}
-  if(p){
-   const bound=plan.bind(p.id);__hubRequire("lib/ui/plan-presentation.js").mountPlanPresentation({root,component:child,plan:bound,context:'home',interactive:p.status==='active',emptyMessage:false});
-   root.classList.toggle('is-finished-plan',p.status==='finished');
-   const note=root.querySelector('.hub-plan-note-excerpt'),text=(p.content??p.snapshot).note,empty=!text.trim();if(notePlanId!==p.id){noteLines=1;notePlanId=p.id;}note.hidden=false;note.classList.toggle('is-empty-note',empty);note.style.setProperty('--hub-plan-note-lines',String(noteLines));note.querySelector('.hub-plan-note-text').textContent=empty?'':text;
-  }else{
-   root.classList.remove('is-finished-plan');
-   if(historyExpanded&&records.length){
-    const list=root.createDiv({cls:'hub-plan-history-list hub-scrollbar'});list.id='hub-plan-home-history';
-    const rows=new Map();let expansion;
-    child.register(()=>expansion?.unload());
-    const expand=(id,anchor)=>{
-     const top=anchor?.getBoundingClientRect().top;
-     expansion?.unload();expansion=null;
-     for(const [key,row]of rows){row.content.empty();row.content.hidden=key!==id;row.button.setAttribute('aria-expanded',String(key===id));setHubIcon(row.chevron,key===id?'chevron-down':'chevron-right');}
-     const row=rows.get(id);
-     if(row&&row.record.snapshot.entries.length){
-      expansion=new Component();expansion.load();const collection=row.content.createDiv({cls:'hub-plan-collection'});
-      __hubRequire("lib/ui/plan-list.js").mountPlanList({root:collection,component:expansion,plan:plan.bind(id),editable:false,interactive:true,emptyMessage:false,scroller:list,onRendered:()=>{if(focusHistory===id&&focusEntry){const target=[...row.content.querySelectorAll('[data-plan-id]')].find(e=>e.dataset.planId===focusEntry)?.querySelector('.hub-plan-title');target?.focus({preventScroll:true});}}});
-     }
-     if(anchor&&top!==undefined)list.scrollTop+=anchor.getBoundingClientRect().top-top;
-    };
-    pager=createHistoryPager(list,child);pager.render(records,record=>{
-     const wrapper=list.createDiv({cls:'hub-plan-history-entry'});wrapper.dataset.historyId=record.id;
-     const b=action(wrapper,'',()=>{expandedPlanId=expandedPlanId===record.id?null:record.id;expand(expandedPlanId,b);b.focus({preventScroll:true});},'hub-plan-history-row'),status=b.createDiv({cls:'hub-plan-history-status'});
-     setHubIcon(status.createSpan({cls:record.status==='finished'?'hub-plan-finished':'hub-oath-muted'}),record.status==='finished'?'circle-check':'clock');
-     status.createSpan({text:dateLabel(record)+' \u00b7 '+time(record,record.createdAt)+'\u2013'+time(record,record.endedAt)});
-     const chevron=status.createSpan({cls:'hub-task-group-chevron'});chevron.setAttribute('aria-hidden','true');setHubIcon(chevron,'chevron-right');
-     b.title=(record.status==='finished'?'Manually finished':'Day ended')+' \u00b7 '+record.timeZone;b.setAttribute('aria-description',b.title);
-     b.createDiv({text:record.snapshot.note||'No note',cls:'hub-plan-history-note'+(record.snapshot.note?'':' hub-oath-muted')});b.createDiv({text:record.snapshot.entries.length+' planned items',cls:'hub-plan-history-count hub-oath-muted'});
-     const content=wrapper.createDiv({cls:'hub-plan-history-content hub-plan-presentation',attr:{hidden:''}});content.dataset.planContext='home';content.id='hub-plan-history-'+record.id;b.setAttribute('aria-controls',content.id);b.setAttribute('aria-expanded','false');
-     rows.set(record.id,{button:b,content,chevron,record});
-    },loadedCount);expand(expandedPlanId);list.scrollTop=positions.history;
-    if(focusHistory){const row=rows.get(focusHistory);row?.button.focus({preventScroll:true});}
-   }else root.createDiv({cls:'hub-plan-empty',text:'No active plan for today'});
-  }
-  const mode=p?p.status+':'+p.id:(records.length?'history':'empty');
-  if(mode!==footerMode){footer.empty();footerMode=mode;historyToggle=null;
-  if(p?.status==='active'){
-   const b=action(footer,'',()=>__hubRequire("lib/ui/plan-finish.js").confirmFinish(plugin,p.id,b),'hub-plan-finish'),icon=b.createSpan({cls:'hub-capture-icon'});setHubIcon(icon,'circle-dashed-check');b.createSpan({text:'Finish plan'});
-   for(const event of ['mouseenter','focus'])b.addEventListener(event,()=>setHubIcon(icon,'circle-check'));
-   for(const event of ['mouseleave','blur'])b.addEventListener(event,()=>setHubIcon(icon,b.matches(':hover,:focus')?'circle-check':'circle-dashed-check'));
-   b.disabled=!!(plan.transitioning||plan.pendingTransition||plan.conflict||plan.readOnly);
-  }else if(p){
-   const status=footer.createSpan({cls:'hub-plan-finished-status'});setHubIcon(status.createSpan(),'circle-check');status.createSpan({text:'Finished '+time(p,p.endedAt)});
-   action(footer,'Hide',()=>{plan.dismissHomePlan(p.id);header?.focus();},'hub-button-plain hub-plan-hide');
-  }else if(records.length){
-   const b=action(footer,'',()=>{historyExpanded=!historyExpanded;render();root.querySelector('.hub-task-group-toggle')?.focus();},'hub-task-group-toggle');b.setAttribute('aria-expanded',String(historyExpanded));b.setAttribute('aria-controls','hub-plan-home-history');historyToggle=b;historyChevron=b.createSpan({cls:'hub-task-group-chevron',attr:{'aria-hidden':'true'}});b.classList.add('hub-plan-history-toggle');const label=b.createSpan({cls:'hub-plan-history-toggle-label'});label.createSpan({text:'Show earlier plans',cls:'hub-plan-history-toggle-measure',attr:{'aria-hidden':'true'}});historyLabel=label.createSpan();
-  }
-  }
-  const finish=footer.querySelector('.hub-plan-finish');if(finish)finish.disabled=!!(plan.transitioning||plan.pendingTransition||plan.conflict||plan.readOnly);
-  if(historyToggle){historyToggle.setAttribute('aria-expanded',String(historyExpanded));setHubIcon(historyChevron,historyExpanded?'chevron-down':'chevron-right');historyLabel.textContent=historyExpanded?'Hide earlier plans':'Show earlier plans';}
-  if(plan.error||plan.status!=='Saved')root.createDiv({text:plan.status,cls:'hub-oath-muted',attr:{role:'status'}});
-  for(const node of [...root.children])if(node!==footer)root.insertBefore(node,footer);
-  const list=renderedHistory?null:root.querySelector('.hub-plan-collection');if(list){list.dataset.planScrollRestore=String(positions.main);list.scrollTop=positions.main;}
- }
- plan.subscribe(component,render);component.register(()=>{child?.unload();if(header)header.onclick=null;});render();
+const { Component } = require("obsidian");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { mountPlanPresentation } = __hubRequire("lib/ui/plan-presentation.js");
+const { mountFinishPlan } = __hubRequire("lib/ui/plan-finish.js");
+const { mountPlanDelete } = __hubRequire("lib/ui/plan-delete.js");
+const { planFeedback, showPlanFeedback } = __hubRequire("lib/ui/plan-feedback.js");
+
+function mountPlanHome({ root, component, plugin }) {
+    const plan = plugin.globalPlan;
+    root.classList.add("hub-plan-home");
+    const body = root.createDiv({ cls: "hub-plan-home-content" });
+    const footer = root.createDiv({ cls: "hub-plan-home-footer" });
+    const notice = root.createDiv({ cls: "hub-plan-preview-status", attr: { role: "status" } });
+    let mounted, selection;
+
+    function render() {
+        const active = plan.active();
+        const finished = plan.readPlan(plan.finishedPreviewPlanId);
+        const record = active ?? (finished?.status === "finished" ? finished : null);
+        root.classList.toggle("is-finished-plan", record?.status === "finished");
+        const key = record ? record.id + ":" + record.status : "empty";
+        if (selection !== key) {
+            selection = key;
+            mounted?.unload();
+            mounted = new Component();
+            mounted.load();
+            body.empty();
+            footer.empty();
+            if (!record) body.createDiv({ cls: "hub-plan-empty", text: "No active Plan" });
+            else {
+                const tools = body.createDiv({ cls: "hub-plan-card-actions hub-plan-home-actions" });
+                if (!active) {
+                    const history = tools.createSpan({ cls: "hub-plan-status-icon is-finished", attr: { role: "img", "aria-label": "Finished Plan" } });
+                    setHubIcon(history, "check");
+                }
+                mountPlanDelete(tools, mounted, plugin, record.id, () =>
+                    root.closest(".home-panel")?.querySelector(".home-focus-edit")?.focus({ preventScroll: true }));
+                mountPlanPresentation({
+                root: body, component: mounted, plan: plan.bind(record.id), context: "home",
+                interactive: !!active, emptyMessage: false, showStatus: false,
+                noteAction: active ? host => {
+                    const pencil = host.createEl("button", {
+                        cls: "hub-button-plain hub-icon-action hub-plan-note-pencil",
+                        attr: { type: "button", "aria-label": "Edit active Plan", title: "Edit active Plan" }
+                    });
+                    setHubIcon(pencil.createSpan({ cls: "hub-icon-action-glyph", attr: { "aria-hidden": "true" } }), "pencil");
+                    pencil.onclick = () => __hubRequire("lib/ui/plan.js").openPlanner(plugin, { planId: record.id, returnFocus: pencil });
+                } : undefined
+                });
+            }
+            footer.hidden = !record;
+            if (active) {
+                mountFinishPlan({ root: footer, component: mounted, plugin, planId: active.id });
+            } else if (record) {
+                footer.createSpan({ cls: "hub-plan-finished-status", text: "Plan finished" });
+                footer.createEl("button", { cls: "hub-button-plain hub-plan-hide", text: "Hide" }).onclick = () => plan.dismissHomePlan(record.id);
+            }
+        }
+        showPlanFeedback(notice, planFeedback(plan));
+    }
+
+    plan.subscribe(component, render);
+    component.register(() => mounted?.unload());
+    render();
 }
-module.exports={mountPlanHome,dateLabel,time};
+module.exports = { mountPlanHome };
 
 },
 "lib/ui/plan-list.js": function (module, exports, __hubRequire) {
 "use strict";
-const {setIcon}=require("obsidian");
+const {setIcon,Notice}=require("obsidian");
+const {ownNoticeColors}=__hubRequire("lib/ui/color-system.js");
 const {createPointerListReorder}=__hubRequire("lib/ui/pointer-list-reorder.js");
 const {createTaskRow,mountTaskCardPresentation}=__hubRequire("lib/ui/task-card.js");
 const {fileIcon}=__hubRequire("lib/ui/file-icons.js");
 const {runNativeTaskToggle}=__hubRequire("lib/ui/task-operation.js");
-function mountPlanList({root,component,plan,editable=false,onRelink=()=>{},scroller=root,interactive=true,emptyMessage=true,onRendered}){
- let generation=0,disposed=false,reorder;const report=error=>new(require("obsidian").Notice)(error.message);
- async function render(){const gen=++generation;let items;try{items=await plan.references.resolve();}catch(error){if(gen===generation){root.empty();root.createDiv({text:error.message});}return;}if(disposed||gen!==generation||reorder?.busy)return;
+function mountPlanList({root,component,plan,editable=false,onRelink=()=>{},scroller=root,interactive=true,execute=interactive,historicalNavigation=false,emptyMessage=true,onRendered}){
+ let generation=0,disposed=false,reorder;const report=error=>ownNoticeColors(new Notice(error.message));
+ const edit=action=>{try{action();}catch(error){report(error);}};
+ async function render(){const gen=++generation;let items;try{items=await plan.references.resolve();}catch(error){if(gen===generation){root.classList.remove("is-empty-plan");root.empty();root.createDiv({text:error.message});}return;}if(disposed||gen!==generation||reorder?.busy)return;
   const focus=root.ownerDocument.activeElement,focused=focus?.closest?.("[data-plan-id]")?.dataset.planId,control=focus?.dataset.planControl,scroll=Number(scroller.dataset.planScrollRestore??scroller.scrollTop);delete scroller.dataset.planScrollRestore;reorder?.cancel();root.empty();root.classList.toggle('is-empty-plan',editable&&!items.length);
-  if(editable&&!items.length)root.createDiv({cls:'hub-plan-editor-empty',text:'Add at least one item to save this plan.'});
+  if(editable&&!items.length&&emptyMessage)root.createDiv({cls:'hub-plan-editor-empty',text:'This Plan has no items.'});
   if(!editable&&!items.length&&emptyMessage)root.createDiv({cls:"home-empty",text:"Add something to your plan when it helps."});
   const list=root.createDiv({cls:"hub-plan-list"});
   const live=root.createDiv({cls:"hub-plan-announcement",attr:{"aria-live":"polite"}});
   reorder=createPointerListReorder({container:list,scroller,placeholderClass:"hub-plan-placeholder",sortingClass:"is-sorting-plan",focusTarget:row=>row.querySelector("[data-plan-control=grip]"),commit:(rows,moved)=>plan.move(moved.dataset.planId,rows.indexOf(moved)),onError:report});
   items.forEach((item,index)=>{const {entry,task}=item,available=item.availability==="current";const row=list.createDiv({cls:"hub-plan-row"+((item.historical?item.snapshot.taskState==="completed":task?.completed)?" is-completed":""),attr:{"data-plan-id":entry.id}});
-   if(editable){const grip=row.createEl("button",{cls:"hub-button-plain hub-plan-hover",attr:{"aria-label":"Reorder "+item.label,"data-plan-control":"grip","aria-keyshortcuts":"Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End","aria-description":"Drag to reorder. Alt+Up or Down moves one position; Alt+Home or End moves to the first or last position.",title:"Drag to reorder \u00b7 Alt+\u2191/\u2193 to move"}});setIcon(grip,"grip-vertical");grip.onpointerdown=e=>{e.preventDefault();reorder.begin(e,row,list);};grip.onkeydown=e=>{if(e.altKey&&["ArrowUp","ArrowDown","Home","End"].includes(e.key)){e.preventDefault();const to=e.key==="Home"?0:e.key==="End"?items.length-1:index+(e.key==="ArrowUp"?-1:1);plan.move(entry.id,to);live.textContent=`Moved to position ${Math.max(1,Math.min(items.length,to+1))}`;}};}
+   if(editable){const grip=row.createEl("button",{cls:"hub-button-plain hub-plan-hover",attr:{"aria-label":"Reorder "+item.label,"data-plan-control":"grip","aria-keyshortcuts":"Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End","aria-description":"Drag to reorder. Alt+Up or Down moves one position; Alt+Home or End moves to the first or last position.",title:"Drag to reorder \u00b7 Alt+\u2191/\u2193 to move"}});setIcon(grip,"grip-vertical");grip.disabled=!!plan.busy;grip.onpointerdown=e=>{e.preventDefault();reorder.begin(e,row,list);};grip.onkeydown=e=>{if(e.altKey&&["ArrowUp","ArrowDown","Home","End"].includes(e.key)){e.preventDefault();const to=e.key==="Home"?0:e.key==="End"?items.length-1:index+(e.key==="ArrowUp"?-1:1);edit(()=>{plan.move(entry.id,to);live.textContent=`Moved to position ${Math.max(1,Math.min(items.length,to+1))}`;});}};}
    let content,title;
-   if(task&&!item.historical){
+   if(task&&!item.historical&&execute){
     const native=createTaskRow(row,task,task.completed,{variant:"home",leadingSlot:true});
     native.row.classList.add("hub-plan-native-task");
     const check=native.checkbox;check.disabled=!available||task.nativeReadOnly||plan.busy;
-    check.onchange=()=>void runNativeTaskToggle({checkbox:check,task,completed:check.checked,run:done=>{plan.assertEditable?.();return plan.trackNative?plan.trackNative(plan.references.tasks.toggle(task,done)):plan.references.tasks.toggle(task,done);},onEdit:()=>plan.emit(),report});
+    check.onchange=()=>void runNativeTaskToggle({checkbox:check,task,completed:check.checked,run:done=>{(plan.assertExecutable??plan.assertEditable)?.call(plan);return plan.trackNative?plan.trackNative(plan.references.tasks.toggle(task,done)):plan.references.tasks.toggle(task,done);},onEdit:()=>plan.emit(),report});
+    check.dataset.planControl="complete";
     mountTaskCardPresentation(native.row,native.textEl,task,()=>task.path??"",{importance:false,dates:false,description:false});
     content=native.info;title=native.textEl;title.classList.add("hub-plan-title");title.tabIndex=available?0:-1;title.setAttribute("role","button");title.setAttribute("aria-disabled",String(!available));
     title.onclick=()=>{if(available)void plan.references.open(item).catch(report);};title.onkeydown=e=>{if(["Enter"," "].includes(e.key)){e.preventDefault();title.click();}};
    }else{
-    setIcon(row.createSpan({cls:"hub-plan-icon hub-plan-leading"}),item.historical&&entry.kind==="task"?(item.snapshot.taskState==="completed"?"square-check":item.snapshot.taskState==="unknown"?"circle-help":"square"):entry.kind==="workspace"?(item.context?.icon??"folder"):fileIcon(entry.reference.path));
-    content=row.createDiv({cls:"hub-plan-content"});title=content.createEl(interactive?"button":"span",{cls:"hub-button-plain hub-plan-title",text:item.label||"Unavailable reference"});if(interactive){title.disabled=!available;title.onclick=()=>void plan.references.open(item).catch(report);}
-    if(item.historical){content.createDiv({cls:"hub-plan-metadata",text:item.snapshot.route});if(entry.kind==="task"&&item.snapshot.taskState==="unknown")content.createDiv({cls:"hub-oath-muted",text:"Task state at day end unknown"});}else __hubRequire("lib/ui/plan-presentation.js").renderPlanMetadata(content.createDiv({cls:"hub-plan-metadata"}),item,plan);
+    const taskState=item.historical?item.snapshot.taskState:task?.completed?"completed":undefined;
+    const leading = row.createSpan({ cls: "hub-plan-icon hub-plan-leading", attr: { "aria-hidden": "true" } });
+    if (entry.kind === "task") {
+     const checkbox = leading.createEl("input", { cls: "home-task-checkbox hub-plan-readonly-checkbox", attr: { type: "checkbox", tabindex: "-1" } });
+     checkbox.checked = taskState === "completed";
+     checkbox.disabled = true;
+    } else setIcon(leading, entry.kind === "workspace" ? item.context?.icon ?? "folder" : fileIcon(entry.reference.path));
+    const canOpen=entry.kind!=="task"&&(item.historical?historicalNavigation:interactive);
+    content=row.createDiv({cls:"hub-plan-content"});title=content.createEl(canOpen?"button":"span",{cls:"hub-button-plain hub-plan-title",text:item.label||"Unavailable reference"});if(canOpen){title.disabled=item.historical?item.navigationAvailability!=="current":!available;title.onclick=()=>void plan.references.open(item).catch(report);}
+    if(item.historical){
+     content.createDiv({cls:"hub-plan-metadata",text:item.snapshot.route});
+     if(entry.kind==="task")content.createDiv({cls:"hub-plan-metadata",text:taskState==="completed"?"Completed":taskState==="incomplete"?"Incomplete":"Task state unknown"});
+     if(canOpen&&title.disabled)content.createDiv({cls:"hub-oath-muted",text:"Reference unavailable"});
+    }else if(entry.kind==="task")content.createDiv({cls:"hub-plan-metadata",text:item.context?.name??item.context?.label??""});
+    else __hubRequire("lib/ui/plan-presentation.js").renderPlanMetadata(content.createDiv({cls:"hub-plan-metadata"}),item,plan);
    }
-   if(item.historical&&interactive){title.title='Open current '+entry.kind;title.setAttribute('aria-description',title.title);}
-   if(!available)content.createDiv({cls:"hub-oath-muted",text:item.fileState==="deleted"?"File deleted":item.fileState==="unresolved"?"File reference needs relinking":item.fileState==="missing"?"File not found":entry.kind==="file"&&item.availability==="missing"?"File reference needs relinking":item.availability==="missing"?"Source unavailable":"Temporarily unavailable"});
-   if(editable){row.append(row.querySelector("[data-plan-control=grip]"));if(entry.kind==="file"&&!available){const relink=row.createEl("button",{text:"Relink"});relink.onclick=()=>onRelink(entry);}const remove=row.createEl("button",{cls:"hub-button-plain hub-plan-hover",attr:{"aria-label":"Remove from plan: "+item.label,title:"Remove from plan","data-plan-control":"remove"}});setIcon(remove,"x");remove.onclick=()=>{plan.remove(entry.id);queueMicrotask(()=>root.querySelectorAll(".hub-plan-title")[Math.min(index,items.length-2)]?.focus());};}
+   if(!available&&!item.historical)content.createDiv({cls:"hub-oath-muted",text:item.fileState==="deleted"?"File deleted":item.fileState==="unresolved"?"File reference needs relinking":item.fileState==="missing"?"File not found":entry.kind==="file"&&item.availability==="missing"?"File reference needs relinking":item.availability==="missing"?"Source unavailable":"Temporarily unavailable"});
+   if(editable){row.append(row.querySelector("[data-plan-control=grip]"));if(entry.kind==="file"&&!available){const relink=row.createEl("button",{text:"Relink"});relink.disabled=!!plan.busy;relink.dataset.planControl="relink";relink.onclick=()=>onRelink(entry,relink);}const remove=row.createEl("button",{cls:"hub-button-plain hub-plan-hover",attr:{"aria-label":"Remove from plan: "+item.label,title:"Remove from plan","data-plan-control":"remove"}});setIcon(remove,"x");remove.disabled=!!plan.busy;remove.onclick=()=>edit(()=>{plan.remove(entry.id);queueMicrotask(()=>root.querySelectorAll(".hub-plan-title")[Math.min(index,items.length-2)]?.focus());});}
   });scroller.scrollTop=scroll;onRendered?.();if(focused){const row=[...list.children].find(r=>r.dataset.planId===focused);row?.querySelector(control?`[data-plan-control="${control}"]`:".hub-plan-title")?.focus({preventScroll:true});}
  }
  plan.subscribe(component,()=>void render());component.register(()=>{disposed=true;generation++;reorder?.cancel();});void render();return {render};
 }
 module.exports={mountPlanList};
+
+},
+"lib/ui/plan-marker.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function paintPlanMarker(el, relevance, setIcon) {
+    const level = relevance?.level ?? "";
+    if (el.dataset.planLevel !== level) {
+        el.dataset.planLevel = level;
+        el.replaceChildren();
+        if (level === "direct") setIcon(el, "target");
+    }
+    const description = relevance?.description ?? "";
+    if (el.title !== description) el.title = description;
+}
+
+function describePlanMarker(el, relevance) {
+    const description = relevance?.description ?? null;
+    if (el.getAttribute("aria-description") === description) return;
+    if (description) el.setAttribute("aria-description", description);
+    else el.removeAttribute("aria-description");
+}
+
+module.exports = { paintPlanMarker, describePlanMarker };
 
 },
 "lib/ui/plan-picker.js": function (module, exports, __hubRequire) {
@@ -21826,7 +23761,7 @@ const {createTaskRow,mountTaskCardPresentation}=__hubRequire("lib/ui/task-card.j
 const {taskGroups}=__hubRequire("lib/domain/task-planning.js");
 const {appendRouteSeparator}=__hubRequire("lib/ui/route-breadcrumb.js");
 class PlanPicker extends Modal {
- constructor(plugin,{relink=null}={}){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.relink=relink;this.planId=this.plan.active()?.id;this.selected=new Map();this.category=relink?"file":"task";this.returnFocus=document.activeElement;this.fileInitialized=false;this.invocation=plugin.workspaceModes?.currentContext?.()??null;if(!plugin.workspaceModes?.currentContext){const path=plugin.app.workspace?.getActiveFile?.()?.path;this.invocation=path?plugin.projectWizard.getContextForPath?.(path):null;}this.invocationPath=plugin.app.workspace?.getActiveFile?.()?.path;}
+ constructor(plugin,{relink=null,planId=plugin.globalPlan.active()?.id,returnFocus}={}){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.relink=relink;this.planId=planId;this.selected=new Map();this.category=relink?"file":"task";this.returnFocus=returnFocus??this.contentEl.ownerDocument.activeElement;this.fileInitialized=false;this.invocation=plugin.workspaceModes?.currentContext?.()??null;if(!plugin.workspaceModes?.currentContext){const path=plugin.app.workspace?.getActiveFile?.()?.path;this.invocation=path?plugin.projectWizard.getContextForPath?.(path):null;}this.invocationPath=plugin.app.workspace?.getActiveFile?.()?.path;}
  onOpen(){
   ownModalColors(this);this.modalEl.classList.add("hub-plan-modal","hub-plan-picker");this.contentEl.classList.add("hub-button-scope");this.component=new Component();this.component.load();
   createModalHeader(this.contentEl,{title:this.relink?"Relink file":"Add to plan",icon:"list-plus",subtitle:this.relink?undefined:"Choose what to include in your plan."});
@@ -21850,7 +23785,7 @@ class PlanPicker extends Modal {
   layoutModal(this,{headerEnd:controls,body:this.body,footer});this.plan.subscribe(this.component,()=>this.render());void this.load();
  }
  async load(){try{this.items=await this.plan.references.candidates();if(this.category==="file")this.ensureFileLocation();if(this.contentEl.isConnected){this.render();if(this.plan.references.taskError)this.error.textContent="Tasks are temporarily unavailable. Files and Workspaces are still available.";}}catch(error){if(this.isOpen)this.error.textContent=error.message;}}
- existing(){return new Set(this.plan.draft.entries.filter(e=>e.id!==this.relink?.id).map(identity));}
+ existing(){return new Set((this.plan.readPlan(this.planId)?.content?.entries??[]).filter(e=>e.id!==this.relink?.id).map(identity));}
  render(){
   if(!this.items)return;this.modalEl.dataset.category=this.category;
   const scroll=this.body.scrollTop,active=this.results.ownerDocument.activeElement,key=active?.dataset.selectionKey;
@@ -21905,7 +23840,7 @@ class PlanPicker extends Modal {
    row.onclick=toggle;row.onkeydown=e=>{if(["Enter"," "].includes(e.key)){e.preventDefault();toggle();}};
   }
   if(!this.results.children.length)this.results.createDiv({cls:"home-empty",text:"No matching items."});
-  this.add.disabled=!this.selected.size;this.add.textContent=this.relink?"Relink selected":"Add selected ("+this.selected.size+")";this.body.scrollTop=scroll;this.renderReview();
+  this.add.disabled=this.committing||(!this.selected.size&&!this.pendingSave);this.add.textContent=this.pendingSave?"Retry saving":this.relink?"Relink selected":"Add selected ("+this.selected.size+")";this.body.scrollTop=scroll;this.renderReview();
   if(key)[...this.results.querySelectorAll("[data-selection-key]")].find(b=>b.dataset.selectionKey===key)?.focus({preventScroll:true});
  }
  ensureFileLocation(){
@@ -21922,7 +23857,7 @@ class PlanPicker extends Modal {
  orderTasks(items){
   const owners=this.plan.references.workspaces(),rank=i=>{const n=owners.findIndex(w=>JSON.stringify(refOf(w))===JSON.stringify(i.workspace));return n<0?owners.length:n;};
   const ordered=[...items].sort((a,b)=>rank(a)-rank(b)),oath=this.plugin.oath;
-  const pinned=oath?.active?__hubRequire("lib/domain/oath-workspace.js").oathTaskOrder(oath.current):new Map();
+  const pinned=oath?.active?__hubRequire("lib/domain/oath-workspace.js").oathTaskOrder(oath.focus??oath.current):new Map();
   const key=i=>__hubRequire("lib/domain/oath-workspace.js").taskKey(i.task),ordinary=ordered.filter(i=>!pinned.has(key(i))),groups=taskGroups(ordinary);
   return [...ordered.filter(i=>pinned.has(key(i))).sort((a,b)=>pinned.get(key(a))-pinned.get(key(b))),...groups.active,...groups.future];
  }
@@ -21940,16 +23875,41 @@ class PlanPicker extends Modal {
   const message=this.selected.size+" selected for plan";if(this.announcement.textContent!==message)this.announcement.textContent=message;
  }
  sharedIn(scope,path){if(scope.type!=="project")return false;const project=this.plan.references.workspace(scope),ids=project?.resourceFolderIds??[];const folders=this.plugin.projectWizard.data.resourceFolders??[];return (Array.isArray(folders)?folders:Object.values(folders)).some(f=>ids.includes(f.id)&&(path===f.path||path.startsWith(f.path+"/")));}
- async commit(){this.add.disabled=true;try{this.plan.assertEditable(this.planId);
-  const current=await this.plan.references.candidates();if(!this.isOpen)return;this.items=current;this.plan.assertEditable(this.planId);
+ async commit(){
+  if(this.committing)return;
+  this.committing=true;
+  this.add.disabled=true;
+  const assertEditable = () => this.plan.assertEditable(this.planId);
+  const save = () => this.plan.flush();
+  try{
+  if(this.pendingSave){await save();this.close();return;}
+  assertEditable();
+  const current=await this.plan.references.candidates();if(!this.isOpen)return;this.items=current;assertEditable();
   const eligible=new Set(current.filter(i=>i.entry.kind!=="task"||!i.completed&&i.task?.nativeReadOnly!==true).map(i=>identity(i.entry))),existing=this.existing();let invalid=false;
   for(const key of this.selected.keys()){if(existing.has(key))this.selected.delete(key);else if(!eligible.has(key)){this.selected.delete(key);invalid=true;}}
   if(invalid){this.render();throw Error("A selected item became completed or unavailable. Review the remaining selection and add again.");}
   if(!this.selected.size){this.render();return;}
-  if(this.relink){const chosen=[...this.selected.values()][0];this.plan.mutate(p=>{const e=p.entries.find(e=>e.id===this.relink.id);if(!e)throw Error("This entry was removed.");if(p.entries.some(x=>x.id!==e.id&&identity(x)===identity(chosen)))throw Error("Already in plan.");e.reference=chosen.reference;e.lastKnownLabel=chosen.lastKnownLabel;delete e.unavailableReason;});}else this.plan.add([...this.selected.values()]);
-  await this.plan.flush();this.close();
- }catch(error){if(this.isOpen){this.error.textContent=error.message;this.add.disabled=!this.selected.size;}}}
- onClose(){if(this.plugin.planPicker===this)this.plugin.planPicker=null;this.component?.unload();this.selected.clear();const target=this.returnFocus?.isConnected?this.returnFocus:this.plugin.planModal?.modalEl;target?.focus?.();}
+  const chosen=[...this.selected.values()];
+  if(this.relink){
+   const relink=p=>{const e=p.entries.find(e=>e.id===this.relink.id);if(!e)throw Error("This entry was removed.");if(p.entries.some(x=>x.id!==e.id&&identity(x)===identity(chosen[0])))throw Error("Already in plan.");e.reference=chosen[0].reference;e.lastKnownLabel=chosen[0].lastKnownLabel;delete e.unavailableReason;};
+   this.plan.mutate(relink,{id:this.planId});
+  }else this.plan.add(chosen,this.planId);
+  this.pendingSave=true;
+  await save();this.close();
+ }catch(error){
+  if(this.isOpen)this.error.textContent=error.message;
+ }finally{
+  this.committing=false;
+  if(this.isOpen)this.render();
+ }}
+ onClose(){
+  if(this.plugin.planPicker===this)this.plugin.planPicker=null;
+  this.component?.unload();
+  this.selected.clear();
+  const trigger=typeof this.returnFocus==="function"?this.returnFocus():this.returnFocus;
+  const target=trigger?.isConnected?trigger:this.plugin.planModal?.heading;
+  target?.focus({preventScroll:true});
+ }
 }
 function openPlanPicker(plugin,options){if(plugin.planPicker?.containerEl?.isConnected){plugin.planPicker.modalEl.focus();return plugin.planPicker;}const modal=new PlanPicker(plugin,options);plugin.planPicker=modal;try{modal.open();return modal;}catch(error){modal.close();plugin.planPicker=null;throw error;}}
 module.exports={PlanPicker,openPlanPicker};
@@ -21959,6 +23919,7 @@ module.exports={PlanPicker,openPlanPicker};
 "use strict";
 const {renderRouteBreadcrumb}=__hubRequire("lib/ui/route-breadcrumb.js");
 const {compactPathSegments}=__hubRequire("lib/domain/native-task-location.js");
+const {planFeedback,showPlanFeedback}=__hubRequire("lib/ui/plan-feedback.js");
 function renderPlanMetadata(host,item,plan){
  const {entry}=item, refs=plan.references;
  if(entry.kind==="workspace"){host.textContent=entry.reference.type==="resource"?"Resource":"Project";return;}
@@ -21973,26 +23934,36 @@ function renderPlanMetadata(host,item,plan){
   const context=refs.workspace(intended);if(context)host.createSpan({cls:"hub-plan-intended",text:"For "+(context.name??context.label)});
  }
 }
-function mountPlanPresentation({root,component,plan,context="home",scroller=root,editable=false,onRelink,noteEditor,interactive=true,emptyMessage=true}){
+function mountPlanPresentation({root,component,plan,context="home",scroller=root,editable=false,onRelink,noteEditor,interactive=true,execute=interactive,historicalNavigation=false,noteCaption=context==="home"?"Today":undefined,noteAction,emptyMessage=true,showStatus=true,onRendered}){
  root.classList.add("hub-plan-presentation");root.dataset.planContext=context;
  let note;
  if(context==="editor"){
   const label=root.createDiv({cls:"hub-plan-note-label"});
-  note=label.createEl("textarea",{attr:{rows:"2","aria-label":"Plan note (optional)",placeholder:"Add a note for today..."}});noteEditor?.(note);
- }else note=root.createDiv({cls:"hub-plan-note-excerpt"});
+  note=label.createEl("textarea",{attr:{rows:"3","aria-label":"Plan note (optional)",placeholder:"Add a note…"}});noteEditor?.(note);
+ }else{
+  note=root.createDiv({cls:"hub-plan-note-excerpt"});
+ }
  let noteText=note;
- if(context==="home"){
-  note.dataset.label="Today";
-  note.createSpan({cls:"hub-plan-note-caption",text:"Today"});
+ if(context!=="editor"&&noteCaption!==undefined){
+  note.classList.add("hub-plan-note-rectangle");
+  note.createSpan({cls:"hub-plan-note-caption",text:noteCaption});
   noteText=note.createSpan({cls:"hub-plan-note-text"});
+  if(noteAction)noteAction(note);
  }
  const collection=root.createDiv({cls:"hub-plan-collection"});
  if(context==="home")collection.classList.add("hub-scrollbar");
- const status=context!=="editor"?root.createDiv({cls:"hub-plan-preview-status",attr:{role:"status"}}):null;
- const update=()=>{if(status){status.textContent=plan.status==="Saved"?"":plan.status;status.hidden=!status.textContent;}if(context!=="editor"){const text=plan.draft.note??"";note.hidden=!text.trim();noteText.textContent=text;}};
+ const status=showStatus&&context!=="editor"?root.createDiv({cls:"hub-plan-preview-status",attr:{role:"status"}}):null;
+ const update=()=>{
+  if(status)showPlanFeedback(status,planFeedback(plan));
+  if(context!=="editor"){
+   const text=plan.draft.note??"";
+   note.hidden=!noteAction&&!noteCaption&&!text.trim();
+   if(noteText.textContent!==text)noteText.textContent=text;
+  }
+ };
  plan.subscribe(component,update);update();
  // Lazy import avoids the metadata helper/list module cycle.
- __hubRequire("lib/ui/plan-list.js").mountPlanList({root:collection,component,plan,editable,onRelink,interactive,emptyMessage,scroller:context==="home"?collection:scroller});
+ __hubRequire("lib/ui/plan-list.js").mountPlanList({root:collection,component,plan,editable,onRelink,interactive,execute,historicalNavigation,emptyMessage,onRendered,scroller:context==="home"?collection:scroller});
  return {note,collection};
 }
 module.exports={mountPlanPresentation,renderPlanMetadata};
@@ -22001,56 +23972,694 @@ module.exports={mountPlanPresentation,renderPlanMetadata};
 "lib/ui/plan.js": function (module, exports, __hubRequire) {
 "use strict";
 
-const {Modal,Component,Notice}=require("obsidian");
+const { Component, Modal, Notice } = require("obsidian");
+const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+const { createModalHeader, mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
+const { mountPlanPresentation } = __hubRequire("lib/ui/plan-presentation.js");
+const { mountFinishPlan } = __hubRequire("lib/ui/plan-finish.js");
+const { localISODate, formatDate } = __hubRequire("lib/domain/dates.js");
+const { planDay, shiftDay, orderPlans, planLabel, planTime, planClockTime } = __hubRequire("lib/domain/plan-timeline.js");
 
-const {ownModalColors}=__hubRequire("lib/ui/color-system.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { createIconAction } = __hubRequire("lib/ui/controls.js");
+const { editable } = __hubRequire("lib/domain/plan-lifecycle.js");
+const { mountPlanDelete } = __hubRequire("lib/ui/plan-delete.js");
 
-const {createModalHeader,layoutModal}=__hubRequire("lib/ui/window-title.js");
-
-
-const {openPlanPicker}=__hubRequire("lib/ui/plan-picker.js");
-
-class PlanModal extends Modal {
-
- constructor(plugin){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.returnFocus=document.activeElement;}
-
- onOpen(){
-  ownModalColors(this);this.modalEl.classList.add("hub-plan-modal");this.contentEl.classList.add("hub-button-scope");this.component=new Component();this.component.load();
-  this.planId=this.requestedPlanId??this.plan.active()?.id??this.plan.listHistorical()[0]?.id;
-  this.render();this.plan.subscribe(this.component,()=>{const p=this.plan.readPlan(this.planId);const key=(p?.id??'empty')+':'+p?.status;if(key!==this.renderKey)this.render();else this.update();});
- }
- render(){
-  this.presentation?.unload();this.presentation=new Component();this.presentation.load();this.contentEl.empty();const p=this.plan.readPlan(this.planId),active=p?.status==='active';this.renderKey=(p?.id??'empty')+':'+p?.status;this.modalEl.classList.toggle('is-active-plan-editor',active);
-  createModalHeader(this.contentEl,{title:"Plan",icon:"goal",subtitle:active?"Choose work to include in your plan.":p?"Historical plan - "+p.calendarDate:"No active plan for today"});
-  this.body=this.contentEl.createDiv();this.scroller=document.createElement('div');this.scroller.className='hub-plan-editor-scroll hub-scrollbar';
-  const bound=this.plan.bind(this.planId);
-  const presentation=__hubRequire("lib/ui/plan-presentation.js").mountPlanPresentation({root:this.body,component:this.presentation,plan:bound,context:active?'editor':'report',scroller:this.scroller,editable:active,emptyMessage:false,onRelink:entry=>openPlanPicker(this.plugin,{relink:entry}),noteEditor:note=>{this.note=note;note.value=p.content.note;note.oninput=()=>{try{this.plan.setNote(note.value,this.planId);}catch(e){this.showError(e.message);}};}});
-  this.body.append(this.scroller);this.scroller.append(presentation.collection);this.body.classList.add('hub-plan-editor-body');
-  if(!active){presentation.note.hidden=!p;presentation.note.empty();if(p){presentation.note.classList.add('hub-plan-historical-note');const label=presentation.note.createSpan({text:__hubRequire("lib/ui/plan-home.js").dateLabel(p),cls:'hub-oath-muted'});label.title=p.timeZone;presentation.note.createSpan({text:p.snapshot.note||'No note',cls:p.snapshot.note?'hub-plan-historical-text':'hub-plan-historical-text hub-oath-muted'});const ended=presentation.note.createSpan({cls:p.status==='finished'?'hub-plan-finished':'hub-oath-muted'});__hubRequire("lib/ui/icons.js").setHubIcon(ended.createSpan(),p.status==='finished'?'circle-check':'clock');ended.createSpan({text:(p.status==='finished'?'Finished ':'Day ended ')+__hubRequire("lib/ui/plan-home.js").time(p,p.endedAt)});}this.note=null;}
-  this.addButton=this.body.createEl('button',{cls:'hub-plan-add'});this.addButton.hidden=!active;__hubRequire("lib/ui/icons.js").setHubIcon(this.addButton.createSpan({cls:'hub-capture-icon'}),'plus');this.addButton.createSpan({text:'Add to plan'});this.addButton.onclick=()=>openPlanPicker(this.plugin);
-  this.legacyButton=this.scroller.createEl('button',{cls:'hub-button-plain hub-plan-legacy',text:'Review previous Focus',attr:{hidden:''}});this.legacyButton.onclick=()=>void this.reviewLegacy().catch(e=>this.showError(e.message));
-  this.status=this.body.createDiv({cls:'hub-plan-error',attr:{role:'alert',hidden:''}});this.recovery=this.scroller.createDiv();const footer=this.contentEl.createDiv({cls:'hub-project-advancement-actions hub-plan-footer'});this.footer=footer;
-  footer.createEl('button',{text:'Done',cls:'mod-cta'}).onclick=()=>this.close();
-  layoutModal(this,{body:this.body,footer});if(active)void this.legacySources().then(s=>{this.hasLegacy=s.length>0;if(this.contentEl.isConnected)this.update();}).catch(()=>{});this.update();
- }
- showError(message){this.status.textContent=message;this.status.hidden=!message;}
- update(){const active=this.plan.readPlan(this.planId)?.status==='active',blocked=this.plan.transitioning||this.plan.pendingTransition||this.plan.conflict||this.plan.readOnly;this.legacyButton.hidden=!active||!this.hasLegacy||this.plan.draft.legacyReview!=='pending';this.addButton.disabled=!!blocked;this.showError(this.plan.error||this.plan.conflict||this.plan.readOnly?this.plan.status:'');if(this.note){if(document.activeElement!==this.note)this.note.value=this.plan.readPlan(this.planId)?.content?.note??this.note.value;this.note.disabled=!!blocked;}
- this.recovery.empty();const button=(text,run)=>{this.recovery.createEl('button',{text}).onclick=()=>void Promise.resolve().then(run).catch(e=>this.showError(e.message));};if(this.plan.conflict){const details=this.recovery.createEl('details');details.createEl('summary',{text:'Review saved and recovered Plans'});for(const [label,state]of [['Saved',this.plan.baseState],['Recovered',this.plan.conflict.desired]]){const p=state.plansById?.[state.activePlanId];details.createEl('pre',{cls:'hub-plan-conflict',text:label+' ? '+(p?.id??'No active Plan')+'\n'+(p?.content.note??'')});}button('Keep saved plan',()=>this.plan.resolveConflict(false));button('Restore recovered draft',()=>this.plan.resolveConflict(true));}else if(this.plan.error){button('Retry',()=>this.plan.pendingTransition?this.plan.ensureLifecycle():this.plan.flush());button('Copy draft',()=>navigator.clipboard.writeText(this.note?.value??this.plan.deferredInput?.text??''));}
- if(this.plan.deferredInput){const text=this.plan.deferredInput.text;button('Copy preserved text',()=>navigator.clipboard.writeText(text));if(!this.plan.active())button('Use preserved text in new plan',async()=>{const id=await this.plan.createPlan();this.plan.setNote(text,id);await this.plan.flush();this.plan.deferredInput=null;this.plan.checkpoint();this.planId=id;this.render();});}
- }
- async legacySources(){const wizard=this.plugin.projectWizard,date=__hubRequire("lib/domain/dates.js").localISODate(),sources=[];const add=(title,items)=>{if(items?.length)sources.push({title,items});};add("Pending Focus",wizard.getPendingFocus()?.items??wizard.data.pendingFocus?.items);add("Daily Focus - "+date,wizard.getDailyFocus(date));add("Report Focus - "+date,wizard.data.reportFocusByDate?.[date]);const daily=this.app.vault.getAbstractFileByPath("Daily Notes/"+date+".md");if(daily){const text=await this.app.vault.read(daily);const section=text.match(/^#{1,6} Focus\s*\n([\s\S]*?)(?=^#{1,6} |$(?![\s\S]))/m);if(section){const items=section[1].split("\n").map(line=>line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/," ").trim()).filter(Boolean).map(text=>({text}));add("Daily Note Focus - "+date,items);}}return sources;}
- async reviewLegacy(){if(this.legacy){this.legacy.remove();this.legacy=null;return;}const sources=await this.legacySources();if(!this.contentEl.isConnected)return;this.legacy=this.scroller.createDiv();this.legacy.createEl("p",{text:"Choose descriptions to append to your note. Historical records are preserved."});const selected=[];for(const source of sources)for(const item of source.items){const text=typeof item==="string"?item:item.text;if(!text)continue;const label=this.legacy.createEl("label",{cls:"hub-plan-picker-row"}),box=label.createEl("input",{attr:{type:"checkbox"}});label.createSpan({text:source.title+": "+text});selected.push({box,text:"["+source.title+"] "+text});}const preview=this.legacy.createEl("pre");const refresh=()=>preview.textContent=selected.filter(i=>i.box.checked).map(i=>i.text).join("\n");this.legacy.onchange=refresh;const importButton=this.legacy.createEl("button",{text:"Append selected descriptions"});importButton.onclick=()=>{refresh();if(!preview.textContent)return;this.plan.mutate(p=>{p.note=[p.note,preview.textContent].filter(Boolean).join("\n\n");p.legacyReview="completed";});this.note.value=this.plan.draft.note;this.legacy.remove();this.legacy=null;};const dismiss=this.legacy.createEl("button",{text:"Dismiss"});dismiss.onclick=()=>{this.plan.mutate(p=>p.legacyReview="dismissed");this.legacy.remove();this.legacy=null;};}
-
- close(){if(this.closing)return;this.closing=true;void (async()=>{const p=this.plan.readPlan(this.planId);if(p?.status==='active'&&!p.content.entries.length){await this.plan.abandonEmptyPlan(this.planId);return true;}return this.plan.closeSafe();})().then(safe=>{this.closing=false;if(safe)super.close();else{this.update();this.showError("Your latest draft could not be protected. Retry or copy it before closing.");const b=this.recovery.createEl("button",{text:"Discard unprotected changes"});b.onclick=()=>{this.plan.draft=JSON.parse(JSON.stringify(this.plan.base));this.plan.recovery.clear();this.plan.emit();super.close();};}}).catch(error=>{this.closing=false;this.update();this.showError(error.message);});}
-
- onClose(){if(this.plugin.planModal===this)this.plugin.planModal=null;this.presentation?.unload();this.component?.unload();this.returnFocus?.focus?.();}
-
+function button(parent, text, onclick, cls) {
+    const control = parent.createEl("button", { text, cls, attr: { type: "button" } });
+    control.onclick = onclick;
+    return control;
 }
 
-function openPlan(plugin,planId){if(plugin.planModal?.containerEl?.isConnected){if(planId&&plugin.planModal.planId!==planId){plugin.planModal.planId=planId;plugin.planModal.render();}plugin.planModal.modalEl.focus();return plugin.planModal;}const modal=new PlanModal(plugin);plugin.planModal=modal;modal.requestedPlanId=planId;try{modal.open();if(!modal.contentEl.isConnected)throw Error("Plan could not open.");return modal;}catch(error){plugin.planModal=null;modal.component?.unload();Modal.prototype.close.call(modal);new Notice(error.message);return null;}}
+function mountPlanDetails({ root, component, plan, record, scroller, interactive = true, noteCaption, onRendered }) {
+    return mountPlanPresentation({
+        root, component, plan: plan.bind(record.id, { historicalNavigation: interactive }),
+        context: "report", scroller, interactive, execute: interactive && record.status === "active",
+        historicalNavigation: interactive, noteCaption, onRendered, showStatus: false, emptyMessage: false
+    });
+}
 
-module.exports={PlanModal,openPlan};
+function mountPlans({ root, header, component, plugin, plannerButton, visible = true }) {
+    const plan = plugin.globalPlan;
+    const today = () => localISODate(plan.now());
+    const modes = header.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-plan-browser-modes", attr: { role: "group", "aria-label": "Plan browser layout" } });
+    const byPlan = button(modes, "Plans", () => switchMode("plans"));
+    const byDay = button(modes, "Days", () => switchMode("days"));
+    header.insertBefore(modes, plannerButton.parentElement);
+    plannerButton.onclick = () => openPlanner(plugin, {
+        ...(showing ? (mode === "plans" && selectedId ? { planId: selectedId } : { date: day }) : {}),
+        returnFocus: plannerButton
+    });
+    const columns = root.createDiv({ cls: "hub-plans-columns" });
+    root.classList.add("hub-plans");
+    let mode = "plans", day = today(), selectedId = null, records = [], initialized = false;
+    let showing = visible, mounted, layoutKey, creating = false, createId;
 
+    function switchMode(next) {
+        if (next === mode) return;
+        const selected = records.find(record => record.id === selectedId);
+        if (next === "days" && selected) day = planDay(selected);
+        if (next === "plans" && (!selected || planDay(selected) !== day)) {
+            selectedId = records.find(record => planDay(record) === day)?.id ?? null;
+        }
+        mode = next;
+        refresh();
+    }
+
+    function showPlan(id) {
+        selectedId = id;
+        refresh();
+        columns.querySelector(".hub-plans-center h3")?.focus({ preventScroll: true });
+    }
+
+    function pane(label, cls = "", recenter) {
+        const section = columns.createEl("section", { cls: "hub-plans-pane " + cls, attr: { "aria-label": label } });
+        const headerRow = section.createDiv({ cls: "hub-plan-date-row" });
+        const heading = headerRow.createEl("h3", { attr: { tabindex: "-1" } });
+        if (recenter) {
+            section.classList.add("hub-plans-side-day");
+            const control = button(heading, label, recenter, "hub-button-plain hub-plans-day-heading");
+            control.setAttribute("aria-label", "Center " + label);
+            section.onclick = event => {
+                if (!event.target.closest("button, a, input, [role=button]") && root.ownerDocument.getSelection()?.isCollapsed !== false) recenter();
+            };
+        }
+        else heading.textContent = label;
+        const body = section.createDiv({ cls: "hub-plans-scroll hub-scrollbar" });
+        return { headerRow, body };
+    }
+
+    function statusIcon(host, record) {
+        const label = planLabel(record);
+        const icon = host.createSpan({ cls: "hub-plan-status-icon",
+            attr: { role: "img", "aria-label": label, title: label } });
+        icon.classList.toggle("is-finished", record.status === "finished");
+        setHubIcon(icon, record.status === "finished" ? "check" : "clock-alert");
+    }
+
+    function recordAction(host, record) {
+        if (editable(record)) {
+            const edit = createIconAction(host, "Edit Plan", "pencil", () => {
+                openPlanner(plugin, { planId: record.id, returnFocus: edit });
+            });
+        } else statusIcon(host, record);
+    }
+
+    function details(body, record, { interactive = true } = {}) {
+        const article = body.createEl("article", { cls: "hub-plans-day-record", attr: { "data-record": record.id } });
+        article.classList.toggle("is-active-plan", record.status === "active");
+        const actions = article.createDiv({ cls: "hub-plan-record-tools hub-plan-card-actions" });
+        recordAction(actions, record);
+        mountPlanDelete(actions, mounted, plugin, record.id, focusBrowser);
+        mountPlanDetails({ root: article.createDiv(), component: mounted, plan, record, scroller: body, interactive,
+            noteCaption: planClockTime(record) });
+        if (interactive && record.status === "active") {
+            const finish = article.createDiv({ cls: "hub-plan-card-finish" });
+            mountFinishPlan({ root: finish, component: mounted, plugin, planId: record.id });
+        }
+    }
+
+    function focusBrowser() {
+        columns.querySelector(".hub-plans-center h3")?.focus({ preventScroll: true });
+    }
+
+    function summaries(body, slice, empty) {
+        if (!slice.length) body.createDiv({ cls: "hub-plans-empty", text: empty });
+        for (const record of slice) {
+            const article = body.createEl("article", { cls: "hub-plans-summary-card", attr: { "data-record": record.id } });
+            const control = button(article, "", () => showPlan(record.id), "hub-plans-record");
+            control.dataset.record = record.id;
+            control.classList.toggle("is-active-plan", record.status === "active");
+            const note = (record.content ?? record.snapshot).note.trim();
+            control.createEl(note ? "span" : "em", { cls: "hub-plans-record-note", text: note || "No note" });
+            control.createSpan({ cls: "hub-plans-record-time", text: planTime(record) });
+            const actions = article.createDiv({ cls: "hub-plan-card-actions" });
+            recordAction(actions, record);
+            mountPlanDelete(actions, mounted, plugin, record.id, focusBrowser);
+        }
+    }
+
+    function refresh() {
+        root.hidden = modes.hidden = !showing;
+        if (!showing) return;
+        for (const [control, pressed] of [[byPlan, mode === "plans"], [byDay, mode === "days"]]) {
+            control.setAttribute("aria-pressed", String(pressed));
+            control.classList.toggle("is-active", pressed);
+        }
+        const state = plan.published();
+        records = orderPlans(Object.values(state.plansById).filter(record => planDay(record)));
+        if (!initialized && records.length) {
+            initialized = true;
+            selectedId = state.activePlanId ?? records.find(record => record.status === "scheduled")?.id ?? records.at(-1).id;
+        }
+        let index = records.findIndex(record => record.id === selectedId);
+        if (mode === "plans" && selectedId && index < 0) {
+            selectedId = records.find(record => planDay(record) === day)?.id ?? null;
+            index = records.findIndex(record => record.id === selectedId);
+        }
+        const selected = records[index];
+        if (mode === "plans" && selected) day = planDay(selected);
+        const dates = [shiftDay(day, -1), day, shiftDay(day, 1)];
+        const visibleRecords = mode === "days" ? records.filter(record => dates.includes(planDay(record))) : records;
+        const key = JSON.stringify([mode, day, today(), selectedId, visibleRecords.map(record => [
+            record.id, record.status, record.scheduledAt, planDay(record),
+            mode === "plans" && record.id !== selectedId ? (record.content ?? record.snapshot).note : null
+        ])]);
+        if (key === layoutKey) return;
+        const layoutClass = mode === "days" ? "is-by-day" : "is-by-plan";
+        const sameLayout = columns.classList.contains(layoutClass) && columns.dataset.anchor === (mode === "days" ? day : selectedId ?? day);
+        const scroll = sameLayout ? [...columns.querySelectorAll(".hub-plans-scroll")].map(body => body.scrollTop) : [];
+        const focus = root.ownerDocument.activeElement;
+        const focusedId = columns.contains(focus) ? focus?.closest("[data-record]")?.dataset.record : null;
+        layoutKey = key;
+        mounted?.unload();
+        mounted = new Component();
+        mounted.load();
+        columns.empty();
+        columns.className = "hub-plans-columns " + layoutClass;
+        columns.dataset.anchor = mode === "days" ? day : selectedId ?? day;
+        if (mode === "plans") {
+            const earlier = index < 0 ? records.filter(record => planDay(record) < day) : records.slice(0, index);
+            const later = index < 0 ? records.filter(record => planDay(record) > day) : records.slice(index + 1);
+            summaries(pane("Earlier").body, earlier.reverse(), "No earlier Plans");
+            const center = pane(formatDate(day, "full"), "hub-plans-center");
+            if (selected) details(center.body, selected);
+            else center.body.createDiv({ cls: "hub-plans-empty", text: "No Plans for this day" });
+            summaries(pane("Later").body, later, "No later Plans");
+        } else {
+            for (const date of dates) {
+                const recenter = date === day ? undefined : () => {
+                    day = date;
+                    refresh();
+                    columns.querySelector(".hub-plans-center h3")?.focus({ preventScroll: true });
+                };
+                const cls = [date === today() ? "is-today" : "", date === day ? "hub-plans-center" : ""].join(" ");
+                const { headerRow, body } = pane(formatDate(date, "full"), cls, recenter);
+                if (date >= today()) {
+                    const add = createIconAction(headerRow, "Create Plan for " + formatDate(date, "full"), "plus", async () => {
+                        if (creating) return;
+                        creating = true;
+                        createId ??= crypto.randomUUID();
+                        try {
+                            const id = await plan.createPlannerPlan({ date, id: createId });
+                            createId = null;
+                            const returnFocus = columns.querySelector('[aria-label="' + add.getAttribute("aria-label") + '"]');
+                            openPlanner(plugin, { planId: id, returnFocus });
+                        } catch (error) {
+                            ownNoticeColors(new Notice(error.message));
+                        } finally {
+                            creating = false;
+                        }
+                    });
+                }
+                const entries = visibleRecords.filter(record => planDay(record) === date);
+                if (!entries.length) body.createDiv({ cls: "hub-plans-empty", text: "No Plans for this day" });
+                for (const record of entries) details(body, record, { interactive: date === day });
+            }
+        }
+        [...columns.querySelectorAll(".hub-plans-scroll")].forEach((body, index) => { body.scrollTop = scroll[index] ?? 0; });
+        if (focusedId && sameLayout) [...columns.querySelectorAll("button[data-record]")]
+            .find(control => control.dataset.record === focusedId)?.focus({ preventScroll: true });
+    }
+
+    plan.subscribe(component, refresh);
+    const win = root.ownerDocument.defaultView;
+    const clock = win.setInterval(() => { if (showing) refresh(); }, 30000);
+    component.register(() => { win.clearInterval(clock); mounted?.unload(); });
+    refresh();
+    return {
+        setVisible(value) { showing = value; refresh(); }
+    };
+}
+
+class PlanModal extends Modal {
+    constructor(plugin, context) {
+        super(plugin.app);
+        this.hasInitialInputFocus = false;
+        this.plugin = plugin;
+        this.context = { ...context };
+    }
+    onOpen() {
+        ownModalColors(this);
+        this.modalEl.classList.add("hub-plans-window", "hub-planner-window");
+        const { heading } = createModalHeader(this.contentEl, {
+            title: "Planner", subtitle: "Plan and schedule your work.", icon: "goal"
+        });
+        this.heading = heading;
+        this.heading.tabIndex = -1;
+        this.component = new Component();
+        this.component.load();
+        this.presentation = __hubRequire("lib/ui/planner.js").mountPlanner({
+            root: this.contentEl.createDiv(), component: this.component, plugin: this.plugin, context: this.context
+        });
+        mountModalSeparators(this, { footer: this.contentEl.querySelector(".hub-planner-controls") });
+        this.heading.focus({ preventScroll: true });
+    }
+    onEscapeKey(event) {
+        if (!event.defaultPrevented && this.presentation?.dismissTimePopover()) {
+            event.preventDefault();
+            return;
+        }
+        super.onEscapeKey(event);
+    }
+    close() {
+        if (this.closing) return;
+        this.closing = true;
+        void this.plugin.globalPlan.closePlanner().then(safe => {
+            if (safe) {
+                this.presentation.rememberLocation();
+                super.close();
+            }
+            else ownNoticeColors(new Notice("Retry saving the Plan changes before closing."));
+        }).catch(error => ownNoticeColors(new Notice(error.message))).finally(() => {
+            this.closing = false;
+        });
+    }
+    onClose() {
+        this.component?.unload();
+        if (this.plugin.planModal === this) this.plugin.planModal = null;
+        const target = this.context.returnFocus;
+        if (target?.isConnected && target.getClientRects().length) queueMicrotask(() => target.focus({ preventScroll: true }));
+    }
+}
+
+function openPlanner(plugin, context = {}) {
+    if (plugin.planPicker?.containerEl?.isConnected && plugin.planModal?.containerEl?.isConnected) {
+        plugin.planPicker.modalEl.focus();
+        return plugin.planModal;
+    }
+    if (plugin.planModal?.containerEl?.isConnected) {
+        if (context.returnFocus) plugin.planModal.context.returnFocus = context.returnFocus;
+        // Ordinary repeated opens bring back the same window and its work.
+        if (context.planId || context.date) plugin.planModal.presentation.reveal(context);
+        plugin.planModal.heading.focus({ preventScroll: true });
+        return plugin.planModal;
+    }
+    const modal = plugin.planModal = new PlanModal(plugin, context);
+    modal.open();
+    return modal;
+}
+
+function openPlan(plugin, planId) {
+    return openPlanner(plugin, { planId });
+}
+
+module.exports = { mountPlans, PlanModal, openPlan, openPlanner, button, mountPlanDetails };
+
+},
+"lib/ui/planner-start.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { createTaskDatePopoverInput } = __hubRequire("lib/ui/date-time.js");
+const { openTaskPopover } = __hubRequire("lib/ui/task-popover.js");
+
+function openPlanStart(plugin, trigger, record, onSaved, onClose) {
+    const plan = plugin.globalPlan;
+    return openTaskPopover(trigger, {
+        title: "Plan start time", alignEnd: true, width: 290, avoidFooter: ".hub-planner-controls",
+        className: "hub-planner-start-popover", onClose,
+        render({ body, position, close, register }) {
+            const form = body.createEl("form", { cls: "hub-planner-specific-time" });
+            const date = createTaskDatePopoverInput(form, "date", "Start date", "Start date", { keyboardPicker: true });
+            const time = createTaskDatePopoverInput(form, "time", "Start time", "Start time", { keyboardPicker: true });
+            const original = record.scheduledAt ? new Date(record.scheduledAt) : null;
+            date.input.value = original ? localISODate(original) : record.calendarDate ?? "";
+            date.input.min = localISODate(plan.now());
+            time.input.value = original ? __hubRequire("lib/domain/plan-lifecycle.js").localTime(original).slice(-5) : "";
+            const error = form.createDiv({ cls: "hub-task-error", attr: { role: "alert", hidden: "" } });
+            const actions = form.createDiv({ cls: "hub-task-popover-actions hub-equal-selectors" });
+            actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => close();
+            const apply = actions.createEl("button", { text: "Apply", cls: "mod-cta", attr: { type: "submit" } });
+            date.input.required = time.input.required = true;
+            const refresh = () => {
+                time.input.disabled = !date.input.value;
+                apply.disabled = !date.input.value || !time.input.value;
+                date.refresh();
+                time.refresh();
+            };
+            for (const field of [date, time]) {
+                field.input.addEventListener("input", refresh);
+                field.input.addEventListener("change", refresh);
+                field.clear.onclick = () => {
+                    field.input.value = "";
+                    refresh();
+                    field.input.focus();
+                };
+                register(field.destroy);
+            }
+            refresh();
+            form.onsubmit = async event => {
+                event.preventDefault();
+                if (apply.disabled) return;
+                apply.disabled = true;
+                try {
+                    await plan.reschedulePlan(record.id, date.input.value + "T" + time.input.value);
+                    onSaved(record.id);
+                    close();
+                } catch (problem) {
+                    error.textContent = problem.message;
+                    error.hidden = false;
+                    refresh();
+                    position();
+                }
+            };
+        }
+    });
+}
+
+module.exports = { openPlanStart };
+
+},
+"lib/ui/planner.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Component } = require("obsidian");
+const { openPlanPicker } = __hubRequire("lib/ui/plan-picker.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { mountPlanPresentation } = __hubRequire("lib/ui/plan-presentation.js");
+const { button, mountPlanDetails } = __hubRequire("lib/ui/plan.js");
+const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { editable } = __hubRequire("lib/domain/plan-lifecycle.js");
+const { planDay, shiftDay, orderPlans, planLabel, planClockTime } = __hubRequire("lib/domain/plan-timeline.js");
+const { openPlanStart } = __hubRequire("lib/ui/planner-start.js");
+const { mountPlanDelete } = __hubRequire("lib/ui/plan-delete.js");
+const { planFeedback, showPlanFeedback } = __hubRequire("lib/ui/plan-feedback.js");
+
+function mountPlanner({ root, component, plugin, context = {} }) {
+    const plan = plugin.globalPlan;
+    let startPicker, creating = false, createId, contextualDay = false;
+    const today = () => localISODate(plan.now());
+    const cards = new Map();
+    const viewKey = "itacan-planner-location:" + plugin.app.vault.adapter.getBasePath();
+    const window = root.ownerDocument.defaultView;
+    let remembered = plugin.plannerLocation;
+    if (!remembered) {
+        try { remembered = JSON.parse(window.localStorage.getItem(viewKey)); }
+        catch { /* The window can still remember the location for this session. */ }
+    }
+    let day = parseLocalISODate(remembered?.day) ? remembered.day : today();
+    let selectedId = remembered?.planId ?? null, fullDay = remembered?.fullDay === true;
+    let failure = "", recoveryKey, restoreScroll;
+    root.classList.add("hub-plans", "hub-planner", "hub-button-scope");
+    const stack = root.createDiv({ cls: "hub-planner-stack hub-scrollbar", attr: { role: "region", "aria-label": "Plans for selected day" } });
+    const draftsLabel = stack.createEl("h3", { cls: "hub-planner-drafts-title", text: "Drafts", attr: { hidden: "" } });
+    const empty = stack.createDiv({ cls: "hub-plans-empty", text: "No Plans for this day" });
+    for (const event of ["pointerdown", "keydown", "wheel"]) root.addEventListener(event, () => { restoreScroll = undefined; }, { capture: true });
+    const status = root.createDiv({ cls: "hub-plans-status", attr: { role: "status" } });
+    const recovery = root.createDiv({ cls: "hub-plans-recovery" });
+    const footer = root.createEl("footer", { cls: "hub-planner-controls" });
+    const modes = footer.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-planner-modes", attr: { role: "group", "aria-label": "Planner layout" } });
+    const focused = button(modes, "Focused", () => { fullDay = false; render(); });
+    const full = button(modes, "Full day", () => { fullDay = true; render(); });
+    const navigation = footer.createDiv({ cls: "hub-plans-day-navigation", attr: { role: "group", "aria-label": "Planner date" } });
+    function dayButton(label, icon, delta) {
+        const control = button(navigation, "", () => reveal({ date: shiftDay(day, delta) }), "hub-planner-day-button");
+        control.setAttribute("aria-label", label);
+        control.title = label;
+        setHubIcon(control.createSpan({ attr: { "aria-hidden": "true" } }), icon);
+    }
+    dayButton("Previous day", "chevron-left", -1);
+    const date = navigation.createEl("input", { type: "date", attr: { "aria-label": "Planner date" } });
+    date.onchange = () => {
+        if (parseLocalISODate(date.value)) reveal({ date: date.value });
+        else date.value = day;
+    };
+    dayButton("Next day", "chevron-right", 1);
+    const create = button(footer, "", () => run(async () => {
+        if (creating) return;
+        creating = true;
+        createId ??= window.crypto.randomUUID();
+        render();
+        try {
+            const id = await plan.createPlannerPlan({ date: contextualDay || day !== today() ? day : null, id: createId });
+            createId = null;
+            reveal({ planId: id });
+            cards.get(id)?.note?.focus({ preventScroll: true });
+        } finally {
+            creating = false;
+            render();
+        }
+    }), "mod-cta hub-planner-create");
+    setHubIcon(create.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "plus");
+    create.createSpan({ text: "New Plan" });
+
+    function revealInStack(control) {
+        if (!control) return;
+        const bounds = control.getBoundingClientRect(), viewport = stack.getBoundingClientRect();
+        if (bounds.top < viewport.top) stack.scrollTop += bounds.top - viewport.top;
+        else if (bounds.bottom > viewport.bottom) stack.scrollTop += bounds.bottom - viewport.bottom;
+    }
+
+    function restoreStackScroll() {
+        if (restoreScroll === undefined) return;
+        stack.scrollTop = restoreScroll;
+        if (Math.abs(stack.scrollTop - restoreScroll) < 1) restoreScroll = undefined;
+    }
+
+    function run(action) {
+        failure = "";
+        void Promise.resolve().then(action).catch(error => { failure = error.message; render(); });
+    }
+
+    function recordsForDay() {
+        return orderPlans(Object.values(plan.published().plansById)
+            .filter(record => !planDay(record) || planDay(record) === day));
+    }
+
+    function reveal({ planId, date: requestedDay } = {}) {
+        restoreScroll = undefined;
+        const record = plan.readPlan(planId);
+        if (parseLocalISODate(requestedDay)) contextualDay = true;
+        const next = (record && planDay(record)) || (parseLocalISODate(requestedDay) ? requestedDay : day);
+        if (next !== day) stack.scrollTop = 0;
+        day = next;
+        selectedId = record?.id ?? null;
+        failure = planId && !record ? "That Plan is unavailable." : "";
+        render();
+        revealInStack(cards.get(selectedId)?.heading);
+    }
+
+    function select(id) {
+        if (selectedId === id) return;
+        selectedId = id;
+        failure = "";
+        render();
+        revealInStack(cards.get(id)?.heading);
+    }
+
+    function renderRecovery() {
+        showPlanFeedback(status, [...new Set([failure, planFeedback(plan)].filter(Boolean))].join(" "));
+        const key = JSON.stringify([!!plan.conflict, !!plan.error && !plan.readOnly, !!plan.deferredInput]);
+        if (key === recoveryKey) return;
+        recoveryKey = key;
+        recovery.empty();
+        if (plan.conflict) {
+            button(recovery, "Keep saved Plans", () => run(() => plan.resolveConflict(false)));
+            button(recovery, "Restore recovered changes", () => run(() => plan.resolveConflict(true)));
+        } else if (plan.error && !plan.readOnly) {
+            button(recovery, "Retry saving", () => run(async () => {
+                if (plan.pendingTransition) await plan.ensureLifecycle();
+                else await plan.flush();
+                render();
+            }));
+        }
+        if (plan.deferredInput) button(recovery, "Copy preserved note", () => run(() =>
+            window.navigator.clipboard.writeText(plan.deferredInput.text)));
+    }
+
+    function picker(record, trigger, relink) {
+        const options = { planId: record.id };
+        const returnFocus = () => {
+            if (trigger?.isConnected) return trigger;
+            const card = cards.get(record.id);
+            const rows = relink && card ? [...card.body.querySelectorAll("[data-plan-id]")] : [];
+            const row = rows.find(item => item.dataset.planId === relink.id);
+            return row?.querySelector("[data-plan-control=relink], button.hub-plan-title") ?? card?.add ?? card?.heading;
+        };
+        return openPlanPicker(plugin, { ...options, relink, returnFocus });
+    }
+
+    function openStart(card, id) {
+        if (startPicker) { startPicker.close(); return; }
+        const record = plan.readPlan(id);
+        if (!record) return;
+        startPicker = openPlanStart(plugin, card.start, record, saved => {
+            reveal({ planId: saved });
+            (cards.get(saved)?.start ?? cards.get(saved)?.heading)?.focus({ preventScroll: true });
+        }, () => { startPicker = null; });
+    }
+
+    function editor(card, record) {
+        const { body, owner } = card;
+        const bound = plan.bind(record.id);
+        mountPlanPresentation({
+            root: body.createDiv(), component: owner, plan: bound, context: "editor", scroller: stack,
+            editable: true, interactive: true, execute: record.status === "active", showStatus: false,
+            emptyMessage: true,
+            onRendered: restoreStackScroll,
+            onRelink: (entry, trigger) => picker(record, trigger, entry),
+            noteEditor: input => {
+                card.note = input;
+                input.oninput = () => {
+                    failure = "";
+                    try {
+                        plan.setNote(input.value, record.id);
+                    } catch (error) { failure = error.message; renderRecovery(); }
+                };
+            }
+        });
+        card.add = button(body, "", () => picker(record, card.add), "hub-button-plain hub-planner-add");
+        setHubIcon(card.add.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "plus");
+        card.add.createSpan({ text: "Add to Plan" });
+    }
+
+    function renderCard(card, record) {
+        const selected = record.id === selectedId, expanded = selected || fullDay;
+        const mode = !expanded ? "summary" : selected && editable(record) ? "editor" : "details";
+        const { heading, stamp, body, summary } = card;
+        const label = planLabel(record);
+        if (heading.textContent !== label) heading.textContent = label;
+        card.status.hidden = editable(record);
+        if (!editable(record) && card.status.getAttribute("aria-label") !== label) {
+            card.status.setAttribute("aria-label", label);
+            card.status.title = label;
+            card.status.classList.toggle("is-finished", record.status === "finished");
+            setHubIcon(card.status, record.status === "finished" ? "check" : "clock-alert");
+        }
+        const timed = record.status === "draft" || record.status === "scheduled";
+        const timeLabel = planClockTime(record);
+        stamp.hidden = timed;
+        if (stamp.textContent !== timeLabel) stamp.textContent = timeLabel;
+        card.start.hidden = !timed;
+        card.start.disabled = plan.busy;
+        const missed = record.status === "draft" && record.scheduledAt && +new Date(record.scheduledAt) <= +plan.now();
+        card.startLabel.textContent = missed ? "Set new start time" : timeLabel || "Set start time";
+        card.start.setAttribute("aria-label", missed ? "Selected start passed. Set new start time" :
+            timeLabel ? "Change start time, " + timeLabel : "Set start time");
+        heading.setAttribute("aria-expanded", String(expanded));
+        heading.setAttribute("aria-pressed", String(selected));
+        card.element.classList.toggle("is-selected", selected);
+        summary.hidden = expanded;
+        summary.textContent = expanded ? "" : (record.content ?? record.snapshot).note.trim();
+        const key = mode + ":" + (record.status === "active");
+        if (key !== card.key) {
+            card.key = key;
+            card.owner?.unload();
+            body.empty();
+            for (const key of ["note", "add"]) delete card[key];
+            body.hidden = !expanded;
+            if (expanded) {
+                card.owner = new Component();
+                card.owner.load();
+                if (mode !== "details") editor(card, record);
+                else mountPlanDetails({ root: body, component: card.owner, plan, record, scroller: stack, onRendered: restoreStackScroll });
+            }
+        }
+        if (!card.note) return;
+        const blocked = plan.busy || plan.enrollingOathId === record.id;
+        if (card.note.value !== record.content.note && root.ownerDocument.activeElement !== card.note) card.note.value = record.content.note;
+        card.note.disabled = card.add.disabled = blocked;
+    }
+
+    function render() {
+        const activeElement = root.ownerDocument.activeElement;
+        const anchor = cards.get(selectedId)?.element;
+        const offset = anchor?.getBoundingClientRect().top;
+        if (date.value !== day) date.value = day;
+        create.disabled = creating || plan.busy || day < today();
+        focused.setAttribute("aria-pressed", String(!fullDay));
+        full.setAttribute("aria-pressed", String(fullDay));
+        focused.classList.toggle("is-active", !fullDay);
+        full.classList.toggle("is-active", fullDay);
+        const records = recordsForDay();
+        const ids = new Set(records.map(record => record.id));
+        if (!ids.has(selectedId)) selectedId = (records.find(record => planDay(record) === day) ?? records[0])?.id ?? null;
+        empty.hidden = records.some(record => !!planDay(record));
+        draftsLabel.hidden = records.every(record => !!planDay(record));
+        for (const [id, card] of cards) {
+            if (ids.has(id)) continue;
+            card.owner?.unload();
+            card.controls.unload();
+            card.element.remove();
+            cards.delete(id);
+        }
+        let previous = draftsLabel;
+        for (const record of records) {
+            let card = cards.get(record.id);
+            if (!card) {
+                const element = stack.createEl("article", { cls: "hub-planner-card", attr: { "data-record": record.id } });
+                const header = element.createEl("header", { cls: "hub-planner-card-header" });
+                const title = header.createEl("h3", { cls: "hub-planner-card-title" });
+                const heading = button(title, "", () => select(record.id), "hub-button-plain");
+                const actions = header.createDiv({ cls: "hub-plan-card-actions" });
+                const stamp = actions.createSpan({ cls: "hub-plans-date" });
+                const status = actions.createSpan({ cls: "hub-plan-status-icon", attr: { role: "img" } });
+                const start = button(actions, "", () => openStart(card, record.id), "hub-button-plain hub-plan-set-start");
+                start.setAttribute("aria-haspopup", "dialog");
+                start.setAttribute("aria-expanded", "false");
+                setHubIcon(start.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "calendar-days");
+                const startLabel = start.createSpan();
+                const controls = new Component();
+                controls.load();
+                mountPlanDelete(actions, controls, plugin, record.id, () => {
+                    (cards.get(selectedId)?.heading ?? create).focus({ preventScroll: true });
+                });
+                const summary = element.createDiv({ cls: "hub-plans-record-note" });
+                const body = element.createDiv({ cls: "hub-planner-card-body" });
+                element.onclick = event => {
+                    if (!event.target.closest("button, input, textarea, label, a, [role=button]") &&
+                        root.ownerDocument.getSelection()?.isCollapsed !== false) select(record.id);
+                };
+                card = { element, header, heading, stamp, status, start, startLabel, controls, summary, body };
+                cards.set(record.id, card);
+            }
+            if (planDay(record) && (previous === draftsLabel || previous.dataset.undated === "true")) previous = empty;
+            if (previous.nextElementSibling !== card.element) {
+                if (stack.moveBefore) stack.moveBefore(card.element, previous.nextElementSibling);
+                else previous.after(card.element);
+            }
+            card.element.dataset.undated = String(!planDay(record));
+            previous = card.element;
+            renderCard(card, record);
+        }
+        if (anchor?.isConnected && anchor === cards.get(selectedId)?.element) stack.scrollTop += anchor.getBoundingClientRect().top - offset;
+        if (activeElement?.isConnected && stack.contains(activeElement) && root.ownerDocument.activeElement !== activeElement && !activeElement.disabled) {
+            activeElement.focus({ preventScroll: true });
+        } else if (activeElement && !activeElement.isConnected && root.ownerDocument.activeElement === root.ownerDocument.body) {
+            (cards.get(selectedId)?.heading ?? date).focus({ preventScroll: true });
+        }
+        renderRecovery();
+    }
+
+    plan.subscribe(component, render);
+    const refreshTime = window.setInterval(render, 30000);
+    component.register(() => {
+        window.clearInterval(refreshTime);
+        startPicker?.close(false);
+        for (const card of cards.values()) { card.owner?.unload(); card.controls.unload(); }
+    });
+    if (context.planId || context.date) reveal(context);
+    else {
+        render();
+        if (selectedId === remembered?.planId && Number.isFinite(remembered.scrollTop)) {
+            restoreScroll = Math.max(0, remembered.scrollTop);
+            restoreStackScroll();
+        } else revealInStack(cards.get(selectedId)?.heading);
+    }
+    return {
+        reveal,
+        dismissTimePopover() { if (!startPicker) return false; startPicker.close(); return true; },
+        rememberLocation() {
+            const location = { day, planId: selectedId, fullDay, scrollTop: stack.scrollTop };
+            plugin.plannerLocation = location;
+            try { window.localStorage.setItem(viewKey, JSON.stringify(location)); }
+            catch { /* Keep the in-memory location when storage is unavailable. */ }
+        }
+    };
+}
+
+module.exports = { mountPlanner };
 
 },
 "lib/ui/planning-editor.js": function (module, exports, __hubRequire) {
@@ -22551,7 +25160,7 @@ module.exports = { createPreparedNoteRails, NOTE_RAIL_VIEW, HOME_VIEW };
 const { inheritColorOwner } = __hubRequire("lib/ui/color-system.js");
 const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
 
-const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
 
 function showPresetsMenu(anchor, presets) {
@@ -22634,6 +25243,7 @@ function showPresetsMenu(anchor, presets) {
                 input.addEventListener("keydown", event => {
                     if (event.key === "Enter" && !event.isComposing && !event.repeat) { event.preventDefault(); void commit(); }
                 });
+                mountModalSeparators(this, { footer: actions });
                 input.focus(); input.select();
             }
             close() { if (!this.saving) super.close(); }
@@ -22955,7 +25565,7 @@ module.exports = { progressColors, progressColor };
 "use strict";
 const { Modal, Component, Notice, setIcon } = require("obsidian");
 const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
-const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-header.js");
@@ -22963,13 +25573,13 @@ const { renderReportEvidence } = __hubRequire("lib/ui/daily-report.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { progressRatingOptions } = __hubRequire("lib/config.js");
 const { localISODate } = __hubRequire("lib/domain/dates.js");
-const { normalizeFocusItems } = __hubRequire("lib/domain/focus.js");
+const { renderDetailsChevron } = __hubRequire("lib/ui/disclosure.js");
 const { savedReportContext } = __hubRequire("lib/domain/report-context.js");
 const { saveProgress, stored, idOf, validScore } = __hubRequire("lib/services/progress-report.js");
 
 class ProgressEditor extends Modal {
-    constructor(plugin, { date = localISODate(), scope = null, closeButton = null, FocusEditor } = {}) {
-        super(plugin.app); Object.assign(this, { plugin, date, reportScope: scope, closeButton, FocusEditor });
+    constructor(plugin, { date = localISODate(), scope = null, closeButton = null } = {}) {
+        super(plugin.app); Object.assign(this, { plugin, date, reportScope: scope, closeButton });
         this.wizard = plugin.projectWizard; this.rows = new Map(); this.returnFocus = document.activeElement;
         this.represented = plugin.reportEligibility.cutoff(date, plugin.reportEligibility.pending(date, { currentSession: !!closeButton }));
     }
@@ -22979,23 +25589,24 @@ class ProgressEditor extends Modal {
         this.modalEl.classList.add("hub-progress-editor", "hub-project-advancement-modal");
         this.modalEl.tabIndex = -1;
         this.contentEl.classList.add("hub-button-scope");
-        createWindowTitle(this.contentEl, "Progress Report", "clipboard-pen", { date: { value: this.date, label: this.date } });
-        this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Evaluate the whole day so far. Recorded work supports your judgment." });
+        const heading = createWindowTitle(this.contentEl, "Progress Report", "clipboard-pen", { date: { value: this.date, label: this.date } });
+        setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Reflect on your progress." }));
         this.body = this.contentEl.createDiv(); this.dateNotice = this.body.createDiv({ cls: "hub-oath-muted" });
         this.cards = this.body.createDiv();
         const reports = this.wizard.getProgressReports({ kind: "all" }).filter(r => r.date === this.date);
         const current = this.plugin.workspaceModes?.currentContext?.();
         const all = this.workspaces(), suggested = new Set(Object.keys(this.represented));
+        for (const report of reports) {
+            if (!this.closeButton || suggested.has(report.projectId)) suggested.add(report.projectId);
+        }
         if (!this.closeButton) {
-            for (const report of reports) suggested.add(report.projectId);
             for (const w of all) {
                 const c = savedReportContext(this.wizard, this.date, idOf(w), stored(this.wizard.data, this.date, idOf(w)).log?.context);
                 if (c.tasks.length || c.activity.length || c.oaths?.length) suggested.add(idOf(w));
             }
         }
-        if (!this.closeButton && this.date === localISODate() && current) suggested.add(idOf(current));
         const target = typeof this.reportScope === "string" ? this.reportScope : this.reportScope?.id ? (this.reportScope.kind === "resource" ? "resource:" + this.reportScope.id : this.reportScope.id) : null;
-        if (target) suggested.add(target);
+
         const ordered = [...suggested].sort((a,b) => {
             const preferred = target ?? (!this.closeButton ? idOf(current) : null);
             return Number(b === preferred) - Number(a === preferred) || (this.plugin.reportEligibility.state[this.date]?.[b]?.lastObservedAt || 0) - (this.plugin.reportEligibility.state[this.date]?.[a]?.lastObservedAt || 0);
@@ -23005,25 +25616,17 @@ class ProgressEditor extends Modal {
             const w = all.find(w => idOf(w) === id) ?? reports.find(r => r.projectId === id);
             if (w) this.addRow(w, this.rows.size === 0);
         }
-        this.button(this.body, "Add workspace", () => this.openPicker());
-        if (this.plugin.globalPlan) {
-            const details = this.body.createEl("details", {cls:"hub-progress-focus"});
-            details.createEl("summary", {text:"Current plan - optional"});
-            details.createEl("p", {cls:"hub-oath-muted",text:"Live planning state. Changes are saved independently of this report."});
-            const preview = details.createDiv({cls:"hub-plan-report-preview"});
-            let planComponent;
-            const renderPlan=()=>{planComponent?.unload();planComponent=new (require('obsidian').Component)();planComponent.load();preview.empty();const p=this.plugin.globalPlan.selected(this.date);if(!p){preview.createDiv({text:'No plan for this date',cls:'hub-oath-muted'});return;}__hubRequire("lib/ui/plan-presentation.js").mountPlanPresentation({root:preview,component:planComponent,plan:this.plugin.globalPlan.bind(p.id),context:'report'});const b=preview.createEl('button',{text:p.status==='active'?'Edit plan':'View plan'});b.onclick=()=>__hubRequire("lib/ui/plan.js").openPlan(this.plugin,p.id);for(const earlier of this.plugin.globalPlan.listHistorical(this.date).filter(x=>x.id!==p.id)){const other=preview.createEl('button',{text:'Earlier plan - '+earlier.endedAt});other.onclick=()=>__hubRequire("lib/ui/plan.js").openPlan(this.plugin,earlier.id);}};
-            this.plugin.globalPlan.subscribe(this.component,renderPlan);this.component.register(()=>planComponent?.unload());renderPlan();
-        }
+        if (!this.rows.size) this.cards.createDiv({ cls: "hub-oath-muted", text: "No workspace engagement recorded for this date." });
         this.error = this.body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
         this.conflicts = this.body.createDiv();
         this.footer = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
         this.button(this.footer, this.closeButton ? "Keep working" : "Cancel", () => this.close());
-        if (this.closeButton) this.button(this.footer, "Close without reporting", () => {
+        if (this.closeButton) this.button(this.footer, "Skip report", () => {
             this.plugin.reportEligibility.dismiss(this.date, this.represented);
             this.close(); this.plugin.finishWindowClose(this.closeButton);
         });
         this.saveButton = this.button(this.footer, this.closeButton ? "Save and close" : "Save progress", () => this.save());
+        this.saveButton.classList.add("mod-cta");
         layoutModal(this, { body: this.body, footer: this.footer, bodyClass: "hub-report-scroll" });
         const refresh = () => { for (const row of this.rows.values()) this.evidence(row); };
         document.addEventListener("hub-task-progress-evidence-changed", refresh);
@@ -23041,6 +25644,7 @@ class ProgressEditor extends Modal {
         const initial = stored(this.wizard.data, this.date, id);
         const card = this.cards.createEl("details", { cls: "hub-progress-card" }); card.open = expanded;
         const heading = card.createEl("summary");
+        renderDetailsChevron(heading);
         renderReportWorkspaceHeader(heading, { ...workspace, projectId: id, projectName: workspace.name ?? workspace.label ?? workspace.projectName }, this.plugin);
         const status = heading.createSpan({ cls: "hub-oath-muted" });
         const row = { id, card, initial, rating: initial.rating, reviewed: false, status };
@@ -23048,13 +25652,13 @@ class ProgressEditor extends Modal {
         const ratings = card.createDiv({ cls: "hub-progress-ratings", attr: { role: "group", "aria-label": "Rating for " + (workspace.name ?? workspace.label ?? workspace.projectName) } });
         row.buttons = [];
         for (const option of progressRatingOptions(workspace)) {
-            const b = this.button(ratings, String(option.score), () => { row.rating = option.score; row.reviewed = true; this.update(); });
+            const b = this.button(ratings, String(option.score), () => { row.rating = row.rating === option.score ? null : option.score; row.reviewed = true; this.update(); });
             b.classList.add("hub-project-advancement-score"); b.dataset.score = String(option.score);
             setHubTooltip(b, option.title + " " + option.description, "top"); row.buttons.push(b);
         }
-        this.button(ratings, "Clear rating", () => { row.rating = null; row.reviewed = true; this.update(); });
-        const label = card.createEl("label", { cls: "hub-progress-reflection", text: "Reflection — optional" });
-        row.input = label.createEl("textarea", { attr: { rows: "2", maxlength: "1000", "aria-label": "Reflection for " + (workspace.name ?? workspace.label ?? workspace.projectName) } });
+        row.input = card.createEl("textarea", { cls: "hub-progress-reflection",
+            attr: { rows: "2", maxlength: "1000", placeholder: "Optional notes…",
+                "aria-label": "Reflection for " + (workspace.name ?? workspace.label ?? workspace.projectName) } });
         row.input.value = initial.log?.summary ?? "";
         row.input.addEventListener("input", () => this.update());
         const helpId = `hub-progress-no-work-${this.rows.size}`;
@@ -23075,57 +25679,25 @@ class ProgressEditor extends Modal {
         if (expanded) row.evidence.querySelector("details").open = true;
     }
     changed(row) { return row.reviewed || row.input.value.trim() !== (row.initial.log?.summary ?? ""); }
-    focusValue() { return this.focus?.getValue(); }
     update() {
         if (!this.saveButton) return;
-        this.dateNotice.textContent = this.date !== localISODate() ? `Editing ${this.date}; today is ${localISODate()}. Next Focus edits apply to this report's archive only.` : "";
-        let focusChanged = false;
-        if (this.focusTouched) { try { focusChanged = JSON.stringify(this.focusValue()) !== this.initialFocus; } catch (_) { focusChanged = true; } }
-        this.saveButton.disabled = !!this.saving || (![...this.rows.values()].some(r => this.changed(r)) && !focusChanged);
+        this.dateNotice.textContent = this.date !== localISODate() ? 'Editing ' + this.date + '.' : "";
+        this.saveButton.disabled = !!this.saving || ![...this.rows.values()].some(row => this.changed(row));
         for (const row of this.rows.values()) {
+            row.status.classList.toggle("hub-report-rating", validScore(row.rating));
             row.status.textContent = validScore(row.rating) ? `${row.rating}/4` : "Not rated";
             row.input.disabled = !!this.saving || row.rating === 0;
             row.noWorkHelp.hidden = row.rating !== 0;
             for (const b of row.buttons) { const selected = Number(b.dataset.score) === row.rating; b.classList.toggle("is-selected", selected); b.setAttribute("aria-pressed", String(selected)); }
         }
     }
-    openPicker() {
-        if (this.picker) return;
-        const editor = this;
-        class Picker extends Modal {
-            onOpen() {
-                ownModalColors(this); this.modalEl.classList.add("hub-oath-dialog");
-                createWindowTitle(this.contentEl, "Add workspace", "clipboard-pen");
-                const search = this.contentEl.createEl("input", { type: "search", attr: { "aria-label": "Search Projects and Resources", placeholder: "Search Projects and Resources" } });
-                const list = this.contentEl.createDiv();
-                const render = () => {
-                    list.empty();
-                    for (const kind of ["project", "resource"]) {
-                        list.createEl("h3", { text: kind === "project" ? "Projects" : "Resources" });
-                        for (const w of editor.workspaces().filter(w => (w.contextKind === "resource" ? "resource" : "project") === kind && (w.name ?? w.label).toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()))) {
-                            editor.button(list, (w.name ?? w.label) + (w.status ? ` · ${w.status}` : ""), () => {
-                                const current = editor.workspaces().find(item => idOf(item) === idOf(w));
-                                if (!current) return render(); editor.addRow(current); this.close();
-                            });
-                        }
-                    }
-                };
-                search.addEventListener("input", render); editor.button(this.contentEl, "Cancel", () => this.close()); render(); search.focus();
-            }
-            onClose() { editor.picker = null; editor.modalEl.focus(); }
-        }
-        this.picker = new Picker(this.app); this.picker.open();
-    }
     async save() {
         if (this.saving || this.saveButton.disabled) return;
         const entries = [...this.rows.values()].filter(r => this.changed(r)).map(r => ({ id: r.id, expected: r.initial, rating: r.rating, summary: r.input.value.trim() }));
         const cutoffs = this.plugin.reportEligibility.cutoff(this.date, entries.map(e => e.id));
-        let focus;
-        try { if (this.focusTouched && JSON.stringify(this.focusValue()) !== this.initialFocus) focus = this.focusValue(); }
-        catch (error) { this.error.textContent = error.message; return; }
         this.saving = true; const unlock = lockModalControls(this); this.error.textContent = "";
         try {
-            await saveProgress(this.wizard, { date: this.date, entries, cutoffs, dismiss: this.closeButton ? this.represented : {}, focus });
+            await saveProgress(this.wizard, { date: this.date, entries, cutoffs, dismiss: this.closeButton ? this.represented : {} });
             this.plugin.notifyProgressChanged(this.date, entries.map(e => e.id));
             this.saving = false; unlock(); this.close();
             if (this.closeButton) this.plugin.finishWindowClose(this.closeButton);
@@ -23145,7 +25717,7 @@ class ProgressEditor extends Modal {
         // Release ownership even if cleanup of a partially initialized view fails.
         if (this.plugin.progressEditor === this) this.plugin.progressEditor = null;
         this.plugin.hubAdvancementPromptOpen = false;
-        this.picker?.close(); this.focus?.destroy(); this.component?.unload();
+        this.component?.unload();
         for (const row of this.rows.values()) row.evidenceComponent?.unload();
         this.contentEl.empty(); this.returnFocus?.focus?.();
     }
@@ -23185,10 +25757,10 @@ function openProgress(plugin, options) {
         new Notice("Could not open Progress Report. Please try again; Itacan can still be closed.");
     }
 }
-function mountProgressControl(plugin, host, FocusEditor) {
+function mountProgressControl(plugin, host, open = () => openProgress(plugin)) {
     const button = host.createEl("button", { cls: "hub-oath-button hub-log-progress-button", attr: { type: "button", "aria-label": "Log progress", "aria-haspopup": "dialog" } });
     setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "clipboard-pen"); button.createSpan({ text: "Log progress" }); setHubTooltip(button, "Log progress", "top");
-    const open = () => openProgress(plugin, { FocusEditor }); button.addEventListener("click", open);
+    button.addEventListener("click", open);
     plugin.addCommand({ id: "log-progress", name: "Log progress", callback: open });
     const measure = () => {
         host.classList.remove("hub-shell-icons-only");
@@ -23399,9 +25971,203 @@ function createProgressHeatmap(calendar, component) {
 module.exports = { heatmapGeometry, heatmapPixelScale, fillOutsideYearCells, createProgressHeatmap };
 
 },
+"lib/ui/progress-history.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Component, Modal } = require("obsidian");
+const { formatDateTime } = __hubRequire("lib/domain/dates.js");
+const { oathDuration } = __hubRequire("lib/domain/oath.js");
+const { lifecycleHistory, oathMode, oathOutcome, planOutcome } = __hubRequire("lib/domain/progress-history.js");
+const { createHistoryPager } = __hubRequire("lib/ui/history-pager.js");
+const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
+
+const categories = [
+    ["reports", "Reports"], ["tasks", "Tasks"], ["plans", "Plans"], ["oaths", "Oaths"], ["activity", "Activity"]
+];
+const time = value => formatDateTime(new Date(value));
+
+class OathHistoryModal extends Modal {
+    constructor(plugin, record) {
+        super(plugin.app);
+        this.plugin = plugin;
+        this.record = record;
+    }
+    onOpen() {
+        ownModalColors(this);
+        this.modalEl.classList.add("hub-oath-history-window");
+        this.contentEl.classList.add("hub-button-scope");
+        const record = this.record;
+        createWindowTitle(this.contentEl, "Oath details", "shield-user");
+        const body = this.contentEl.createDiv();
+        const fields = body.createEl("dl", { cls: "hub-oath-history-details" });
+        const detail = (name, value) => {
+            fields.createEl("dt", { text: name });
+            return fields.createEl("dd", { text: value });
+        };
+        detail("Outcome", oathOutcome(record));
+        detail("Mode", oathMode(record));
+        detail("Intended duration", Number.isFinite(record.durationMs) ? oathDuration(record.durationMs) : "Unavailable");
+        if (record.startedAt != null) detail("Started", time(record.startedAt));
+        if (record.completedAt != null) detail("Ended", time(record.completedAt));
+        const plan = this.plugin.globalPlan?.readPlan(record.planId);
+        const linked = detail("Associated Plan", plan ? "" : record.planId ? "Plan unavailable" : "No Plan link recorded");
+        if (plan) {
+            const button = linked.createEl("button", { text: plan.snapshot ? "Open Plan snapshot" : "Open Plan", attr: { type: "button" } });
+            button.onclick = () => {
+                this.close();
+                __hubRequire("lib/ui/plan.js").openPlan(this.plugin, plan.id);
+            };
+        }
+        const items = record.planItems ?? record.tasks?.map(task => ({ label: task.text })) ?? [];
+        if (items.length) {
+            body.createEl("h3", { text: "Selected items" });
+            const list = body.createEl("ul");
+            for (const item of items) list.createEl("li", { text: item.label ?? "Unavailable item" });
+        }
+        layoutModal(this, { body });
+    }
+}
+
+function mountProgressHistory({ plugin, root, panel, heatmap, toolbar, container, bodyClass, signal, storageKey, workspace, renderers, onLayout, onViewChange }) {
+    const component = new Component();
+    component.load();
+    const storage = root.ownerDocument.defaultView.sessionStorage;
+    const view = root.ownerDocument.defaultView;
+    const saved = storage.getItem(storageKey);
+    let category = categories.some(([key]) => key === saved) ? saved : "reports";
+    let expanded = false;
+    const timelineKeys = new Map();
+    let oathModal;
+    const entries = new Map();
+    const closeOath = () => { if (oathModal?.containerEl.isConnected) oathModal.close(); };
+    const painters = { ...renderers, plans: body => renderTimeline(body, "plan"),
+        oaths: body => renderTimeline(body, "oath") };
+    const selectorLane = toolbar.createDiv({ cls: "hub-progress-history-selector-lane" });
+    const selectors = selectorLane.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-progress-history-selectors",
+        attr: { role: "group", "aria-label": "History category" } });
+    heatmap.classList.add("hub-progress-heatmap");
+    container.classList.add("hub-progress-history-grid");
+    for (const [key, label] of categories) {
+        const button = selectors.createEl("button", { text: label, attr: { type: "button",
+            "aria-pressed": String(key === category) } });
+        button.classList.toggle("is-active", key === category);
+        button.addEventListener("click", () => {
+            if (key === category) return;
+            remember();
+            category = key;
+            storage.setItem(storageKey, category);
+            layout();
+        }, { signal });
+        const column = container.createEl("section", { cls: "hub-progress-history-column", attr: { "data-history-category": key } });
+        const body = column.createDiv({ cls: bodyClass + " hub-scrollbar hub-progress-history-scroll",
+            attr: { tabindex: "0", role: "region", "aria-label": label + " history" } });
+        const pager = createHistoryPager(body, component);
+        const entry = { column, button, body, pager, dirty: true, top: 0, minimum: 50 };
+        body.hubHistoryPager = {
+            reset: pager.reset,
+            render: (items, renderRow) => pager.render(items, renderRow, entry.minimum)
+        };
+        if (key !== "oaths" && key !== "plans") body.hubMarkdown = createHubMarkdown({ app: plugin.app, component });
+        entries.set(key, entry);
+        column.hidden = key !== category;
+    }
+
+    const isVisible = key => category === key;
+    function paint(key) {
+        const entry = entries.get(key);
+        if (!entry.dirty || !isVisible(key)) return;
+        entry.dirty = false;
+        entry.minimum = Math.max(50, entry.pager.renderedCount);
+        painters[key]?.(entry.body);
+        entry.body.scrollTop = entry.top;
+    }
+    function refresh(key) {
+        const entry = entries.get(key);
+        if (isVisible(key)) entry.top = entry.body.scrollTop;
+        entry.dirty = true;
+        paint(key);
+    }
+    function remember() {
+        for (const [key, entry] of entries) if (isVisible(key)) entry.top = entry.body.scrollTop;
+    }
+    function layout() {
+        panel.classList.toggle("is-progress-expanded", expanded);
+        for (const [key, entry] of entries) {
+            entry.column.hidden = !isVisible(key);
+            entry.button.classList.toggle("is-active", isVisible(key));
+            entry.button.setAttribute("aria-pressed", String(isVisible(key)));
+            if (isVisible(key)) {
+                paint(key);
+                entry.body.scrollTop = entry.top;
+            }
+        }
+        onLayout?.();
+        onViewChange?.();
+    }
+    function renderTimeline(body, kind) {
+        const records = lifecycleHistory({
+            plans: plugin.globalPlan?.listHistorical(),
+            oathsByDevice: plugin.projectWizard.data.oathsByDevice,
+            workspace
+        }).filter(event => event.kind === kind);
+        const key = JSON.stringify(records.map(({ key, at, record }) => [key, at, record.state, record.status, record.snapshot?.note]));
+        if (key === timelineKeys.get(kind)) return;
+        timelineKeys.set(kind, key);
+        const focusKey = body.contains(body.ownerDocument.activeElement) ? body.ownerDocument.activeElement.dataset.record : null;
+        body.empty();
+        if (!records.length) body.createDiv({ cls: "hub-progress-history-empty", text: kind === "plan" ? "No historical Plans yet." : "No Oaths yet." });
+        body.hubHistoryPager.render(records, event => {
+            const { record } = event;
+            const plan = event.kind === "plan";
+            const finished = plan && record.status === "finished";
+            const row = body.createEl("button", { cls: "hub-lifecycle-history-row", attr: { type: "button", "data-record": event.key } });
+            setHubIcon(row.createSpan({ cls: "hub-lifecycle-history-icon", attr: { "aria-hidden": "true" } }),
+                plan ? finished ? "check" : "clock-alert" : "shield-user");
+            row.classList.toggle("is-finished-plan", Boolean(finished));
+            const copy = row.createSpan({ cls: "hub-lifecycle-history-copy" });
+            copy.createSpan({ text: plan ? planOutcome(record) : "Oath " + oathOutcome(record).toLowerCase() });
+            const metadata = plan ? record.snapshot.note.trim() : oathMode(record);
+            if (metadata) copy.createSpan({ cls: "hub-lifecycle-history-meta", text: metadata });
+            row.createEl("time", { text: time(event.at), attr: { datetime: new Date(event.at).toISOString() } });
+            row.onclick = () => {
+                if (plan) __hubRequire("lib/ui/plan.js").openPlan(plugin, record.id);
+                else {
+                    closeOath();
+                    oathModal = new OathHistoryModal(plugin, record);
+                    oathModal.open();
+                }
+            };
+        });
+        if (focusKey) [...body.querySelectorAll("button")].find(row => row.dataset.record === focusKey)?.focus({ preventScroll: true });
+    }
+    plugin.globalPlan?.subscribe(component, () => refresh("plans"));
+    const stopOath = plugin.oath?.onChange(() => refresh("oaths"));
+    if (stopOath) component.register(stopOath);
+    component.register(closeOath);
+    signal.addEventListener("abort", () => component.unload(), { once: true });
+    return {
+        body: key => entries.get(key).body,
+        bodies: [...entries.values()].map(entry => entry.body),
+        get category() { return category; },
+        isVisible, refresh,
+        setExpanded(value) {
+            if (value === expanded) return;
+            remember();
+            expanded = value;
+            layout();
+        }
+    };
+}
+
+module.exports = { mountProgressHistory };
+
+},
 "lib/ui/project-deletion.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+const { mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 
 const { Modal, setIcon } = require("obsidian");
 
@@ -23496,6 +26262,7 @@ class ProjectDeletionModal extends Modal {
             else if (event.target === this.input && this.phase === "name") this.beginCountdown();
         };
         content.addEventListener("keydown", this.onKeydown, true);
+        mountModalSeparators(this, { footer: actions });
         this.input.focus();
     }
 
@@ -23895,6 +26662,7 @@ class QuickAddModal extends CaptureModal {
         this.fileAction = action(footer, "Add files to...", "folder-input", () => { void this.launchAction("file"); });
         this.fileAction.dataset.captureAction = "file"; this.fileAction.hidden = true;
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
+        this.mountSeparators(footer);
         this.renderActions();
         // Size once from the existing empty text layout, including current fonts.
         const height = this.captureRegion.getBoundingClientRect().height;
@@ -24105,31 +26873,33 @@ const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
 function renderScheduleToolbar(panel, context, state) {
     const toolbar = panel.createDiv({ cls: "hub-planning-toolbar hub-schedule-toolbar" });
     const contextHeader = toolbar.createDiv({ cls: "hub-schedule-context" });
-    const title = contextHeader.createDiv({ cls: "project-panel-title project-tasks-title hub-schedule-title", attr: { role: "heading", "aria-level": "2" } });
-    setHubIcon(title.createSpan({ cls: "project-tasks-title-icon", attr: { "aria-hidden": "true" } }), "clipboard-list");
-    title.createSpan({ text: "Schedule" });
+    if (!context.embeddedSchedule) {
+        const title = contextHeader.createDiv({ cls: "project-panel-title project-tasks-title hub-schedule-title", attr: { role: "heading", "aria-level": "2" } });
+        setHubIcon(title.createSpan({ cls: "project-tasks-title-icon", attr: { "aria-hidden": "true" } }), "clipboard-list");
+        title.createSpan({ text: "Schedule" });
+    }
     const navigation = contextHeader.createDiv({ cls: "hub-planning-navigation" });
     const view = state.scheduleView;
-    if (view !== "upcoming") {
+    {
         const move = (direction, event) => {
-            state.anchor = view === "week" ? shiftDay(state.anchor, 7 * direction) : new Date(state.anchor.getFullYear(), state.anchor.getMonth() + direction, 1);
+            state.anchor = view !== "month" ? shiftDay(state.anchor, 7 * direction) : new Date(state.anchor.getFullYear(), state.anchor.getMonth() + direction, 1);
             context.render(event);
         };
-        iconButton(navigation, "Previous " + view, "chevron-left", event => move(-1, event)).dataset.scheduleControl = "previous";
-        iconButton(navigation, "Next " + view, "chevron-right", event => move(1, event)).dataset.scheduleControl = "next";
-        button(navigation, "Today", event => { state.anchor = new Date(); context.render(event); }, "hub-panel-action").dataset.scheduleControl = "today";
-        const days = calendarRange(state.anchor, view);
+        iconButton(navigation, "Previous " + (view === "upcoming" ? "week" : view), "chevron-left", event => move(-1, event)).dataset.scheduleControl = "previous";
+        iconButton(navigation, "Next " + (view === "upcoming" ? "week" : view), "chevron-right", event => move(1, event)).dataset.scheduleControl = "next";
+        if (!context.embeddedSchedule) button(navigation, "Today", event => { state.anchor = new Date(); context.render(event); }, "hub-panel-action").dataset.scheduleControl = "today";
+        const days = calendarRange(state.anchor, view === "month" ? "month" : "week");
         const format = date => formatDate(date);
         navigation.createEl("h3", { text: view === "month" ? formatDate(state.anchor, "month") : format(days[0]) + " \u2013 " + format(days.at(-1)) });
     }
     const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
     const modes = actions.createDiv({ cls: "hub-panel-selectors hub-equal-selectors", attr: { role: "group", "aria-label": "Schedule view" } });
-    for (const [value, label] of [["upcoming", "Overview"], ["week", "Week"], ["month", "Month"]]) {
+    for (const [value, label] of [["upcoming", "Agenda"], ["week", "Week"], ["month", "Month"]]) {
         const choice = button(modes, label, event => { state.scheduleView = value; context.render(event); }, view === value ? "is-active" : "");
         choice.dataset.scheduleControl = "view-" + value;
         choice.setAttribute("aria-pressed", String(view === value));
     }
-    button(actions, "Task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
+    if (!context.embeddedSchedule) button(actions, "Task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
 }
 module.exports = { renderScheduleToolbar };
 
@@ -24152,6 +26922,7 @@ const SETTINGS_PAGES = [
     ["oath", "The Oath", "Preferences for focused work."],
     ["daily-brief", "Daily brief", "Your daily orientation."],
     ["history", "History", "Your work history and reports."],
+    ["statistics", "Statistics", "Explore recorded work and progress."],
     ["integrations", "Integrations", "Connections to other tools."],
     ["files", "Files & Data", "Files and application data."],
     ["shortcuts", "Shortcuts", "Keyboard shortcuts and quick actions."],
@@ -24219,6 +26990,17 @@ function renderSettingsPage(parent, page, plugin) {
     if (page.id === "atlas" && plugin?.atlas) return __hubRequire("lib/atlas/obsidian/ui.js").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("h2", { text: page.title });
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
+    if (page.id === "statistics") {
+        const launch = parent.createEl("button", { text: "Open Statistics",
+            attr: { type: "button", "aria-haspopup": "dialog" } });
+        launch.onclick = () => {
+            const workspace = plugin.workspaceModes?.currentContext?.();
+            const filter = workspace?.contextKind === "resource"
+                ? "resource:" + workspace.resourceType : workspace?.projectId ? "project:" + workspace.projectId : undefined;
+            parent.ownerDocument.defaultView.hubOpenStatistics?.(filter);
+        };
+        return;
+    }
     if (page.id === "appearance") return renderAppearance(parent, plugin);
     if (page.id === "music" && plugin?.musicLibrary) return __hubRequire("lib/ui/music-settings.js").mountMusicSettings(parent, plugin.musicLibrary);
     if (page.id === "oath" && plugin?.oath) return __hubRequire("lib/ui/oath-settings.js").mountOathSettings(parent, plugin.oath);
@@ -24233,7 +27015,7 @@ module.exports = { SETTINGS_PAGES, renderSettingsPage, row, section };
 const { hostColorIsland } = __hubRequire("lib/ui/color-system.js");
 const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
 
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators } = __hubRequire("lib/ui/window-title.js");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { SETTINGS_PAGES, renderSettingsPage } = __hubRequire("lib/ui/settings-pages.js");
@@ -24248,6 +27030,7 @@ class SettingsModal extends Modal {
         const heading = createWindowTitle(header, "Settings", "settings", { attr: { id: `${this.prefix}-title` } });
         this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
         setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves" }));
+        mountModalSeparators(this, { header });
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
         this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });
@@ -24322,6 +27105,24 @@ function mountSettingsControl(plugin, host) {
     return { button, open, isOpen: owner.isOpen, destroy() { destroyed = true; owner.close(); owner.detach(button); button.remove(); } };
 }
 module.exports = { SettingsModal, mountSettingsControl, getSettingsOwner };
+
+},
+"lib/ui/startup-snapshot.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function keepStartupSnapshotUnfocusable(document) {
+    const frame = document.getElementById("startup-snapshot");
+    if (frame?.tagName !== "IFRAME" || !frame.hasAttribute("srcdoc") ||
+        frame.getAttribute("sandbox") !== "allow-same-origin") return;
+
+    // Obsidian already makes the snapshot's body inert. Make the iframe
+    // itself inert too, so a slow-start modal cannot save focus in its
+    // scriptless document and later try to restore it as a live Obsidian node.
+    frame.inert = true;
+    if (document.activeElement === frame) frame.blur();
+}
+
+module.exports = { keepStartupSnapshotUnfocusable };
 
 },
 "lib/ui/statistics-charts.js": function (module, exports, __hubRequire) {
@@ -24522,10 +27323,10 @@ function ownModal(modal) {
 }
 
 class StatisticsModal extends Modal {
-    constructor(app, plugin, { source, onClose, completionFeed } = {}) {
+    constructor(app, plugin, { source, onClose, completionFeed, initialWorkspace = "all" } = {}) {
         super(app); this.plugin = plugin; this.source = source; this.closed = onClose;
         this.completionFeed = completionFeed; this.suppliedSource = completionFeed ? undefined : source; this.generation = 0; this.isOpen = false;
-        this.range = "all"; this.workspace = "all";
+        this.range = "all"; this.workspace = initialWorkspace;
         this.cache = new Map(); this.chartCleanups = [];
     }
     onOpen() { ownModalColors(this);
@@ -24573,6 +27374,7 @@ class StatisticsModal extends Modal {
             [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
                 .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
         }
+        if (this.workspace !== "all" && !this.source.registry.has(this.workspace)) this.workspace = "all";
         this.workspaceSelect.value = this.workspace;
         this.render();
     }
@@ -26390,7 +29192,7 @@ const active = new WeakMap();
 
 // Contextual controls remain inside the modal's focus scope. The native top
 // layer avoids clipping by its scrolling body; no second Modal is opened.
-function openTaskPopover(anchor, { title, heading = true, autofocus = true, exclusive = true, avoidFooter = false, maxHeight = Infinity, className = "", width = 300, render, onClose = () => {} }) {
+function openTaskPopover(anchor, { title, heading = true, autofocus = true, exclusive = true, avoidFooter = false, alignEnd = false, maxHeight = Infinity, className = "", width = 300, render, onClose = () => {} }) {
     const doc = anchor.ownerDocument, win = doc.defaultView;
     if (exclusive) active.get(doc)?.close(false);
     const parent = anchor.closest(".modal") ?? doc.body;
@@ -26427,14 +29229,16 @@ function openTaskPopover(anchor, { title, heading = true, autofocus = true, excl
         element.style.maxHeight = Math.max(0, Math.min(maxHeight, bottom - top)) + "px";
         const rect = anchor.getBoundingClientRect(), naturalHeight = element.getBoundingClientRect().height;
         const belowRoom = Math.max(0, bottom - rect.bottom - 6), aboveRoom = Math.max(0, rect.top - top - 6);
-        const footer = avoidFooter ? parent.querySelector('.hub-task-dialog-actions')?.getBoundingClientRect() : null;
+        const footerSelector = typeof avoidFooter === "string" ? avoidFooter : ".hub-task-dialog-actions";
+        const footer = avoidFooter ? parent.querySelector(footerSelector)?.getBoundingClientRect() : null;
         const overlapsFooter = footer && rect.bottom + 6 < footer.bottom && rect.bottom + 6 + naturalHeight > footer.top;
         const above = naturalHeight > belowRoom && aboveRoom > belowRoom || overlapsFooter && naturalHeight <= aboveRoom;
         // Long menus scroll in the available side, preserving the anchor gap
         // instead of growing across their trigger when neither side fits.
         element.style.maxHeight = Math.min(maxHeight, bottom - top, Math.max(64, above ? aboveRoom : belowRoom)) + "px";
         const height = element.getBoundingClientRect().height;
-        element.style.left = Math.max(left, Math.min(rect.left, right - element.offsetWidth)) + "px";
+        const alignedLeft = alignEnd ? rect.right - element.offsetWidth : rect.left;
+        element.style.left = Math.max(left, Math.min(alignedLeft, right - element.offsetWidth)) + "px";
         element.style.top = Math.max(top, Math.min(above ? rect.top - height - 6 : rect.bottom + 6, bottom - height)) + "px";
     }
     const observer = new win.ResizeObserver(position);
@@ -26568,10 +29372,45 @@ module.exports = { createTaskSteps };
 "lib/ui/task-view-calendar.js": function (module, exports, __hubRequire) {
 "use strict";
 const { calendarRange } = __hubRequire("lib/domain/task-views.js");
-const { localISODate, formatDate } = __hubRequire("lib/domain/dates.js");
+const { localISODate, formatDate, formatTime } = __hubRequire("lib/domain/dates.js");
 const { iconButton, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
 
 const { renderScheduleToolbar } = __hubRequire("lib/ui/schedule-toolbar.js");
+const { taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
+const { renderCalendarEvent } = __hubRequire("lib/ui/calendar-events.js");
+
+function calendarEntries(tasks) {
+    const entries = new Map();
+    for (const task of tasks) {
+        const date = task.dueDate ?? task.fromDate;
+        if (!date) continue;
+        if (!entries.has(date)) entries.set(date, []);
+        entries.get(date).push(task);
+    }
+    return entries;
+}
+
+function appendDay(body, tasks, events, context, compact) {
+    const orderedTasks = context.focusOrder?.(tasks) ?? tasks;
+    if (!events.length) {
+        for (const task of orderedTasks) taskCard(body, task, context, compact);
+        return;
+    }
+    const entries = [
+        ...orderedTasks.map(task => ({ task, time: (task.dueDate ? task.dueTime : task.fromTime) ?? "" })),
+        ...events.map(event => ({ event, time: event.allDay ? "" : formatTime(event.start) }))
+    ];
+    entries.sort((a, b) => a.time.localeCompare(b.time));
+    for (const { task, event } of entries) {
+        if (task) taskCard(body, task, context, compact);
+        else renderCalendarEvent(body, event);
+    }
+}
+
+function showSourceStatus(panel, source) {
+    if (source.message) panel.createDiv({ cls: "hub-task-view-note", text: source.message, attr: { role: "status" } });
+}
+
 
 function renderTaskCalendar(host, tasks, context, state) {
     const panel = host.createDiv({ cls: "hub-task-calendar-panel" });
@@ -26583,13 +29422,9 @@ function renderTaskCalendar(host, tasks, context, state) {
     const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
     grid.style.setProperty("--hub-calendar-weeks", String(days.length / 7));
     for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) grid.createDiv({ cls: "hub-task-weekday", text: day });
-    const byDate = new Map();
-    for (const task of tasks) {
-        const scheduled = task.dueDate ?? task.fromDate;
-        if (!scheduled) continue;
-        if (!byDate.has(scheduled)) byDate.set(scheduled, []);
-        byDate.get(scheduled).push(task);
-    }
+    const byDate = calendarEntries(tasks);
+    const source = context.events?.read(days) ?? { days: new Map() };
+    showSourceStatus(panel, source);
     for (const day of days) {
         const iso = localISODate(day);
         const cell = grid.createEl("section", { cls: "hub-task-calendar-day", attr: { "aria-label": format(day) } });
@@ -26599,12 +29434,49 @@ function renderTaskCalendar(host, tasks, context, state) {
         heading.createSpan({ text: String(day.getDate()) });
         iconButton(heading, "Add task on " + format(day), "plus", () => context.create({ dueDate: iso }));
         const body = cell.createDiv({ cls: "hub-task-calendar-day-body hub-scrollbar" });
-        for (const task of byDate.get(iso) ?? []) taskCard(body, task, context, true);
+        const scheduled = byDate.get(iso) ?? [];
+        appendDay(body, scheduled, source.days.get(iso) ?? [], context, true);
     }
-    const count = tasks.filter(task => !task.dueDate && !task.fromDate).length;
-    if (count) panel.createDiv({ cls: "hub-task-view-note", text: count + " undated " + (count === 1 ? "task" : "tasks") });
+    appendUndated(panel, tasks, context);
 }
-module.exports = { renderTaskCalendar };
+function appendUndated(panel, tasks, context) {
+    const count = tasks.filter(task => !task.dueDate && !task.fromDate).length;
+    if (!count || !context.openTasks) return;
+    const link = panel.createEl("button", { cls: "hub-panel-action hub-calendar-undated", text: count + " undated " + (count === 1 ? "task" : "tasks"),
+        attr: { type: "button" } });
+    link.onclick = context.openTasks;
+}
+function renderTaskSchedule(host, tasks, context, state) {
+    if (state.scheduleView !== "upcoming") return renderTaskCalendar(host, tasks, context, state);
+    const panel = host.createDiv({ cls: "hub-task-calendar-panel hub-schedule-upcoming" });
+    renderScheduleToolbar(panel, context, state);
+    const days = calendarRange(state.anchor, "week");
+    const source = context.events?.read(days) ?? { days: new Map() };
+    showSourceStatus(panel, source);
+    const scroll = panel.createDiv({ cls: "hub-task-local-scroll hub-calendar-agenda hub-scrollbar" });
+    const overdue = tasks.filter(task => taskIsOverdue(task, context.now));
+    const overdueSet = new Set(overdue);
+    const scheduled = calendarEntries(tasks.filter(task => !overdueSet.has(task)));
+    if (overdue.length) {
+        const group = scroll.createEl("section");
+        group.createEl("h3", { text: "Past due" });
+        appendDay(group, overdue, [], context, false);
+    }
+    for (const day of days) {
+        const date = localISODate(day);
+        const list = scheduled.get(date) ?? [], events = source.days.get(date) ?? [];
+        if (!list.length && !events.length && date !== localISODate(state.anchor)) continue;
+        const group = scroll.createEl("section");
+        const header = group.createDiv({ cls: "hub-task-calendar-day-heading" });
+        header.createEl("h3", { text: formatDate(day, "full") });
+        iconButton(header, "Add task on " + formatDate(day), "plus", () => context.create({ dueDate: date }));
+        appendDay(group, list, events, context, false);
+        if (!list.length && !events.length) group.createDiv({ cls: "hub-task-view-empty", text: "Nothing scheduled." });
+    }
+    if (!scroll.firstElementChild) scroll.createDiv({ cls: "hub-task-view-empty", text: "Nothing scheduled in this range." });
+    appendUndated(panel, tasks, context);
+}
+module.exports = { renderTaskCalendar, renderTaskSchedule };
 
 },
 "lib/ui/task-view-primitives.js": function (module, exports, __hubRequire) {
@@ -26647,7 +29519,7 @@ function date(host, task, key = "dueDate", now = new Date()) {
 }
 function source(host, task, context) {
     const label = context.locationLabel(task);
-    const native = __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId });
+    const native = __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, taskLocationScope(context));
     const el = button(host, "", async event => {
         event.stopPropagation();
         try { await context.openSource(task); }
@@ -26657,8 +29529,11 @@ function source(host, task, context) {
     el.title = native?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
     el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title);
 }
+function taskLocationScope(context) {
+    return context.locationScope !== undefined ? context.locationScope : { type: "project", id: context.workspace.projectId };
+}
 function bindTask(row, title, checkbox, task, context, options = {}) {
-    context.ui.bind(row, title, task, () => "", { dates: false, steps: false, locationWorkspace: { type: "project", id: context.workspace.projectId }, ...options });
+    context.ui.bind(row, title, task, () => task.path || "", { dates: false, steps: false, locationWorkspace: taskLocationScope(context), ...options });
     row.classList.toggle("is-completed", !!task.completed);
     const key = JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]);
     checkbox.checked = !!task.completed; checkbox.disabled = !!(task.nativeReadOnly || task.nativeLocationUnavailable) || !!context.unavailable || context.pending.has(key);
@@ -26669,19 +29544,19 @@ function bindTask(row, title, checkbox, task, context, options = {}) {
         {
             let uncertain = false; context.pending.add(key);
             try { await __hubRequire("lib/ui/task-operation.js").runNativeTaskToggle({ checkbox, task, completed,
-                run: completed => context.toggle({ ...task, completed }), onEdit: context.apply,
+                run: completed => context.toggleTask ? context.toggleTask(task, completed) : context.toggle({ ...task, completed }), onEdit: context.apply,
                 report: error => { uncertain = error.outcome?.status === "uncertain"; ownNoticeColors(new Notice(error.message || "Could not update task.")); } }); }
             finally { if (!uncertain) context.pending.delete(key); context.render(); }
             return;
         }
     });
 }
-function taskCard(host, task, context, compact = false) {
+function taskCard(host, task, context, compact = false, { inPlanSection = false } = {}) {
     const { row, checkbox, textEl, info } = createTaskRow(host, task);
     row.classList.add("hub-full-task-card");
     if (compact) row.classList.add("is-calendar-task");
     info.querySelector(".project-task-location").remove();
-    bindTask(row, textEl, checkbox, task, context, { steps: !compact });
+    bindTask(row, textEl, checkbox, task, context, { steps: !compact, inPlanSection, compactPlanMarker: compact });
     textEl.title = task.text;
     if (!compact) {
         const metadata = info.createDiv({ cls: "hub-full-card-context" });
@@ -26709,35 +29584,6 @@ function compactRow(host, task, context) {
 module.exports = { button, iconButton, empty, stepsSummary, date, source, bindTask, taskCard, compactRow };
 
 },
-"lib/ui/task-view-upcoming.js": function (module, exports, __hubRequire) {
-"use strict";
-const { BUCKETS, upcomingGroups } = __hubRequire("lib/domain/task-views.js");
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-const headingIcons = { past: "clock-alert", today: "sun", tomorrow: "clock-arrow-right", later: "calendar-clock", unscheduled: "calendar-off" };
-const { taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
-
-function renderUpcoming(host, tasks, context) {
-    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-scrollbar" });
-    const board = scroll.createDiv({ cls: "hub-task-board" });
-    const groups = upcomingGroups(tasks, context.now);
-    for (const [id, label] of BUCKETS) {
-        const column = board.createEl("section", { cls: "hub-task-column is-" + id, attr: { "aria-label": label } });
-        const heading = column.createDiv({ cls: "hub-task-column-heading" });
-        const title = heading.createEl("h3", { cls: context.resource ? "" : "hub-history-heading" });
-        if (!context.resource) {
-            const icon = title.createSpan({ cls: "hub-history-icon hub-overview-heading-icon", attr: { "aria-hidden": "true" } });
-            setHubIcon(icon, headingIcons[id]);
-        }
-        title.createSpan({ text: label });
-        heading.createSpan({ cls: "hub-task-count", text: String(groups[id].length) });
-        const body = column.createDiv({ cls: "hub-task-column-body hub-scrollbar" });
-        for (const task of groups[id]) taskCard(body, task, context);
-        if (!groups[id].length) body.createDiv({ cls: "hub-task-column-empty", text: "No tasks" });
-    }
-}
-module.exports = { renderUpcoming };
-
-},
 "lib/ui/task-workspace.js": function (module, exports, __hubRequire) {
 "use strict";
 const { hasKeyboardFocus, focusControl, revealHorizontalKeyboardFocus } = __hubRequire("lib/ui/focus-restoration.js");
@@ -26746,25 +29592,24 @@ const { openTaskEditor, openTaskCreator } = __hubRequire("lib/ui/task-editor.js"
 const { filterTasks, locationLabel, validLocation } = __hubRequire("lib/domain/task-views.js");
 const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
 const { button } = __hubRequire("lib/ui/task-view-primitives.js");
-const { renderTaskCalendar } = __hubRequire("lib/ui/task-view-calendar.js");
-const { renderUpcoming } = __hubRequire("lib/ui/task-view-upcoming.js");
-const { renderScheduleToolbar } = __hubRequire("lib/ui/schedule-toolbar.js");
+const { renderTaskSchedule } = __hubRequire("lib/ui/task-view-calendar.js");
+const { createCalendarEventReader } = __hubRequire("lib/ui/calendar-events.js");
 const { mountProjectRoadmap } = __hubRequire("lib/ui/project-roadmap.js");
 
 // Weakly scoped to the owning Dataview container, including warm frame rebuilds.
 const states = new WeakMap();
-function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, filesPanel, roadmapParent, workspace, onFiles, openSource, nativeTasks }) {
-    if (workspace.contextKind === "resource") return { active: () => false, showFiles: () => onFiles?.() };
+function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, filesPanel, roadmapParent, workspace, onFiles, onModeChange, showTasks, openSource, nativeTasks }) {
     let byWorkspace = states.get(dv.container);
     if (!byWorkspace) states.set(dv.container, byWorkspace = new Map());
     const resource = workspace.contextKind === "resource";
+    const workspaceRef = { type: resource ? "resource" : "project", id: resource ? workspace.resourceType ?? workspace.id : workspace.projectId };
     const key = workspace.projectId ?? workspace.root;
     let state = byWorkspace.get(key);
     if (!state) byWorkspace.set(key, state = { mode: "work", scheduleView: "upcoming",
         search: "", location: "", status: "open", necessity: "", date: "", sort: "due", direction: 1,
         calendarMode: "month", anchor: new Date(), timelineAnchor: new Date(), months: 6,
         expanded: new Set(), collapsed: new Set() });
-    if (!["work", "roadmap", "schedule"].includes(state.mode)) state.mode = "work";
+    if (!["work", "roadmap", "schedule"].includes(state.mode) || resource && state.mode === "roadmap") state.mode = "work";
     state.scheduleView ??= "upcoming";
     state.location = "";
     state.search = "";
@@ -26775,7 +29620,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     toolbar.prepend(primary);
     const modeGroup = primary.createDiv({ cls: "hub-equal-selectors hub-task-mode-buttons" });
     const modeButtons = new Map();
-    for (const [value, label] of [["work", "Work"], ["schedule", "Schedule"], ["roadmap", "Roadmap"]]) {
+    for (const [value, label] of [["work", "Work"], ["schedule", "Schedule"], ...(resource ? [] : [["roadmap", "Roadmap"]])]) {
         const control = button(modeGroup, label, () => mode(value), "hub-task-mode");
         control.dataset.workspaceMode = value;
         modeButtons.set(value, control);
@@ -26783,7 +29628,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
             event.preventDefault();
             const keys = [...modeButtons.keys()];
-            const index = event.key === "Home" ? 0 : event.key === "End" ? 2 : (keys.indexOf(value) + (event.key === "ArrowRight" ? 1 : 2)) % 3;
+            const index = event.key === "Home" ? 0 : event.key === "End" ? keys.length - 1 : (keys.indexOf(value) + (event.key === "ArrowRight" ? 1 : keys.length - 1)) % keys.length;
             mode(keys[index]); modeButtons.get(keys[index]).focus();
         });
     }
@@ -26809,7 +29654,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false, readGeneration = 0;
     let nativeLoading = true, nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false, nativeRefreshPending = false;
-    const native = nativeTasks.createPanelRead({ plugin, component, workspace: { type: resource ? "resource" : "project", id: resource ? workspace.resourceType ?? workspace.id : workspace.projectId }, changed: () => { nativeAvailable = native?.availability?.() === "current"; if (nativeReading) { nativeRefreshPending = true; return; } clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 0); } });
+    const native = nativeTasks.createPanelRead({ plugin, component, workspace: workspaceRef, changed: () => { nativeAvailable = native?.availability?.() === "current"; if (nativeReading) { nativeRefreshPending = true; return; } clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 0); } });
     component.register(() => { readGeneration++; native.close(); clearTimeout(nativeRefreshTimer); });
     const pending = new Set();
     let scheduleFocusRequest;
@@ -26817,7 +29662,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     // Derive the mode boundary from the rendered Files grid, including its
     // responsive split and borders. Never change the explorer to fit the modes.
     const syncModeWidth = () => {
-        if (disposed || inNoteRail() || filesGrid.hidden) return;
+        if (disposed || inNoteRail() || filesGrid.hidden || filesGrid.classList.contains("hub-has-expanded-panel")) return;
         const details = filesPanel?.querySelector(".hub-explorer-details");
         if (!details?.getClientRects().length) return;
         const divider = details.getBoundingClientRect().left;
@@ -26833,7 +29678,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         }
     };
     const syncHeaderHeight = () => {
-        if (disposed || inNoteRail()) return;
+        if (disposed || inNoteRail() || filesGrid.classList.contains("hub-has-expanded-panel")) return;
         const heading = filesPanel?.querySelector(".hub-explorer-heading");
         const height = heading?.getBoundingClientRect().height;
         if (height > 0) root.style.setProperty("--hub-project-header-height", height + "px");
@@ -26844,14 +29689,14 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     component.register(() => modeWidthObserver.disconnect());
     const currentPath = path => path;
     
-    const describe = task => __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: workspace.projectId })?.label ?? workspace.name ?? "Project";
+    const describe = task => __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, workspaceRef)?.label ?? workspace.name ?? "Project";
     const belongs = task => validLocation(task.path, workspace);
     const apply = edit => { const next = native.reconcile(tasks, edit); nativeAvailable = native.availability() === "current"; tasks = nativeAvailable ? next : next.map(task => ({ ...task, nativeReadOnly: true })); dirty = true; render(); void refresh(); };
     const editTask = (task, saved = apply) => native.actions.editTask(task, saved);
     const edit = task => editTask(task);
     const mutate = request => { if (!nativeAvailable) throw Error("Schedule is unavailable."); return native.actions.mutate(request); };
     const ui = createTaskUi({ app: plugin.app, component, body: content, mutate,
-        onEdit: apply, editTask,
+        onEdit: apply, editTask, oath: plugin.oath, plan: plugin.globalPlan, planRelevance: plugin.planRelevance,
         createTask: options => create(options), phaseLabel: task => plugin.planning?.phaseFor(task)?.name });
     function create(options) { if (!nativeAvailable) throw Error("Schedule is unavailable."); return native.create({ ...options, onCreated: () => { dirty = true; void refresh(); } }); }
     async function refresh() {
@@ -26868,7 +29713,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
                 if (!result) throw Error("Native Schedule capture was superseded.");
                 nativeLoading = result.availability === "loading";
                 if (nativeLoading) { nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); return; }
-                if (result.availability !== "current" || result.context.root !== workspace.root || result.context.dashboard !== workspace.path || result.context.status !== workspace.status) throw Error("Native Schedule owner unavailable.");
+                if (result.availability !== "current" || result.context.root !== workspace.root || result.context.dashboard !== workspace.path || (!resource && result.context.status !== workspace.status)) throw Error("Native Schedule owner unavailable.");
                 tasks = result.tasks; locations = []; nativeAvailable = true; native.accept(tasks); dirty = false; render(); return;
             }
         } catch (error) {
@@ -26877,6 +29722,8 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
                 if (!native) new (require("obsidian").Notice)("Schedule tasks could not be loaded. Please try again."); }
         } finally { if (native) { nativeReading = false; if (nativeRefreshPending) { nativeRefreshPending = false; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 0); } } if (generation === readGeneration) content.removeAttribute("aria-busy"); }
     }
+    const events = createCalendarEventReader(plugin.app, content.ownerDocument.defaultView, render);
+    component.register(() => events.dispose());
     function render(event) {
         if (disposed || state.mode !== "schedule" || inNoteRail()) return;
         // Preserve navigation intent if the shared renderer defers this rebuild.
@@ -26896,22 +29743,19 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         scheduleFocusRequest = undefined;
         content.empty();
         if (native && !nativeAvailable) content.createDiv({ cls: "hub-task-view-empty", text: nativeLoading ? "Loading tasks..." : "Schedule unavailable. Retained tasks are not a complete current total.", attr: { role: "status" } });
-        const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
+        const context = { workspace, resource, locationScope: workspaceRef, events, openTasks: () => {
+            mode("work");
+            showTasks?.();
+        }, folders: locations.filter(item => item.folder), now,
             ui, pending, currentPath, unavailable: native && !nativeAvailable, locationLabel: describe, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
             toggle: mutate,
             openSource: async task => {
                 throw Error("Tasks use native workspace locations.");
             } };
-        if (state.scheduleView !== "upcoming") renderTaskCalendar(content, visible, context, state);
-        else {
-            const panel = content.createDiv({ cls: "hub-task-calendar-panel hub-schedule-upcoming" });
-            renderScheduleToolbar(panel, context, state);
-            renderUpcoming(panel, visible, context);
-        }
+        renderTaskSchedule(content, visible, context, state);
         if (native && !nativeAvailable) {
             content.querySelectorAll('.hub-full-add-task, [aria-label^="Add task on "]').forEach(control => { control.disabled = true; });
             content.querySelectorAll(".hub-task-count, .hub-task-column-empty").forEach(count => { count.textContent = "Unavailable"; });
-            content.querySelectorAll(".hub-task-view-note").forEach(note => note.remove());
         }
         if (focusKey) focusControl(content.querySelector(`[data-schedule-control="${focusKey}"]`));
     }
@@ -26926,6 +29770,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         filesGrid.hidden = value !== "work"; host.hidden = !active;
         if (filesPanel) filesPanel.hidden = value === "roadmap";
         roadmapHost.hidden = value !== "roadmap";
+        onModeChange?.(value);
         if (value === "roadmap") {
             roadmap ??= mountProjectRoadmap({ plugin, component, dv, host: roadmapHost, workspace, state });
             roadmap.render();
@@ -26934,7 +29779,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             control.classList.toggle("is-active", value === key);
             control.setAttribute("aria-pressed", String(value === key));
         });
-        if (active) { if (dirty) void refresh(); else render(); }
+        if (active) { events.reset(); render(); if (dirty) void refresh(); }
         else if (!initial) onFiles?.();
         if (value === "work") syncModeWidth();
     }
@@ -26974,8 +29819,17 @@ const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { taskGroups, taskIsFuture, taskStartDate } = __hubRequire("lib/domain/task-planning.js");
 const { createTaskSteps } = __hubRequire("lib/ui/task-steps.js");
 const { createOathTaskSection } = __hubRequire("lib/ui/oath-tasks.js");
+const { createTaskFocus } = __hubRequire("lib/domain/task-views.js");
+const { taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 
 const { createTaskRow, taskSourceLabel, mountTaskCardPresentation } = __hubRequire("lib/ui/task-card.js");
+
+function renderPlanTaskSection(parent, tasks, renderTask) {
+    if (!tasks.length) return;
+    const section = parent.createEl("section", { cls: "hub-task-in-plan", attr: { "aria-label": "In Plan" } });
+    section.createEl("h3", { cls: "hub-task-in-plan-heading", text: "In Plan" });
+    for (const task of tasks) renderTask(section, task);
+}
 
 // Presentation only: no checkbox, edit bindings, menus or navigation.
 function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}) {
@@ -26992,7 +29846,8 @@ function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}
     return row;
 }
 
-function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
+function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel,
+    plan, inlineOath = false, planRelevance }) {
     const { Menu, Notice, setIcon, Component } = require("obsidian");
     const document = body.ownerDocument;
     let lastRender = null, disposed = false, groupMenu = null;
@@ -27000,15 +29855,33 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     const expanded = new Set();
     const report = error => { console.error("Hub task action failed", error); ownNoticeColors(new Notice(error.message || "Could not update task.")); };
     const stepStates = new Map(); component.register(() => stepStates.clear());
-    const rows = __hubRequire("lib/ui/task-row-cache.js").createTaskRowCache(component, task => JSON.stringify([task, phaseLabel?.(task), Math.floor(renderNow.getTime() / 60000)]));
-    const oathSection = createOathTaskSection(oath, body, component);
-    if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
+    let focus = createTaskFocus();
+    let relevance;
+    const label = (task, inSection = true) => {
+        if (!relevance) return focus.label(task);
+        const item = relevance.task(task);
+        if (!item) return "";
+        if (item.oath) return inSection ? "Oath" : "Oath · In Plan";
+        return inSection ? "" : "In Plan";
+    };
+    const rows = __hubRequire("lib/ui/task-row-cache.js").createTaskRowCache(component, task =>
+        JSON.stringify([task, phaseLabel?.(task), label(task), Math.floor(renderNow.getTime() / 60000)]));
+    const oathSection = createOathTaskSection(planRelevance ? null : oath, body, component);
+    const refresh = () => { if (!disposed && body.isConnected) lastRender?.(); };
+    if (planRelevance) {
+        planRelevance.subscribe(component, refresh);
+    } else {
+        if (oath) component.register(oath.onChange(refresh));
+        plan?.subscribe(component, refresh);
+    }
 
     const defer = () => false;
 
     function beginRender(render) {
         groupMenu?.hide();
         lastRender = render;
+        relevance = planRelevance?.snapshot;
+        if (!relevance) focus = createTaskFocus(plan?.active(), inlineOath && oath?.active ? oath.focus??oath.current : null);
         renderNow = new Date();
         clearTimeout(refreshTimer); refreshAt = Infinity;
         const midnight = new Date(renderNow); midnight.setHours(24, 0, 0, 0);
@@ -27035,7 +29908,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             const task = item.task && typeof item.task === "object" ? item.task : item;
             scheduleRefresh(taskStartDate(task).getTime());
         }
-        return grouped;
+        return relevance ? grouped : { ...grouped, active: focus.order(grouped.active), future: focus.order(grouped.future) };
     }
 
     function bind(row, textEl, task, getPath, options = {}) {
@@ -27043,6 +29916,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         const markdown = createHubMarkdown({ app, component: rowComponent });
         const steps = createTaskSteps({ markdown, mutate, onEdit, report, setIcon, states: stepStates });
         row.dataset.taskId = task.id;
+        row.dataset.taskKey = taskKey(task);
         row.dataset.taskRevision = String(task.nativeReference?.taskRevision ?? task.revision ?? 0);
         rows.store(task, row, rowComponent);
         const checkbox = row.querySelector('input[type="checkbox"]');
@@ -27052,6 +29926,18 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             description: options.description ?? options.dates !== false, now: renderNow, phaseLabel });
         rowComponent.register(() => presentation.destroy());
         const info = textEl.parentElement;
+        const mark = label(task, options.inPlanSection === true);
+        if (mark) {
+            const selected = mark.startsWith("Oath");
+            const marker = info.createSpan({ cls: "hub-task-plan-marker" + (selected ? " is-oath-task" : "") });
+            if (relevance && options.compactPlanMarker) {
+                const glyph = marker.createSpan({ cls: "hub-task-plan-glyph", attr: { "aria-hidden": "true" } });
+                setIcon(glyph, selected ? "pin" : "target");
+                marker.title = mark;
+                marker.setAttribute("role", "img");
+                marker.setAttribute("aria-label", mark);
+            } else marker.textContent = mark;
+        }
         if (!options.selection && options.steps !== false) steps.bind(info, task, getPath, rowComponent,
             body.matches(".home-tasks-body, .project-tasks-body") && !row.classList.contains("hub-full-task-card"));
         if (editTask && !task.nativeReadOnly) {
@@ -27152,7 +30038,11 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         button.addEventListener("click", () => createTask(options));
         return button;
     }
-    return { bind, reuseRow: rows.reuse, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
+    return { bind, reuseRow: rows.reuse, beginRender, defer, groups, group, addButton,
+        focusOrder: tasks => relevance?.order(tasks) ?? focus.order(tasks),
+        partitionPlan: tasks => relevance?.partition(tasks) ?? { prioritized: [], ordinary: tasks },
+        renderPlan: renderPlanTaskSection,
+        partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
 module.exports = { createTaskUi, createTaskRow, renderReadOnlyTask, taskSourceLabel };
@@ -27525,12 +30415,28 @@ function createModalHeader(parent, { title, subtitle, icon, titleId, description
     return { header, heading, description };
 }
 
+function modalHeader(root) {
+    return root.querySelector(":scope > .hub-capture-header, :scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
+}
+
+function mountModalSeparators(modal, { header = modalHeader(modal.contentEl), footer } = {}) {
+    if (!header && modal.titleEl?.textContent.trim()) header = modal.titleEl;
+    for (const [region, edge] of [[header, "header"], [footer, "footer"]]) {
+        if (!region?.parentElement || region.classList.contains("hub-modal-" + edge + "-region")) continue;
+        const separator = region.ownerDocument.createElement("div");
+        separator.className = "hub-modal-separator is-" + edge;
+        separator.setAttribute("aria-hidden", "true");
+        region.classList.add("hub-modal-" + edge + "-region");
+        if (edge === "header") region.after(separator);
+        else region.before(separator);
+    }
+}
+
 // Keep native chrome and existing form ownership; only the middle region scrolls.
 function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, body, bodyClass = "" } = {}) {
     const root = modal.contentEl;
-    headerEnd ??= root.querySelector(":scope > .hub-capture-header, :scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
-    if (headerEnd?.nextElementSibling?.classList.contains("hub-project-advancement-divider"))
-        headerEnd = headerEnd.nextElementSibling;
+    const header = modalHeader(root);
+    headerEnd ??= header;
     footer ??= container.querySelector(":scope > .hub-capture-actions, :scope > .hub-task-dialog-actions, :scope > .hub-oath-actions, :scope > .hub-project-advancement-actions, :scope > .hub-project-wizard-actions");
     if (!body) {
         const children = [...container.children];
@@ -27545,57 +30451,82 @@ function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, bo
     root.classList.add("hub-modal-layout");
     modal.modalEl.classList.add("hub-modal-window");
     if (container !== root) container.classList.add("hub-modal-form");
+    mountModalSeparators(modal, { header, footer });
     return body;
 }
 
-module.exports = { createWindowTitle, setWindowUndertext, createModalHeader, layoutModal };
+module.exports = { createWindowTitle, setWindowUndertext, createModalHeader, mountModalSeparators, layoutModal };
 
 },
 "lib/ui/workspace-cards.js": function (module, exports, __hubRequire) {
 "use strict";
 const { workspaceRef, sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
+const { paintPlanMarker, describePlanMarker } = __hubRequire("lib/ui/plan-marker.js");
 
-// Shared by Home and the Oath pickers: identical markup, artwork placement,
-// category labels and CSS surfaces. The caller supplies the action.
-function createWorkspaceCards({ app, root, component, renderImage, categories = () => [], oath }) {
+// Shared workspace card markup, artwork placement and category labels.
+function createWorkspaceCards({ app, root, component, renderImage, categories = () => [], oath, planRelevance }) {
     const { setIcon } = require("obsidian");
     const cards = new Map();
-    const update = () => {
-        for (const [card, context] of cards) {
-            if (!root.contains(card)) { cards.delete(card); continue; }
-            const locked = oath?.canOpen(context, false) === false;
-            const bound = oath?.active && sameWorkspace(oath.current.workspace, workspaceRef(context));
-            card.classList.toggle("is-oath-locked", locked);
-            card.classList.toggle("is-oath-workspace", !!bound);
-            card.setAttribute("aria-disabled", String(locked));
-            card.tabIndex = locked ? -1 : 0;
-            card.querySelector(".hub-workspace-oath-state")?.remove();
-            if (locked || bound) {
-                const badge = card.createDiv({ cls: "hub-workspace-oath-state", attr: { "aria-label": locked ? "Locked during this Oath" : "Oathbound" } });
-                if (locked) setIcon(badge, "lock-keyhole");
-                else badge.textContent = "Oathbound";
-            }
+    const updateOath = (card, context) => {
+        const locked = oath?.canOpen(context, false) === false;
+        const bound = oath?.active && (oath.focusWorkspaces ?? [oath.current.workspace])
+            .some(ref => sameWorkspace(ref, workspaceRef(context)));
+        card.classList.toggle("is-oath-locked", locked);
+        card.classList.toggle("is-oath-workspace", !!bound);
+        card.setAttribute("aria-disabled", String(locked));
+        card.tabIndex = locked ? -1 : 0;
+        card.querySelector(".hub-workspace-oath-state")?.remove();
+        if (locked || bound) {
+            const badge = card.createDiv({ cls: "hub-workspace-oath-state", attr: { "aria-label": locked ? "Locked during this Oath" : "Oathbound" } });
+            if (locked) setIcon(badge, "lock-keyhole");
+            else badge.textContent = "Oathbound";
         }
     };
+    const updatePlan = (card, context, marker) => {
+        if (!marker) return;
+        const relevance = planRelevance.snapshot.workspace(workspaceRef(context));
+        card.classList.toggle("is-directly-planned", relevance?.level === "direct");
+        paintPlanMarker(marker, relevance, setIcon);
+        describePlanMarker(card, relevance);
+    };
+    const visit = callback => {
+        for (const [card, { context, marker }] of cards) {
+            if (!root.contains(card)) { cards.delete(card); continue; }
+            callback(card, context, marker);
+        }
+    };
+    const update = () => visit(updateOath);
+    let pruning = false;
+    function pruneAfterRender() {
+        if (pruning) return;
+        pruning = true;
+        queueMicrotask(() => {
+            pruning = false;
+            for (const card of cards.keys()) if (!root.contains(card)) cards.delete(card);
+        });
+    }
     if (oath) component.register(oath.onChange(update));
+    planRelevance?.subscribe(component, () => visit(updatePlan));
     component.register(() => cards.clear());
     function render(parent, context, activate) {
         const resource = context.contextKind === "resource" || !!context.resourceType || !!context.hubPath;
         const card = parent.createDiv({ cls: resource ? "home-resource-card" : "home-project-card",
             attr: { role: "button", tabindex: "0", "aria-label": context.name ?? context.label } });
-        let thumbnail, imagePath, key;
+        let thumbnail, imagePath, key, face;
         if (resource) {
             const id = context.resourceType ?? context.id;
             card.dataset.resourceType = id; card.dataset.resourcePath = context.path;
-            const face = card.createDiv({ cls: "home-resource-face" });
+            face = card.createDiv({ cls: "home-resource-face" });
             thumbnail = face.createDiv({ cls: "home-resource-thumbnail" });
-            face.createDiv({ cls: "home-resource-title", text: context.label ?? context.name });
+            const label = context.label ?? context.name;
+            const title = face.createDiv({ cls: "home-resource-title", text: label });
+            if (parent.classList.contains("home-resource-grid")) title.setAttribute("title", label);
             imagePath = context.image; key = "card:resource:" + id;
         } else {
             card.dataset.projectId = context.projectId || context.path;
             card.dataset.projectPath = context.path; card.dataset.projectStatus = context.status;
             card.draggable = false;
-            const surface = card.createDiv({ cls: "home-project-surface" });
+            const surface = face = card.createDiv({ cls: "home-project-surface" });
             const content = surface.createDiv({ cls: "home-project-content" });
             content.createDiv({ cls: "home-project-title", text: context.name.replace(/^(Book|MSc Thesis|Novel|Research|Poetry)\s*-\s*/i, "") });
             const category = categories().find(item => item.id === context.categoryId || item.name === context.categoryId);
@@ -27628,7 +30559,13 @@ function createWorkspaceCards({ app, root, component, renderImage, categories = 
         card.addEventListener("pointerdown", event => {
             if (card.classList.contains("is-oath-locked")) event.stopPropagation();
         });
-        cards.set(card, context); update();
+        const marker = planRelevance && face.createSpan({
+            cls: "hub-card-plan-marker", attr: { "aria-hidden": "true" }
+        });
+        cards.set(card, { context, marker });
+        pruneAfterRender();
+        updateOath(card, context);
+        updatePlan(card, context, marker);
         return card;
     }
     return { render, update };
@@ -27746,14 +30683,15 @@ module.exports = { createExplorerHost };
 "lib/ui/workspace-explorer.js": function (module, exports, __hubRequire) {
 "use strict";
 
-const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = __hubRequire("lib/domain/workspace-explorer.js");
+const { workspaceTree, filterWorkspaceTree, displayedPlanNodes, sortExplorerChildren, rewriteExplorerPaths } = __hubRequire("lib/domain/workspace-explorer.js");
 const { availableDefaultItemPath } = __hubRequire("lib/domain/files.js");
 const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
 const { formatDateTime } = __hubRequire("lib/domain/dates.js");
+const { paintPlanMarker, describePlanMarker } = __hubRequire("lib/ui/plan-marker.js");
 
-function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descriptors, getByPath,
+function mountWorkspaceExplorer({ parent, workspacePath, workspaceRef, dashboardPath, descriptors, getByPath,
     states, persist, setIcon, openFile, createItem, renameItem = null, clipboard = null, contextMenu, showMenu = () => {}, canSelect = () => true, canCreateNote = path => path !== workspacePath, decorateRow = () => {},
-    selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(),
+    selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(), planRelevance,
     decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => formatDateTime(new Date(value)) }) {
     const doc = parent.ownerDocument;
     function el(parent, tag, cls, text) {
@@ -27822,11 +30760,13 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     let model, filtered, currentPath = null, activePath = null, focusPath = null;
     let query = "", editing = null, disposed = false, repainting = false, creating = false;
     let renameCommit = null;
+    let previewSelection = null;
     let selectionPane = null, selectionAnchor = null, detailFocusPath = null;
     const events = new doc.defaultView.AbortController();
     // currentPath belongs to Full-view; activePath only describes the open Note file.
     let noteView = isNoteView(), rememberedFolder = false;
     const searchCollapsed = new Set();
+    const treeRows = new Map();
     const activeQuery = () => isNoteView() ? query : "";
     const ui = path => states()[path] ?? {};
     const fullState = () => ui(workspacePath).fullExplorer ?? {};
@@ -27853,7 +30793,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             if (modifier && selectedPaths.has(node.path)) selectedPaths.delete(node.path); else selectedPaths.add(node.path);
             selectionAnchor = node.path;
         }
-        syncSelection();
+        syncSelection(node.folder ? null : node.path);
     }
     function focusDetail(path) {
         detailFocusPath = path;
@@ -27942,6 +30882,31 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             el(text, "span", "hub-explorer-origin", origin);
             row.title = `${node.name}\n${origin}`;
         } else row.title = node.path;
+        if (planRelevance) {
+            const marker = el(row, "span", "hub-explorer-plan-marker");
+            marker.setAttribute("aria-hidden", "true");
+        }
+    }
+    function paintRowPlan(row, relevance) {
+        const marker = row.querySelector(".hub-explorer-plan-marker");
+        if (marker) paintPlanMarker(marker, relevance, setIcon);
+        describePlanMarker(row.closest("[role=treeitem]") ?? row, relevance);
+    }
+    function paintTreePlan(snapshot) {
+        if (!snapshot) return;
+        const marked = displayedPlanNodes(treeRows.keys(), snapshot.locations, { rootFilesOnly: isNoteView() });
+        const workspace = workspaceRef && snapshot.workspace(workspaceRef);
+        for (const [node, row] of treeRows) {
+            const relevance = workspace?.level === "direct" && !node.parent && node.path === workspacePath
+                ? workspace : snapshot.path(node.path);
+            paintRowPlan(row, relevance?.level === "direct" || marked.has(node) ? relevance : null);
+        }
+    }
+    function paintDetailsPlan(snapshot) {
+        if (!snapshot) return;
+        for (const row of contents.querySelectorAll("[data-path]")) {
+            paintRowPlan(row, snapshot.path(row.dataset.path));
+        }
     }
     function bindRow(row, node, kind) {
         row.dataset.path = node.path;
@@ -27984,6 +30949,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     function renderTree(restoreFocus = false) {
         const scrollTop = tree.scrollTop;
         tree.replaceChildren();
+        treeRows.clear();
         const visiblePaths = [];
         function branch(parent, node, depth, index, count) {
             if (!filtered.visible.has(node.path)) return;
@@ -28009,6 +30975,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
                 });
             } else el(row, "span", "hub-explorer-disclosure-space").setAttribute("aria-hidden", "true");
             nameContent(row, node, true);
+            treeRows.set(node, row);
             bindRow(row, node, "tree");
             row.removeAttribute("tabindex");
             row.setAttribute("role", "presentation");
@@ -28023,6 +30990,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
         const roots = model.roots.filter(node => filtered.visible.has(node.path));
         roots.forEach((node, index) => branch(tree, node, 0, index, roots.length));
+        paintTreePlan(planRelevance?.snapshot);
         if (!roots.length) el(tree, "div", "hub-explorer-empty", activeQuery() ? "No matching files or folders." : "No workspace folders yet.");
         if (!visiblePaths.includes(focusPath)) focusPath = visiblePaths.includes(currentPath) ? currentPath : visiblePaths[0];
         for (const item of tree.querySelectorAll("[role=treeitem]")) item.tabIndex = item.dataset.treePath === focusPath ? 0 : -1;
@@ -28077,6 +31045,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             row.tabIndex = 0;
         }
         if (!children.length) el(contents, "div", "hub-explorer-empty", activeQuery() ? "No matching items in this folder." : "This folder is empty.");
+        paintDetailsPlan(planRelevance?.snapshot);
         syncSelection(); contents.scrollTop = scrollTop;
     }
     function contextualFolder() {
@@ -28087,8 +31056,9 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         if (disposed || noteView === isNoteView()) return;
         noteView = isNoteView();
         cancelDraft(); clearFullSelection(); selectionPane = null; refresh({ restore: !noteView });
+        shell.dispatchEvent(new doc.defaultView.Event("hub-explorer-mode-change", { bubbles: true }));
     }
-    function syncSelection() {
+    function syncSelection(preferredFile) {
         const inNoteView = isNoteView();
         for (const row of shell.querySelectorAll("[data-path]")) {
             const selected = selectedPaths.has(row.dataset.path) && (inNoteView || row.closest(".hub-explorer-tree,.hub-explorer-contents") === selectionPane);
@@ -28101,6 +31071,17 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             semantic.setAttribute("aria-selected", String(selected || currentFolder || activeFile));
             if (activeFile) semantic.setAttribute("aria-current", "true");
             else semantic.removeAttribute("aria-current");
+        }
+        const selectedFile = path => {
+            const node = model.byPath.get(path);
+            return node && !node.folder && selectedPaths.has(path) && node.parent?.path === currentPath;
+        };
+        const nextFile = inNoteView ? null : [preferredFile, previewSelection, ...[...selectedPaths].reverse()].find(selectedFile) ?? null;
+        if (nextFile !== previewSelection) {
+            previewSelection = nextFile;
+            shell.dispatchEvent(new doc.defaultView.CustomEvent("hub-explorer-file-selection", {
+                bubbles: true, detail: { path: nextFile }
+            }));
         }
     }
     function render() {
@@ -28325,13 +31306,21 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         });
         repainting = previousRepaint;
     }
-    let preferredWidth = null, dragWidth = null;
+    let preferredWidth = null, dragWidth = null, compactWidth = 0;
     function applyWidth() {
-        if (isNoteView()) return;
-        const available = body.clientWidth || 600;
+        if (isNoteView() || parent.closest(".hub-expansion-moving")) return;
+        const fullWidth = body.clientWidth || 600;
+        const pane = body.querySelector(".hub-file-preview:not([hidden])");
+        const sidePane = pane && Number(body.ownerDocument.defaultView.getComputedStyle(pane).gridColumnStart) === 4;
+        const available = fullWidth - (sidePane ? pane.offsetWidth : 0);
+        const expanded = parent.classList.contains("hub-panel-expanded");
+        if (!expanded && body.clientWidth) compactWidth = available;
+        // Give the extra width primarily to file details, while avoiding a
+        // narrower tree when the compact explorer already spans a narrow leaf.
+        const defaultWidth = expanded ? Math.max(fullWidth / 4, Math.min(fullWidth, compactWidth) / 3) : fullWidth / 3;
         const minimum = Math.min(160, available * .4), maximum = Math.max(minimum, available - 165);
         const stored = fullState().treeWidth;
-        const value = Math.min(maximum, Math.max(minimum, preferredWidth ?? (Number.isFinite(stored) ? stored : available / 3)));
+        const value = Math.min(maximum, Math.max(minimum, preferredWidth ?? (Number.isFinite(stored) ? stored : defaultWidth)));
         body.style.setProperty("--hub-explorer-tree-width", value + "px");
         splitter.setAttribute("aria-valuemin", String(Math.round(minimum)));
         splitter.setAttribute("aria-valuemax", String(Math.round(maximum)));
@@ -28416,7 +31405,11 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         if (mod && event.shiftKey && event.key.toLowerCase() === "n") {
             event.preventDefault(); event.stopPropagation(); beginCreate("folder"); return;
         }
-        if (event.key === "Escape") { clearFullSelection(); event.preventDefault(); event.stopPropagation(); return; }
+        if (event.key === "Escape") {
+            if (parent.classList.contains("hub-panel-expanded") &&
+                (!selectedPaths.size || event.target.closest(".hub-expanded-header"))) return;
+            clearFullSelection(); event.preventDefault(); event.stopPropagation(); return;
+        }
         const pane = event.target.closest(".hub-explorer-tree,.hub-explorer-contents");
         if (!pane) return;
         if (mod && event.key.toLowerCase() === "a") {
@@ -28509,8 +31502,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             contextMenu(event, selectedFolder(), beginCreate, { kind: "background" });
         });
     }
+    const stopPlan = planRelevance?.subscribe(null, snapshot => {
+        paintTreePlan(snapshot);
+        paintDetailsPlan(snapshot);
+    });
     refresh({ restore: true });
-    return { refresh, beginCreate, beginRename, syncSelection, syncMode,
+    return { refresh, beginCreate, beginRename, syncSelection, syncMode, updateWidth: applyWidth, selectedFilePath: () => previewSelection,
         selectFolderPath(path) {
             const node = model.byPath.get(path);
             if (!node?.folder) return false;
@@ -28540,7 +31537,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         },
         isFullView: () => !isNoteView(),
         reportError: showError,
-        destroy() { disposed = true; sortMenu?.hide(); events.abort(); resize.disconnect(); shell.remove(); }
+        destroy() { disposed = true; stopPlan?.(); sortMenu?.hide(); events.abort(); resize.disconnect(); shell.remove(); }
     };
 }
 
@@ -28594,7 +31591,7 @@ module.exports = { workspaceImagePath, mountWorkspaceThumbnail };
 "plugin.js": function (module, exports, __hubRequire) {
 const { ownColorRoot, refreshHostColorReferences, disposeColorSystem } = __hubRequire("lib/ui/color-system.js");
 const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
-const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { dispose: disposeCompletionAudio } = __hubRequire("lib/ui/completion-audio.js");
 const { mountMusicControl } = __hubRequire("lib/ui/music.js");
 const { mountSettingsControl } = __hubRequire("lib/ui/settings.js");
@@ -28626,14 +31623,14 @@ const {
 } = require("obsidian");
 
 const { queryHistory } = __hubRequire("lib/domain/history.js");
-const { savedReportContext, reportDay } = __hubRequire("lib/domain/report-context.js");
+const { reportDay } = __hubRequire("lib/domain/report-context.js");
 const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
 const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
 const { trackTextFieldFocus } = __hubRequire("lib/ui/text-field-focus.js");
 const { installWindowMinimum } = __hubRequire("lib/services/window-minimum.js");
 const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-restoration.js");
 const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-header.js");
-const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = __hubRequire("lib/ui/daily-report.js");
+const { reportTitle, DailyReportModal } = __hubRequire("lib/ui/daily-report.js");
 const { ProjectDeletionModal } = __hubRequire("lib/ui/project-deletion.js");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = __hubRequire("lib/ui/prepared-note-rail.js");
 const { progressRatingOptions } = __hubRequire("lib/config.js");
@@ -29159,6 +32156,7 @@ class ConfirmModal extends Modal {
         );
 
 
+        mountModalSeparators(this, { footer: actions });
         requestAnimationFrame(() => {
             (confirm.classList.contains("mod-warning") ? cancel : confirm).focus();
         });
@@ -29514,777 +32512,6 @@ class FocusListEditor {
 
 
         return items;
-    }
-}
-
-
-class ProjectAdvancementModal
-    extends Modal {
-
-    constructor(
-        app,
-        {
-            projects,
-            resources = [],
-            plugin,
-            currentScores,
-            currentSummaries = {},
-            reportContexts = {},
-            getReportContexts = null,
-            showNextFocus = false,
-            currentFocus = [],
-            focusProjects = [],
-            onSave,
-            onSaved,
-            onCancel,
-            title =
-                "Edit progress report",
-            reportDate = null,
-            reportMode = "edit",
-            requireEveryProject = true,
-            requireExplicitRatings = false,
-            allowNoProgress = false,
-            saveLabel = "Save & close",
-            showCancel = false
-        }
-    ) {
-
-        super(app);
-
-
-        this.projects =
-            Array.isArray(projects)
-                ? projects
-                : [];
-
-
-        this.resources =
-            Array.isArray(resources)
-                ? resources
-                : [];
-
-
-        this.requireExplicitRatings = requireExplicitRatings;
-        this.plugin = plugin;
-        this.progressItems = [
-            ...this.projects,
-            ...this.resources
-        ];
-
-
-        this.currentScores =
-            currentScores ?? {};
-
-
-        this.currentSummaries =
-            currentSummaries ?? {};
-        this.getReportContexts = getReportContexts;
-        this.reportContexts = getReportContexts?.() ?? reportContexts;
-
-
-        this.showNextFocus =
-            showNextFocus;
-
-
-        this.currentFocus =
-            Array.isArray(currentFocus)
-                ? currentFocus
-                : [];
-
-
-        this.focusProjects =
-            Array.isArray(focusProjects)
-                ? focusProjects
-                : [];
-
-
-        this.onSave =
-            onSave;
-
-
-        this.onSaved =
-            onSaved;
-
-
-        this.onCancel =
-            onCancel;
-
-
-        this.title =
-            title;
-        this.reportDate = reportDate;
-        this.reportMode = reportMode;
-
-
-        this.requireEveryProject =
-            requireEveryProject;
-
-
-        this.allowNoProgress =
-            allowNoProgress;
-
-
-        this.saveLabel =
-            saveLabel;
-
-
-        this.showCancel =
-            showCancel;
-
-
-        this.selectedScores =
-            new Map();
-
-
-        this.summaryInputs =
-            new Map();
-
-
-        this.settled =
-            false;
-
-
-        this.saving =
-            false;
-
-
-        for (
-            const project
-            of this.progressItems
-        ) {
-
-            const score =
-                this.currentScores[
-                    project.projectId
-                ];
-
-
-            if (
-                Number.isInteger(score) &&
-                score >= 0 &&
-                score <= 4
-            ) {
-
-                this.selectedScores.set(
-                    project.projectId,
-                    score
-                );
-            }
-        }
-    }
-
-
-    onOpen() { ownModalColors(this);
-        this.evidenceRows = new Map();
-        this.evidenceComponents = new Map();
-        this.renderEvidence = (parent, context, id) => {
-            this.evidenceComponents.get(id)?.unload();
-            const component = new Component();
-            component.load();
-            this.evidenceComponents.set(id, component);
-            const markdown = createHubMarkdown({ app: this.app, component });
-            const evidence = renderReportEvidence(parent, context, markdown, component);
-            if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "", markdown);
-            return evidence;
-        };
-        this.ratingRows = new Map();
-        if (this.requireExplicitRatings) this.ratingEffects = mountTransientEffects(this.contentEl);
-        this.refreshEvidence = () => {
-            if (!this.getReportContexts) return;
-            this.reportContexts = this.getReportContexts();
-            for (const [id, previous] of this.evidenceRows) {
-                const context = this.reportContexts[id];
-                if (!context) continue;
-                const evidence = this.renderEvidence(previous.parentElement, context, id);
-                previous.replaceWith(evidence);
-                this.evidenceRows.set(id, evidence);
-            }
-        };
-        if (this.getReportContexts) { document.addEventListener("hub-task-progress-evidence-changed", this.refreshEvidence); }
-
-
-        this.contentEl.addClass(
-            "hub-project-advancement-modal", "hub-button-scope"
-        );
-
-
-        const heading = createWindowTitle(this.contentEl, this.title,
-            this.reportMode === "complete" ? "clipboard-plus" : "clipboard-pen", {
-                date: this.reportDate ? { value: this.reportDate,
-                    label: formatDate(parseLocalISODate(this.reportDate), "full") } : null
-            });
-
-
-        const guidance = this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted", text:
-            this.reportMode === "complete"
-                ? "Review your activity and rate your work in each project or resource"
-                : this.reportMode === "update"
-                    ? "New activity has been recorded since your last report. Review your ratings"
-                    : "Review activity and adjust the significance of work recorded for this date" });
-        setWindowUndertext(heading, guidance);
-        this.ratingTooltips?.dispose();
-        this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
-
-
-        this.contentEl.createDiv({
-            cls:
-                "hub-project-advancement-divider"
-        });
-
-
-        // ---------- PROJECTS ----------
-
-        const rows =
-            this.contentEl.createDiv({
-                cls:
-                    "hub-project-advancement-projects"
-            });
-
-
-        for (
-            let index = 0;
-            index < this.progressItems.length;
-            index++
-        ) {
-
-            if (
-                index === this.projects.length &&
-                this.projects.length > 0 &&
-                this.resources.length > 0
-            ) {
-                rows.createDiv({
-                    cls:
-                        "hub-project-advancement-divider is-context-divider"
-                });
-            }
-
-
-            const project =
-                this.progressItems[index];
-            const ratingOptions = progressRatingOptions(project);
-            const bindRatingTooltip = (button, score) => {
-                const option = ratingOptions.find(option => option.score === score);
-                this.ratingTooltips.bind(button, {
-                    title: `${option.score} · ${option.title}`, description: option.description
-                });
-            };
-
-            const row =
-                rows.createDiv({
-                    cls:
-                        "hub-project-advancement-row"
-                });
-
-
-            row.dataset.projectId =
-                project.projectId;
-
-
-            renderReportWorkspaceHeader(row, project, this.plugin);
-
-
-            const context = this.reportContexts[project.projectId];
-            if (context) {
-                const evidence = this.renderEvidence(row, context, project.projectId);
-                this.evidenceRows.set(project.projectId, evidence);
-            }
-
-            const ratingSection =
-                row.createDiv({
-                    cls:
-                        "hub-project-advancement-choices"
-                });
-
-
-            const choices = ratingSection.createDiv({ cls: "hub-project-advancement-rating-buttons" });
-            choices.setAttribute("role", "group");
-            choices.setAttribute("aria-label", `Rating for ${project.name}`);
-            this.ratingRows.set(project.projectId, choices);
-
-            if (this.allowNoProgress) {
-
-                const noProgressButton =
-                    choices.createEl(
-                        "button",
-                        {
-                            cls:
-                                "hub-project-advancement-score",
-
-                            text:
-                                "0"
-                        }
-                    );
-
-
-                noProgressButton.dataset.score =
-                    "0";
-
-
-                bindRatingTooltip(noProgressButton, 0);
-
-
-                if (
-                    this.selectedScores.get(
-                        project.projectId
-                    ) === 0
-                ) {
-
-                    noProgressButton.addClass(
-                        "is-selected"
-                    );
-                }
-
-
-                noProgressButton.setAttribute(
-                    "aria-pressed",
-                    String(
-                        this.selectedScores.get(
-                            project.projectId
-                        ) === 0
-                    )
-                );
-
-
-                noProgressButton.addEventListener(
-                    "click",
-                    () => {
-
-                        this.selectScore(
-                            row,
-                            project.projectId,
-                            0
-                        );
-                    }
-                );
-            }
-
-
-            for (
-                const option
-                of PROJECT_ADVANCEMENT_OPTIONS
-            ) {
-
-                const button =
-                    choices.createEl(
-                        "button",
-                        {
-                            cls:
-                                "hub-project-advancement-score",
-
-                            text:
-                                String(
-                                    option.score
-                                )
-                        }
-                    );
-
-
-                button.dataset.score =
-                    String(
-                        option.score
-                    );
-
-
-                bindRatingTooltip(button, option.score);
-
-
-                if (
-                    this.selectedScores.get(
-                        project.projectId
-                    ) ===
-                        option.score
-                ) {
-
-                    button.addClass(
-                        "is-selected"
-                    );
-                }
-
-
-                button.setAttribute(
-                    "aria-pressed",
-                    String(
-                        this.selectedScores.get(
-                            project.projectId
-                        ) ===
-                            option.score
-                    )
-                );
-
-
-                button.addEventListener(
-                    "click",
-                    () => {
-
-                        this.selectScore(
-                            row,
-                            project.projectId,
-                            option.score
-                        );
-                    }
-                );
-            }
-
-
-            const summaryField =
-                row.createDiv({
-                    cls:
-                        "hub-project-advancement-summary"
-                });
-
-
-            const summaryInput =
-                summaryField.createEl(
-                    "textarea",
-                    {
-                        attr: {
-                            rows: "3",
-                            maxlength: "1000",
-                            "aria-label": `Comments for ${project.name}`,
-                            placeholder:
-                                "Comments\u2026"
-                        }
-                    }
-                );
-
-
-            summaryInput.value =
-                String(
-                    this.currentSummaries[
-                        project.projectId
-                    ] ?? ""
-                );
-
-
-            this.summaryInputs.set(
-                project.projectId,
-                summaryInput
-            );
-        }
-
-
-        if (this.showNextFocus) {
-
-            this.contentEl.createDiv({
-                cls:
-                    "hub-project-advancement-divider"
-            });
-
-
-            const focusSection =
-                this.contentEl.createDiv({
-                    cls:
-                        "hub-project-advancement-focus"
-                });
-
-
-            focusSection.createEl(
-                "h3",
-                {
-                    text:
-                        "What will you focus on next time?"
-                }
-            );
-
-
-            this.focusList =
-                focusSection.createDiv({
-                    cls:
-                        "hub-project-advancement-focus-list"
-                });
-
-
-            this.focusEditor =
-                new FocusListEditor(
-                    this.focusList,
-                    this.focusProjects,
-                    this.currentFocus,
-                    "Next focus"
-                );
-        }
-
-
-        this.contentEl.addClass("hub-report-footer-layout");
-
-        // ---------- ACTIONS ----------
-
-        const actions =
-            this.contentEl.createDiv({
-                cls:
-                    "hub-project-advancement-actions"
-            });
-        layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
-
-
-        if (this.showCancel) {
-
-            const cancelButton =
-                actions.createEl(
-                    "button",
-                    {
-                        text:
-                            "Cancel"
-                    }
-                );
-
-
-            cancelButton.addEventListener(
-                "click",
-                () => {
-
-                    this.close();
-                }
-            );
-        }
-
-
-        this.saveButton =
-            actions.createEl(
-                "button",
-                {
-                    text:
-                        this.saveLabel
-                }
-            );
-
-
-        this.saveButton.addClass(
-            "mod-cta"
-        );
-
-
-        this.saveButton.addEventListener(
-            "click",
-            () => {
-
-                this.save();
-            }
-        );
-
-
-        this.updateSaveButton();
-    }
-
-
-    selectScore(
-        row,
-        projectId,
-        score
-    ) {
-        if (score !== null) {
-            const choices = this.ratingRows.get(projectId);
-            this.ratingEffects?.cancel(choices);
-            choices?.removeAttribute("aria-invalid");
-        }
-
-        if (score === null) {
-
-            this.selectedScores.delete(
-                projectId
-            );
-
-        } else {
-
-            this.selectedScores.set(
-                projectId,
-                score
-            );
-        }
-
-
-        row.querySelectorAll(
-            ".hub-project-advancement-score"
-        )
-            .forEach(
-                button => {
-
-                    button.toggleClass(
-                        "is-selected",
-
-                        (
-                            button.dataset.score ===
-                                ""
-                                ? null
-                                : Number(
-                                    button.dataset.score
-                                )
-                        ) === score
-                    );
-
-
-                    button.setAttribute(
-                        "aria-pressed",
-                        String(
-                            (
-                                button.dataset.score ===
-                                    ""
-                                    ? null
-                                    : Number(
-                                        button.dataset.score
-                                    )
-                            ) === score
-                        )
-                    );
-                }
-            );
-
-
-        this.updateSaveButton();
-    }
-
-
-    updateSaveButton() {
-
-        if (!this.saveButton) {
-            return;
-        }
-
-
-        if (this.requireExplicitRatings) {
-            this.saveButton.addClass("hub-guided-submit");
-            this.saveButton.setAttribute("aria-disabled", String(this.saving ||
-                this.progressItems.some(item => !this.selectedScores.has(item.projectId))));
-        }
-
-        this.saveButton.disabled =
-            this.saving ||
-            (
-                this.requireEveryProject && !this.requireExplicitRatings &&
-                this.selectedScores.size !==
-                    this.progressItems.length
-            );
-    }
-
-
-    async save() {
-        if (!this.saving && this.requireExplicitRatings) {
-            const missing = this.progressItems.filter(item => !this.selectedScores.has(item.projectId));
-            for (const item of missing) {
-                const choices = this.ratingRows.get(item.projectId);
-                choices.setAttribute("aria-invalid", "true");
-                this.ratingEffects.run(choices, "hub-attention");
-            }
-            if (missing.length) {
-                this.ratingEffects.reveal(this.ratingRows.get(missing[0].projectId), this.contentEl.querySelector(".hub-report-scroll"));
-                return;
-            }
-        }
-
-        if (
-            this.saving ||
-            (
-                this.requireEveryProject && !this.requireExplicitRatings &&
-                this.selectedScores.size !==
-                    this.progressItems.length
-            )
-        ) {
-            return;
-        }
-
-
-        const scores =
-            Object.fromEntries(
-                [...this.selectedScores]
-            );
-
-
-        const summaries =
-            Object.fromEntries(
-                [...this.summaryInputs]
-                    .map(
-                        ([projectId, input]) => [
-                            projectId,
-                            input.value.trim()
-                        ]
-                    )
-            );
-
-
-        let focus;
-
-
-        try {
-            focus =
-                this.focusEditor
-                    ?.getValue() ?? [];
-
-        } catch (error) {
-
-            ownNoticeColors(new Notice(
-                error.message
-            ));
-
-            return;
-        }
-
-
-        this.saving = true;
-        const restoreControls = lockModalControls(this);
-        this.updateSaveButton();
-
-        try {
-
-            await this.onSave({
-                scores,
-                summaries,
-                focus
-            });
-
-
-            this.settled =
-                true;
-
-            this.saving = false;
-            restoreControls();
-
-            this.close();
-
-
-            this.onSaved?.();
-
-
-        } catch (error) {
-
-            console.error(
-                "Could not save progress report:",
-                error
-            );
-
-
-            this.saving =
-                false;
-
-            restoreControls();
-
-            this.updateSaveButton();
-
-
-            ownNoticeColors(new Notice(
-                "Could not save progress report."
-            ));
-        }
-    }
-
-
-    close() { if (!this.saving) super.close(); }
-
-    onClose() {
-        this.focusEditor?.destroy();
-        this.evidenceComponents?.forEach(component => component.unload());
-        this.evidenceComponents?.clear();
-        if (this.refreshEvidence) document.removeEventListener("hub-task-progress-evidence-changed", this.refreshEvidence);
-
-        this.ratingTooltips?.dispose();
-        this.ratingEffects?.destroy();
-        this.contentEl.empty();
-
-
-        if (
-            !this.settled
-        ) {
-
-            this.onCancel?.();
-        }
     }
 }
 
@@ -34133,8 +36360,8 @@ class ProjectWizardService {
         });
     }
 
-    async replaceProjectProgress(date, projectIds, scores, summaries, focusUpdate = null) {
-        return this.replaceCombinedProgress(date, projectIds, [], scores, summaries, focusUpdate);
+    async replaceProjectProgress(date, projectIds, scores, summaries) {
+        return this.replaceCombinedProgress(date, projectIds, [], scores, summaries);
     }
 
     async replaceResourceProgress(date, resourceId, score, summary) {
@@ -34142,12 +36369,12 @@ class ProjectWizardService {
         return this.replaceCombinedProgress(date, [], [id], { ["resource:" + id]: score ?? null }, { ["resource:" + id]: summary });
     }
 
-    async replaceCombinedProgress(date, projectIds, resourceIds, scores, summaries, focusUpdate = null) {
+    async replaceCombinedProgress(date, projectIds, resourceIds, scores, summaries) {
         const { saveProgress, stored } = __hubRequire("lib/services/progress-report.js");
         const ids = [...projectIds, ...resourceIds.map(id => "resource:" + id)];
         return saveProgress(this, { date, entries: ids.map(id => ({
             id, expected: stored(this.data, date, id), rating: scores?.[id] ?? null, summary: summaries?.[id] ?? ""
-        })), ...(focusUpdate ? { focus: focusUpdate.items } : {}) });
+        })) });
     }
 
     async setDailyFocus(
@@ -39567,6 +41794,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
     async onload() {
+        __hubRequire("lib/ui/startup-snapshot.js").keepStartupSnapshotUnfocusable(document);
         this.reportSessionBaseline = null;
         this.taskStartupClock = performance.now();
         this.register(disposeColorSystem);
@@ -40071,6 +42299,8 @@ module.exports = class HubProjectMenu extends Plugin {
                 this.projectWizard
                     .getProjectCardOrder();
 
+        window.hubGetRecentWorkspaceIds = () => this.workspaceModes.navigationHistory.recentWorkspaceIds();
+
         window.hubSetProjectCardOrder =
             (
                 status,
@@ -40226,14 +42456,30 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
 
 
-        window.hubOpenStatistics = () => {
+        window.hubOpenStatistics = initialWorkspace => {
             if (this.statisticsModal) return;
             this.statisticsModal = new StatisticsModal(this.app, this, {
                 onClose: () => { this.statisticsModal = null; },
-                completionFeed: this.nativeTaskHost?.completionFeed
+                completionFeed: this.nativeTaskHost?.completionFeed,
+                initialWorkspace
             });
             this.statisticsModal.open();
         };
+        const { createIconAction, createPanelAction, bindChoiceMenu, projectStatusLabels, sizeDashboardButton } = __hubRequire("lib/ui/controls.js");
+        window.hubCreateIconAction = createIconAction;
+        window.hubCreatePanelAction = createPanelAction;
+        window.hubProjectStatusLabels = projectStatusLabels;
+        window.hubSizeDashboardButton = sizeDashboardButton;
+        window.hubBindChoiceMenu = bindChoiceMenu;
+        window.hubLogProgress = () => __hubRequire("lib/ui/progress-editor.js").openProgress(this);
+        this.register(() => {
+            delete window.hubCreateIconAction;
+            delete window.hubCreatePanelAction;
+            delete window.hubProjectStatusLabels;
+            delete window.hubSizeDashboardButton;
+            delete window.hubBindChoiceMenu;
+            delete window.hubLogProgress;
+        });
         window.hubSetIcon = __hubRequire("lib/ui/icons.js").setHubIcon;
         this.homeCovers = new HomeCovers(this);
         window.hubGetHomeTimePeriod = homeTimePeriod;
@@ -40275,8 +42521,12 @@ module.exports = class HubProjectMenu extends Plugin {
 
         window.hubCreateDashboardUi =
             createDashboardUi;
+        window.hubMountExpansionHost = __hubRequire("lib/ui/expanded-panels.js").mountExpansionHost;
+        window.hubMountProgressHistory = options => __hubRequire("lib/ui/progress-history.js").mountProgressHistory({ ...options, plugin: this });
 
-        window.hubMountWorkspaceExplorer = __hubRequire("lib/ui/workspace-explorer.js").mountWorkspaceExplorer;
+        window.hubMountWorkspaceExplorer = options => __hubRequire("lib/ui/workspace-explorer.js")
+            .mountWorkspaceExplorer({ ...options, planRelevance: this.planRelevance });
+        window.hubMountFilePreview = options => __hubRequire("lib/ui/file-preview.js").mountFilePreview({ ...options, app: this.app, oath: this.oath });
         window.hubExplorerHost = __hubRequire("lib/ui/workspace-explorer-menu.js").createExplorerHost(this, {
             FolderPicker: ProjectFolderPickerModal, confirm: confirmAction
         });
@@ -40298,16 +42548,27 @@ module.exports = class HubProjectMenu extends Plugin {
         if (strictOath?.setColors) this.appearance.connectDock(payload => strictOath.setColors(payload), document);
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
-            createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
+            createWorkspaceCards({ app: this.app, root, component, renderImage, categories,
+                oath: this.oath, planRelevance: this.planRelevance });
         window.hubCreateTaskRow = __hubRequire("lib/ui/tasks.js").createTaskRow;
         window.hubRunNativeTaskToggle = __hubRequire("lib/ui/task-operation.js").runNativeTaskToggle;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit, actions = {}) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate,
-            editTask: actions.editTask,
+            app: this.app, component, body, onEdit, oath: this.oath, plan: this.globalPlan, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate,
+            editTask: actions.editTask, planRelevance: this.planRelevance,
             createTask: options => this.openTaskCreator(options)
         });
+        const { queryCalendarEvents, renderCalendarEvent } = __hubRequire("lib/ui/calendar-events.js");
+        window.hubQueryCalendarEvents = queryCalendarEvents;
+        window.hubRenderCalendarEvent = renderCalendarEvent;
+        window.hubMountDashboardCalendar = options => __hubRequire("lib/ui/dashboard-calendar.js").mountDashboardCalendar({ ...options, plugin: this });
+        this.register(() => {
+            delete window.hubQueryCalendarEvents;
+            delete window.hubRenderCalendarEvent;
+            delete window.hubMountDashboardCalendar;
+        });
+        window.hubMountExpandedTasks = options => __hubRequire("lib/ui/expanded-tasks.js").mountExpandedTasks({ ...options, plugin: this });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.planning = new (__hubRequire("lib/services/project-planning.js").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => __hubRequire("lib/ui/full-view-layout.js").mountFullViewLayout({ root, component, app: this.app });
@@ -40327,23 +42588,29 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubFileOperations = this.fileOperations;
         this.globalPlan = new (__hubRequire("lib/services/global-plan.js").GlobalPlanService)(this);
         this.globalPlan.references = new (__hubRequire("lib/services/plan-references.js").PlanReferences)(this, this.globalPlan);
+        this.planRelevance = new (__hubRequire("lib/services/plan-relevance.js").PlanRelevance)(this);
         this.globalPlan.start();
         window.hubPlan = {
+            relevance: this.planRelevance,
             read: () => this.globalPlan.read(),
             status: () => this.globalPlan.status,
             subscribe: (component, fn) => this.globalPlan.subscribe(component, fn),
-            open: () => __hubRequire("lib/ui/plan.js").openPlan(this),
+            open: planId => __hubRequire("lib/ui/plan.js").openPlan(this, planId),
+            openPlanner: context => __hubRequire("lib/ui/plan.js").openPlanner(this, context),
             pick: async () => { await this.globalPlan.ensureLifecycle(); if(!this.globalPlan.active()) await this.globalPlan.createPlan(); return __hubRequire("lib/ui/plan-picker.js").openPlanPicker(this); },
             add: entries => this.globalPlan.directAdd(entries),
             task: task => this.globalPlan.references.taskEntry(task),
             files: (paths, context) => this.globalPlan.directAdd(paths.map(path => this.app.vault.getAbstractFileByPath(path)).filter(f => f && !Array.isArray(f.children)).map(f => this.globalPlan.references.fileEntry(f, context))),
             workspace: context => this.globalPlan.directAdd([this.globalPlan.references.workspaceEntry(context)]),
             mountPresentation: (root, component) => __hubRequire("lib/ui/plan-home.js").mountPlanHome({root,component,plugin:this}),
+            mountPlans: (root, header, component, plannerButton) => __hubRequire("lib/ui/plan.js").mountPlans({
+                root, header, component, plugin: this, plannerButton, visible: false
+            }),
             mount: (root, component) => __hubRequire("lib/ui/plan-list.js").mountPlanList({root,component,plan:this.globalPlan})
         };
-        this.addCommand({id:"open-global-plan",name:"Open Plan",callback:()=>window.hubPlan.open()});
+        this.addCommand({id:"open-global-plan",name:"Open Planner",callback:()=>window.hubPlan.openPlanner()});
         void this.nativeTaskHost.ready.then(()=>this.globalPlan.references.audit()).catch(error=>console.error("Plan references unavailable",error));
-        this.registerEvent(this.app.workspace.on("quit", tasks => tasks.add(async () => { await this.fileOperations.close(); if (!await this.globalPlan.closeSafe()) { __hubRequire("lib/ui/plan.js").openPlan(this); throw Error("Plan draft needs recovery before closing."); } })));
+        this.registerEvent(this.app.workspace.on("quit", tasks => tasks.add(async () => { await this.fileOperations.close(); if (!await this.globalPlan.closePlanner().catch(error => { ownNoticeColors(new Notice(error.message)); return false; })) { __hubRequire("lib/ui/plan.js").openPlan(this); throw Error("Plan changes need recovery before closing."); } })));
         this.register(() => { clearTimeout(this.globalPlan.timer); this.globalPlan.checkpoint(); delete window.hubPlan; });
 
         this.fileOperationNotice = message => ownNoticeColors(new Notice(message, 15000));
@@ -40382,7 +42649,7 @@ module.exports = class HubProjectMenu extends Plugin {
             this.oathControl = mountOathControl(this, this.oath);
             this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
-            __hubRequire("lib/ui/progress-editor.js").mountProgressControl(this, this.oathControl.item, FocusListEditor);
+            __hubRequire("lib/ui/progress-editor.js").mountProgressControl(this, this.oathControl.item, window.hubLogProgress);
             __hubRequire("lib/services/report-eligibility-hooks.js").installReportEligibilityHooks(this);
             this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
@@ -40565,15 +42832,19 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubWatchTooltips;
         delete window.hubMountHeaderImage;
         delete window.hubCreateDashboardUi;
+        delete window.hubMountExpansionHost;
+        delete window.hubMountProgressHistory;
         this.homeCoverModal?.close();
         this.homeCovers?.destroy();
         delete window.hubGetHomeTimePeriod;
         delete window.hubGetHomeCover;
         delete window.hubMountHomeCover;
         delete window.hubMountWorkspaceExplorer;
+        delete window.hubMountFilePreview;
         delete window.hubExplorerHost;
         delete window.hubCreateFileDomain;
         delete window.hubCreateTaskUi;
+        delete window.hubMountExpandedTasks;
         delete window.hubCreateTaskPanelRead;
         delete window.hubCreateHomeTaskRead;
         delete window.hubCreateTaskHistoryRead;
@@ -40588,6 +42859,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubGetProjectResourceFolders;
         delete window.hubDetachResourceFolder;
         delete window.hubGetProjectCardOrder;
+        delete window.hubGetRecentWorkspaceIds;
         delete window.hubSetProjectCardOrder;
         delete window.hubGetWorkProgress;
         delete window.hubGetAppShortcuts;
@@ -41452,7 +43724,7 @@ module.exports = class HubProjectMenu extends Plugin {
             await this.reportEligibility.flush().catch(error => console.error("Could not flush reporting eligibility", error));
             const date = localISODate();
             if (!this.reportEligibility.pending(date, { currentSession: true }).length) { this.finishWindowClose(closeButton); return; }
-            __hubRequire("lib/ui/progress-editor.js").openProgress(this, { date, closeButton, FocusEditor: FocusListEditor });
+            __hubRequire("lib/ui/progress-editor.js").openProgress(this, { date, closeButton });
         } catch (error) {
             ownNoticeColors(new Notice("Could not check reporting state. Keep working or try closing again."));
             console.error(error);
@@ -42720,7 +44992,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
     openProgressEditor(date, scope = null) {
         if (!parseLocalISODate(date) || date > localISODate()) return;
-        return __hubRequire("lib/ui/progress-editor.js").openProgress(this, { date, scope, FocusEditor: FocusListEditor });
+        return __hubRequire("lib/ui/progress-editor.js").openProgress(this, { date, scope });
     }
 
     enableProgressCalendarEditing(

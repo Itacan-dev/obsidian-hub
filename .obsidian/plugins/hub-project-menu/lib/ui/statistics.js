@@ -28,10 +28,10 @@ function ownModal(modal) {
 }
 
 class StatisticsModal extends Modal {
-    constructor(app, plugin, { source, onClose, completionFeed } = {}) {
+    constructor(app, plugin, { source, onClose, completionFeed, initialWorkspace = "all" } = {}) {
         super(app); this.plugin = plugin; this.source = source; this.closed = onClose;
         this.completionFeed = completionFeed; this.suppliedSource = completionFeed ? undefined : source; this.generation = 0; this.isOpen = false;
-        this.range = "all"; this.workspace = "all";
+        this.range = "all"; this.workspace = initialWorkspace;
         this.cache = new Map(); this.chartCleanups = [];
     }
     onOpen() { ownModalColors(this);
@@ -79,6 +79,7 @@ class StatisticsModal extends Modal {
             [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
                 .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
         }
+        if (this.workspace !== "all" && !this.source.registry.has(this.workspace)) this.workspace = "all";
         this.workspaceSelect.value = this.workspace;
         this.render();
     }

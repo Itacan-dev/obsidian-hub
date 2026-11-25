@@ -6,6 +6,7 @@ const { createWorkspaceCards } = require("./workspace-cards");
 const { createCardImageRenderer } = require("./card-images");
 const { setHubIcon } = require("./icons");
 const { mountCaptureLocationTree } = require("./capture-tree");
+const { mountModalSeparators } = require("./window-title");
 
 let pickerId = 0;
 function preparePicker(modal, title, classes) {
@@ -21,6 +22,7 @@ function preparePicker(modal, title, classes) {
 function cancelAction(modal) {
     const actions = modal.contentEl.createDiv({ cls: "hub-oath-actions hub-capture-picker-actions" });
     actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).addEventListener("click", () => modal.close());
+    mountModalSeparators(modal, { footer: actions });
 }
 function listen(owner, emitter, event, render) {
     if (!emitter?.on || !emitter.offref) return;
@@ -42,7 +44,8 @@ function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocu
                 key => ({ initial: service.plugin.projectWizard.data.headerImagePlacements?.[key] }), service.plugin.cardImageCache);
             const cards = createWorkspaceCards({ app: service.app, root: body, component: this.owner,
                 renderImage: (element, url, options) => paintImage(element, url, { ...options, readOnly: true }),
-                categories: () => service.plugin.projectWizard.getCategories?.() ?? [], oath: service.plugin.oath });
+                categories: () => service.plugin.projectWizard.getCategories?.() ?? [], oath: service.plugin.oath,
+                planRelevance: service.plugin.planRelevance });
             const render = () => {
                 body.empty();
                 const query = search.value.toLocaleLowerCase().trim();

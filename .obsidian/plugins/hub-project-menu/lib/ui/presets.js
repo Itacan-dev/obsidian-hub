@@ -2,7 +2,7 @@
 const { inheritColorOwner } = require("./color-system");
 const { ownMenuColors, ownModalColors, ownNoticeColors } = require("./color-system");
 
-const { createWindowTitle } = require("./window-title");
+const { createWindowTitle, mountModalSeparators } = require("./window-title");
 const { lockModalControls } = require("./modal-save");
 
 function showPresetsMenu(anchor, presets) {
@@ -85,6 +85,7 @@ function showPresetsMenu(anchor, presets) {
                 input.addEventListener("keydown", event => {
                     if (event.key === "Enter" && !event.isComposing && !event.repeat) { event.preventDefault(); void commit(); }
                 });
+                mountModalSeparators(this, { footer: actions });
                 input.focus(); input.select();
             }
             close() { if (!this.saving) super.close(); }

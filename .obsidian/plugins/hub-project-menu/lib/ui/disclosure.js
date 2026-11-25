@@ -10,4 +10,12 @@ function disclosureIcons(button) {
         setIcon(icon, name);
     }
 }
-module.exports = { disclosureIcons };
+function renderDetailsChevron(summary) {
+    const { setHubIcon } = require("./icons");
+    summary.classList.add("hub-details-summary");
+    const marker = summary.createSpan({ cls: "hub-details-chevron", attr: { "aria-hidden": "true" } });
+    for (const [state, name] of [["closed", "chevron-right"], ["open", "chevron-down"]]) {
+        setHubIcon(marker.createSpan({ cls: "is-" + state }), name);
+    }
+}
+module.exports = { disclosureIcons, renderDetailsChevron };

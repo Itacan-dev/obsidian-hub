@@ -1,7 +1,7 @@
 "use strict";
 const { ownModalColors } = require("./color-system");
 
-const { createModalHeader } = require("./window-title");
+const { createModalHeader, mountModalSeparators } = require("./window-title");
 const { Modal } = require("obsidian");
 const { setHubIcon } = require("./icons");
 
@@ -54,6 +54,9 @@ class CaptureModal extends Modal {
     }
     close() { if (!this.busy) super.close(); }
     finish() { this.busy = false; this.close(); }
+    mountSeparators(footer) {
+        mountModalSeparators(this, { footer });
+    }
     onClose() {
         this.closed = true; this.stop?.(); this.form?.destroy(); this.contentEl.empty();
         this.options.onClose?.();
@@ -73,6 +76,7 @@ class CaptureConfirmation extends CaptureModal {
         action(actions, this.options.confirmLabel, null, () => {
             this.resolve?.(true); this.resolve = null; this.close();
         }, this.options.destructive ? "mod-warning" : "mod-cta");
+        this.mountSeparators(actions);
         cancel.focus();
     }
     onClose() { this.resolve?.(false); this.resolve = null; super.onClose(); }

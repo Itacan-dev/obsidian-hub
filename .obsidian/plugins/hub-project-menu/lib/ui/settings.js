@@ -2,7 +2,7 @@
 const { hostColorIsland } = require("./color-system");
 const { ownModalColors } = require("./color-system");
 
-const { createWindowTitle, setWindowUndertext } = require("./window-title");
+const { createWindowTitle, setWindowUndertext, mountModalSeparators } = require("./window-title");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = require("./tooltips");
 const { SETTINGS_PAGES, renderSettingsPage } = require("./settings-pages");
@@ -17,6 +17,7 @@ class SettingsModal extends Modal {
         const heading = createWindowTitle(header, "Settings", "settings", { attr: { id: `${this.prefix}-title` } });
         this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
         setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves" }));
+        mountModalSeparators(this, { header });
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
         this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });

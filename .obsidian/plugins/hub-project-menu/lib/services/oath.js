@@ -1,6 +1,5 @@
 "use strict";
 const { randomUUID } = require("crypto");
-const { taskGroups } = require("../domain/task-planning");
 const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = require("../domain/oath");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = require("../domain/oath-workspace");
@@ -24,7 +23,7 @@ class HubOathService {
     }
     get bucket() { return this.plugin.projectWizard.data.oathsByDevice?.[this.deviceId] ?? { current: null, history: [] }; }
     get current() { return normalizeOath(this.bucket.current); }
-    get fulfilled() { return this.current?.state === "fulfilled" || this.current?.fulfilledAt != null ||
+    get fulfilled() { return this.current?.state === "fulfilled" || this.current?.fulfilledAt != null || fulfilmentTime(this.current,this.now())!=null ||
         !!this.pendingFulfilment && this.pendingFulfilment.id === this.current?.id; }
     get committed() { return isCommitted(this.current); }
     get active() { return this.current?.state === "active"; }
@@ -53,7 +52,7 @@ class HubOathService {
         });
     }
     strictSignature(draft) {
-        return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace,
+        return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace, draft.planId, draft.planEntryIds,
             draft.tasks?.map(taskKey), draft.applications ?? null, draft.applicationCheckMode ?? "automatic", draft.manualApplicationReviewAcknowledged === true]);
     }
     async reviewStrict(draft) {
@@ -72,11 +71,6 @@ class HubOathService {
         const host = this.plugin.nativeTaskHost;
         return !!host && (ref ? host.matches(ref) && (host.nativeTasks.availabilityFor?.(ref) ?? host.nativeTasks.availability()) === "current" : host.nativeTasks.availability() === "current");
     }
-    workspaces(type) {
-        const wizard = this.plugin.projectWizard;
-        return type === "resource" ? wizard.getResourceTypes() :
-            wizard.getProjectRecords().filter(context => context.status === "active");
-    }
     resolveWorkspace(ref, eligible = true) {
         if (!validWorkspace(ref)) return null;
         const wizard = this.plugin.projectWizard;
@@ -84,24 +78,86 @@ class HubOathService {
         if (!sameWorkspace(ref, workspaceRef(context)) || !this.app.vault.getAbstractFileByPath(context.path)) return null;
         return eligible && ref.type === "project" && context.status !== "active" ? null : context;
     }
-    get workspace() { return this.resolveWorkspace(this.current?.workspace, false); }
+    get focus() {
+        const oath=this.current;
+        if(!oath)return null;
+        const handoff=this.active?this.plugin.globalPlan?.focusHandoff?.(oath.id):null;
+        return handoff?{...oath,planId:handoff.planId,...this.focusSelection(handoff.entries)}:oath;
+    }
+    get focusWorkspaces(){const focus=this.focus;return focus?.workspaces??(focus?.workspace?[focus.workspace]:[]);}
+    get workspace(){return this.focusWorkspaces.map(ref=>this.resolveWorkspace(ref,false)).find(Boolean)??null;}
+    commitmentDeadline(){
+        const oath=this.current;
+        if(!this.committed||this.fulfilled)return null;
+        return (this.active?oath.startedAt:oath.scheduledAt)+oath.durationMs;
+    }
+    durationLimit(draft){
+        const start=draft.start==="scheduled"?draft.scheduledAt:this.now();
+        if(!Number.isFinite(start))return Infinity;
+        const next=this.plugin.globalPlan?.nextScheduledTime?.()??Infinity;
+        return Math.max(0,next-start);
+    }
+    async focusChanged(){
+        this.work=(this.focus?.tasks??[]).map(ref=>({ref,task:this.work.find(item=>taskKey(item.ref)===taskKey(ref))?.task??null}));
+        this.emit();
+        void this.refresh();
+        const context=this.plugin.workspaceModes?.currentContext?.();
+        if(context&&!this.canOpen(context,false)){
+            try{await this.enterWorkspace();}
+            catch(error){this.error(error);}
+        }
+    }
     ownsTask(ref, task) { return sameWorkspace(ref, task.nativeReference?.owner); }
-    workspaceTasks(ref) {
-        this.ensureCommittedRead();
-        if (!this.resolveWorkspace(ref) || !this.ready(ref)) return [];
-        const panel = this.taskPanels.get(JSON.stringify([ref.type,ref.id])), snapshot = panel?.snapshot();
-        if (snapshot?.availability !== "current") return [];
-        const groups = taskGroups(snapshot.tasks.filter(task => !task.completed && !task.nativeReadOnly), new Date(this.now()));
-        return [...groups.active,...groups.future];
+    activePlan() {
+        const plan = this.plugin.globalPlan?.active();
+        return plan?.content.entries.length && this.now() < Date.parse(plan.endsAt) ? plan : null;
+    }
+    selectedIds(draft,plan){
+        const entries=plan.content.entries,ids=new Set(draft.planEntryIds??[]);
+        const tasks=new Map(entries.filter(entry=>entry.kind==="task").map(entry=>[taskKey(entry.reference),entry.id]));
+        for(const task of draft.tasks??[])ids.add(tasks.get(taskKey(task)));
+        return ids;
+    }
+    focusSelection(entries, resolved=[]){
+        const live=new Map(resolved.map(item=>[item.entry.id,item]));
+        const scopes=new Map(),tasks=[],files=[];
+        const add=ref=>{if(validWorkspace(ref))scopes.set(JSON.stringify([ref.type,ref.id]),{type:ref.type,id:ref.id});};
+        const planItems=entries.map(entry=>{
+            const item=live.get(entry.id),ref=entry.reference,label=item?.label??entry.lastKnownLabel??"Unavailable item";
+            if(entry.kind==="task"){
+                const owner=item?.task?.nativeReference?.owner??ref.ownerHint;
+                add(owner);
+                tasks.push({id:ref.taskId,authorityId:ref.authorityId,owner,text:label});
+            }else if(entry.kind==="workspace")add(ref);
+            else {
+                add(entry.intendedContext??ref.sourceWorkspace);
+                if(!entry.unavailableReason)files.push(ref.path);
+            }
+            return {id:entry.id,kind:entry.kind,label};
+        });
+        const workspaces=[...scopes.values()];
+        return {workspaces,workspace:workspaces[0]??null,planItems,tasks,files};
+    }
+    async readPlanItems(plan){
+        if(!plan)return [];
+        const entries=plan.content.entries;
+        if(this.plugin.globalPlan.references)return this.plugin.globalPlan.references.resolve(entries);
+        return entries.map(entry=>({entry,label:entry.lastKnownLabel}));
+    }
+    planRequirement(draft) {
+        const p = this.activePlan();
+        if (!p || draft.planId !== p.id) return "An active Plan with at least one item is required to take an Oath.";
+        if (draft.start === "scheduled" && draft.scheduledAt >= Date.parse(p.endsAt)) return "Schedule the Oath before the active Plan day ends.";
+        const entries = new Set(p.content.entries.map(entry=>entry.id));
+        if ([...this.selectedIds(draft,p)].some(id=>!entries.has(id))) return "Selected items changed in the active Plan. Review your selection.";
+        return "";
     }
     setupRequirements(draft) {
-        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
+        const planned = this.planRequirement(draft);
         return oathRequirements(draft, this.now()).map(field => {
-            if (field.key === "Workspace" && field.complete && !this.resolveWorkspace(draft.workspace))
-                return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
-            if (field.key === "Tasks" && !this.ready(draft.workspace)) return { ...field, complete: false, error: "Wait for native tasks to finish loading." };
-            if (field.key === "Tasks" && field.complete && draft.tasks.some(task => !available.has(taskKey(task))))
-                return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
+            if (field.key === "Tasks" && planned) return { ...field, complete: false, error: planned };
+            if(field.key==="Duration"&&field.complete&&draft.durationMs>this.durationLimit(draft))
+                return {...field,complete:false,error:"The minimum Oath duration must end before or at the next scheduled Plan."};
             return field;
         });
     }
@@ -111,26 +167,24 @@ class HubOathService {
         if (missing) throw Error(missing.error);
     }
     projectWorkspaceForPath(path) {
-        if (!this.active || this.current.workspace?.type !== "project" || typeof path !== "string") return null;
-        const project = this.workspace;
-        if (!project) return null;
+        if (!this.active || typeof path !== "string") return null;
         const contains = root => path === root || path.startsWith(root + "/");
-        if (contains(project.root)) return project;
-        // Resolve the live relationship by stable folder ID on every check.
-        // Renames, new shares and detachments must not leave a cached allowance.
-        const ids = project.resourceFolderIds ?? [];
-        return ids.length && this.plugin.projectWizard.getResourceFolders(ids).some(folder => contains(folder.path))
-            ? project : null;
+        return this.focusWorkspaces.filter(ref=>ref.type==="project").map(ref=>this.resolveWorkspace(ref,false)).find(project=>{
+            if(!project)return false;
+            const ids=project.resourceFolderIds??[];
+            return contains(project.root)||(ids.length&&this.plugin.projectWizard.getResourceFolders(ids).some(folder=>contains(folder.path)));
+        })??null;
     }
     canOpen(reference, notify = true) {
         if (!this.active || !reference) return true;
         const wizard = this.plugin.projectWizard;
         const path = typeof reference === "string" ? reference : reference.path;
+        if(this.focus?.files?.includes(path))return true;
         if (this.projectWorkspaceForPath(path)) return true;
         const context = typeof reference === "object" && workspaceRef(reference) ? reference :
             wizard.getResourceById(path) || wizard.getResourceForPath(path) ||
             wizard.getProjectById(path) || wizard.getProjectForPath(path);
-        if (!context || sameWorkspace(this.current.workspace, workspaceRef(context))) return true;
+        if (!context || this.focusWorkspaces.some(ref=>sameWorkspace(ref,workspaceRef(context)))) return true;
         if (notify) this.notice("Locked during this Oath");
         return false;
     }
@@ -148,7 +202,12 @@ class HubOathService {
     async enterWorkspace() {
         const context = this.workspace;
         if (context) await this.plugin.workspaceModes?.openProjectFull(context);
+        else if(this.focus?.files?.[0]){
+            const file=this.app.vault.getAbstractFileByPath(this.focus.files[0]);
+            if(file)await this.app.workspace?.getLeaf(false)?.openFile(file);
+        }else await this.plugin.workspaceModes?.openHome();
     }
+    hasFocusTarget(){return !!(this.workspace||this.focus?.files?.length||this.plugin.globalPlan?.focusHandoff?.(this.current?.id));}
     onChange(callback, clock = false) { const set = clock ? this.clockListeners : this.listeners; set.add(callback); return () => set.delete(callback); }
     notify(listeners) { for (const callback of listeners) { try { callback(); } catch (error) { console.error("Oath view update failed", error); } } }
     emit() { this.notify(this.listeners); this.tickDisplay(); }
@@ -166,9 +225,9 @@ class HubOathService {
         try {
             if (this.active && this.isStrict) {
                 await this.recoverStrict();
-                if (this.active && this.workspace) await this.enterWorkspace();
+                if (this.active && this.hasFocusTarget()) await this.enterWorkspace();
             } else if (this.active) {
-                if (!this.workspace) await this.invalidateWorkspace();
+                if (!this.hasFocusTarget()) await this.invalidateWorkspace();
                 else { await this.returnToFullscreen(); await this.enterWorkspace(); }
             }
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
@@ -203,17 +262,23 @@ class HubOathService {
         this.committedReadStop?.(); this.committedReadStop = null;
     }
     async resolveWork() {
-        if (!this.committed || !this.ready() || this.disposed || this.readClosed) return false;
+        if (!this.committed || this.disposed || this.readClosed) return false;
         this.ensureCommittedRead();
-        const oath = this.current, revision = this.readRevision ?? 0, sequence = this.readSequence = (this.readSequence ?? 0) + 1;
-        const scope = () => { const context = this.resolveWorkspace(oath.workspace, false); return JSON.stringify(context ? [context.path, context.root] : null); };
-        const signature = scope(), commitment = JSON.stringify([oath.id, oath.workspace, oath.tasks]);
+        const focus = this.focus, revision = this.readRevision ?? 0, sequence = this.readSequence = (this.readSequence ?? 0) + 1;
+        const commitment = JSON.stringify([focus.id, focus.planId, focus.tasks]);
+        const scopes=new Map(focus.tasks.filter(ref=>validWorkspace(ref.owner)).map(ref=>[JSON.stringify(ref.owner),ref.owner]));
+        const results=new Map(await Promise.all([...scopes].map(async ([key,owner])=>{
+            if(!this.ready(owner))return [key,null];
+            try{const runtime=this.plugin.nativeTaskHost.runtime(owner);return [key,{result:await runtime.list(),authority:runtime.info().authority.authorityId}];}
+            catch{return [key,null];}
+        })));
         const current = () => !this.disposed && !this.readClosed && this.committed && sequence === this.readSequence && revision === (this.readRevision ?? 0) &&
-            commitment === JSON.stringify([this.current.id, this.current.workspace, this.current.tasks]);
-        const runtime = this.plugin.nativeTaskHost.runtime(oath.workspace), result = await runtime.list();
+            commitment === JSON.stringify([this.focus.id, this.focus.planId, this.focus.tasks]);
         if (!current()) return false;
-        if (scope() !== signature) { this.needsRead = true; return false; }
-        const work = oath.tasks.map(ref => ({ ref, task: ref.authorityId === runtime.info().authority.authorityId ? result.tasks.find(task=>task.id===ref.id && this.ownsTask(oath.workspace,task)) ?? null : null }));
+        const work=focus.tasks.map(ref=>{
+            const found=results.get(JSON.stringify(ref.owner));
+            return {ref,task:found?.authority===ref.authorityId?found.result.tasks.find(task=>task.id===ref.id&&this.ownsTask(ref.owner,task))??null:null};
+        });
         this.readDiagnostics = [];
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
         this.work = work;
@@ -236,9 +301,13 @@ class HubOathService {
         if (this.isStrict && this.active && !this.strict.owns(this.current.id, this.current.strictSessionId)) {
             await this.recoverStrict(); return;
         }
-        if (this.isStrict && this.active && !this.workspace) await this.invalidateWorkspace();
+        if (this.isStrict && this.active && !this.hasFocusTarget()) await this.invalidateWorkspace();
         const starting = this.current.state === "scheduled" && this.now() >= this.current.scheduledAt;
-        const changed = readTasks || starting ? await this.resolveWork() : false;
+        let changed = false;
+        if (readTasks || starting) {
+            try { changed = await this.resolveWork(); }
+            catch (error) { console.error("Could not refresh Oath tasks", error); }
+        }
         if (starting) await this.activate();
         const fulfilled = await this.markFulfilled();
         if (this.isStrict && this.active && this.now() - (this.current.lastObservedAt ?? this.current.startedAt) >= 30000)
@@ -247,7 +316,7 @@ class HubOathService {
     }
     captureFulfilment() {
         if (!this.active || this.current.fulfilledAt != null) return;
-        const at = fulfilmentTime(this.current, this.work, this.now());
+        const at = fulfilmentTime(this.current, this.now());
         if (at != null && this.pendingFulfilment?.id !== this.current.id) this.pendingFulfilment = { id: this.current.id, at };
     }
     async markFulfilled() {
@@ -261,62 +330,72 @@ class HubOathService {
         this.emit(); return true;
     }
     async activate() {
+        if (!await this.checkStartWindow()) return false;
         if (this.isStrict) return this.activateStrict();
-        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
+        if (!this.hasFocusTarget()) { await this.invalidateWorkspace(); return false; }
         const owned = await this.fullscreen.enter();
         if (!this.fullscreen.isFull() && !owned) throw Error("Enforced fullscreen is unavailable on this device.");
         try {
-            if (!this.resolveWorkspace(this.current.workspace)) { await this.invalidateWorkspace(); return false; }
+            if (!await this.checkStartWindow()) { await this.fullscreen.exit();return false; }
+            if (!this.hasFocusTarget()) { await this.invalidateWorkspace(); return false; }
             await this.persist({ ...this.current, state: "active", startedAt: this.now(), fullscreenOwned: owned });
         } catch (error) { await this.fullscreen.exit(); throw error; }
         this.plugin.reportEligibility?.observe(this.workspace, "oath-started");
         await this.enterWorkspace();
         this.emit();
     }
+    async checkStartWindow(){
+        const oath=this.current,p=this.activePlan();
+        if(!oath?.planId||p?.id===oath.planId&&oath.durationMs<=this.durationLimit({start:"now"}))return true;
+        await this.persist(null);
+        this.work=[];
+        this.emit();
+        this.notice("The Oath could not begin within its Plan's available time.");
+        return false;
+    }
     take(draft) {
-        if (draft.mode === "strict") draft = { ...draft, workspace: { ...draft.workspace },
-            tasks: draft.tasks?.map(task => ({ ...task })), applications: draft.applications?.slice(), strictConfirmation: { ...draft.strictConfirmation } };
+        draft = JSON.parse(JSON.stringify(draft));
         return this.enqueue(async () => {
             if (this.committed) throw Error("There is already an active or scheduled Oath on this device.");
             this.validateDraft(draft);
-            let policy = strictPolicy(draft, this.strictApplications);
-            if (policy.mode === "strict") {
-                const review = this.strictReviews.get(draft.strictConfirmation?.nonce);
-                if (!this.strictEnabled || !this.strict.enabled || !review || review.expires < this.now() || review.signature !== this.strictSignature(draft) || draft.strictConfirmation.version !== review.policy.confirmationVersion)
-                    throw Error("Review and confirm the Strict Oath restrictions before taking it.");
-                policy = JSON.parse(JSON.stringify(review.policy));
-                const preflight = await this.strict.preflight(policy);
-                if (draft.start !== "scheduled" && !preflight.ready) {
-                    this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
-                    throw Error(preflight.blockers.length ? "Resolve the possible non-permitted applications or confirm manual review, then retry." : preflight.warnings.join(" "));
-                }
-            }
-            if (!this.ready(draft.workspace)) throw Error("Wait for native tasks to finish loading.");
-            const runtime = this.plugin.nativeTaskHost.runtime(draft.workspace), snapshot = await runtime.list(), seen = new Set();
-            const refs = (draft.tasks ?? []).map(selected => {
-                const ref = selected.nativeReference, task = snapshot.tasks.find(task=>task.id===ref?.taskId);
-                if (!task || task.completed || task.nativeReadOnly || !this.ownsTask(draft.workspace,task) || task.nativeReference.authorityId!==ref.authorityId || task.nativeReference.taskRevision!==ref.taskRevision) throw Error("A selected native task changed. Refresh the Oath selection.");
-                if (seen.has(task.id)) throw Error("Select each task once.");seen.add(task.id);
-                return { id:task.id,authorityId:ref.authorityId,owner:{...ref.owner},text:task.text };
-            });
-            if (!this.resolveWorkspace(draft.workspace)) throw Error("The selected workspace is no longer available.");
-            const now = this.now();
-            await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
-                scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
-                durationMs: draft.durationMs, fulfilledAt: null, workspace: workspaceRef(this.resolveWorkspace(draft.workspace)),
-                tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false,
-                ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
-            this.strictReviews.clear();
-            this.work = refs.map(ref=>({ref,task:snapshot.tasks.find(task=>task.id===ref.id)}));
-            try {
-                if (draft.start !== "scheduled") { await this.activate(); await this.markFulfilled(); }
-            } catch (error) {
-                // The commitment was already saved. Reconciliation retries a
-                // failed state transition; do not invite taking a second Oath.
-                this.error(error);
-            }
-            this.emit();
+            return this.plugin.globalPlan.withOathPlan(draft.planId, plan => this.commitPlanOath(draft, plan));
         });
+    }
+    async commitPlanOath(draft, plan) {
+        this.validateDraft(draft);
+        let policy = strictPolicy(draft, this.strictApplications);
+        if (policy.mode === "strict") {
+            const review = this.strictReviews.get(draft.strictConfirmation?.nonce);
+            if (!this.strictEnabled || !this.strict.enabled || !review || review.expires < this.now() || review.signature !== this.strictSignature(draft) || draft.strictConfirmation.version !== review.policy.confirmationVersion)
+                throw Error("Review and confirm the Strict Oath restrictions before taking it.");
+            policy = JSON.parse(JSON.stringify(review.policy));
+            const preflight = await this.strict.preflight(policy);
+            if (draft.start !== "scheduled" && !preflight.ready) {
+                this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
+                throw Error(preflight.blockers.length ? "Resolve the possible non-permitted applications or confirm manual review, then retry." : preflight.warnings.join(" "));
+            }
+        }
+        const resolved=await this.readPlanItems(plan);
+        this.validateDraft(draft);
+        const selected=this.selectedIds(draft,plan);
+        const selection=this.focusSelection(plan.content.entries.filter(entry=>selected.has(entry.id)),resolved);
+        const now = this.now();
+        await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
+            scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
+            durationMs: draft.durationMs, fulfilledAt: null, planId: plan.id,...selection,
+            state: "scheduled", completedAt: null, fullscreenOwned: false,
+            ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
+        this.strictReviews.clear();
+        const tasks=new Map(resolved.filter(item=>item.task).map(item=>[taskKey(item.task),item.task]));
+        this.work=selection.tasks.map(ref=>({ref,task:tasks.get(taskKey(ref))??null}));
+        try {
+            if (draft.start !== "scheduled") { await this.activate(); await this.markFulfilled(); }
+        } catch (error) {
+            // The commitment was already saved. Reconciliation retries a
+            // failed state transition; do not invite taking a second Oath.
+            this.error(error);
+        }
+        this.emit();
     }
     async #finish(state, completedAt = this.now()) {
         const record = { ...this.current, state, completedAt, fullscreenOwned: false };
@@ -328,6 +407,7 @@ class HubOathService {
         }
         else await this.fullscreen.exit();
         this.work = []; this.emit(); this.notice(state === "fulfilled" ? "Oath fulfilled." : "Oath broken.");
+        await this.plugin.globalPlan?.ensureLifecycle?.().catch(error=>this.error(error));
         
     }
     // Every UI/native exit request goes here. Only an explicit destructive
@@ -360,13 +440,14 @@ class HubOathService {
     async activateStrict() {
         if (this.now() < (this.nextStrictAttempt ?? 0)) return false;
         this.nextStrictAttempt = this.now() + 5000;
-        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
+        if (!this.hasFocusTarget()) { await this.invalidateWorkspace(); return false; }
         const oath = this.current;
         try {
             const prepared = await this.strict.prepare(oath);
             if (!prepared.ready) { this.strictStatus = { ...prepared.preflight, status: "waiting" }; this.emit(); return false; }
             if (this.disposed) { await this.strict.release(oath.id); return false; }
-            if (!this.resolveWorkspace(oath.workspace)) { await this.strict.release(oath.id); await this.invalidateWorkspace(); return false; }
+            if (!await this.checkStartWindow()) { await this.strict.release(oath.id);return false; }
+            if (!this.hasFocusTarget()) { await this.strict.release(oath.id); await this.invalidateWorkspace(); return false; }
             await this.persist({ ...oath, state: "active", startedAt: this.now(), lastObservedAt: this.now(), strictSessionId: prepared.sessionId, fullscreenOwned: false });
             this.strict.commit(oath.id);
         } catch (error) {

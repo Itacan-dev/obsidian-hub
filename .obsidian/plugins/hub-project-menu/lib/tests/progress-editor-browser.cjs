@@ -4,6 +4,8 @@
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),http=require('node:http'),{spawn}=require('node:child_process'),assert=require('node:assert/strict');
 async function run(){
  const root=path.resolve(__dirname,'../..'),output=fs.mkdtempSync(path.join(os.tmpdir(),'itacan-progress-ui-'));
+ const built=require('node:child_process').spawnSync(process.execPath,[path.join(root,'build.js'),'--output-dir',output],{encoding:'utf8',windowsHide:true});
+ assert.equal(built.status,0,built.stderr||built.stdout);
  // Exercise the actual installed Obsidian Modal lifecycle, including its keyboard scope.
  const archive=fs.openSync(process.env.HUB_TEST_OBSIDIAN_ASAR||path.join(process.env.APPDATA,'obsidian/obsidian-1.15.1.asar'),'r');
  const prefix=Buffer.alloc(16);fs.readSync(archive,prefix,0,16,0);const headerBytes=Buffer.alloc(prefix.readUInt32LE(12));fs.readSync(archive,headerBytes,0,headerBytes.length,16);
@@ -13,7 +15,7 @@ async function run(){
  const nativeModal='return '+application.slice(modalStart+'var ei='.length,modalEnd)+';';
  const native=process.env.HUB_TEST_NATIVE_CSS||path.join(os.tmpdir(),'itacan-native-app.css');
  assert(fs.existsSync(native),'Supply native Obsidian CSS through HUB_TEST_NATIVE_CSS');
- const server=http.createServer((req,res)=>{const name=decodeURIComponent(new URL(req.url,'http://localhost').pathname),file=name==='/native.css'?native:name==='/main.js'?path.join(os.tmpdir(),'itacan-progress-build/main.js'):path.resolve(root,'.'+name);if(file!==native&&name!=='/main.js'&&!file.startsWith(root+path.sep)){res.writeHead(403).end();return}if(name==='/native-modal.js'){res.setHeader('Content-Type','text/javascript');res.end(nativeModal);return}try{res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');let content=fs.readFileSync(file);if(name==='/main.js'&&process.env.HUB_TEST_REINTRODUCE_SCOPE_COLLISION==='1')content=content.toString().replace('reportScope: scope,','scope,').replaceAll('this.reportScope','this.scope');res.end(content)}catch{res.writeHead(404).end()}});
+ const server=http.createServer((req,res)=>{const name=decodeURIComponent(new URL(req.url,'http://localhost').pathname),file=name==='/native.css'?native:name==='/main.js'?path.join(output,'main.js'):path.resolve(root,'.'+name);if(file!==native&&name!=='/main.js'&&!file.startsWith(root+path.sep)){res.writeHead(403).end();return}if(name==='/native-modal.js'){res.setHeader('Content-Type','text/javascript');res.end(nativeModal);return}try{res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');let content=fs.readFileSync(file);if(name==='/main.js'&&process.env.HUB_TEST_REINTRODUCE_SCOPE_COLLISION==='1')content=content.toString().replace('reportScope: scope,','scope,').replaceAll('this.reportScope','this.scope');res.end(content)}catch{res.writeHead(404).end()}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const child=spawn(process.env.HUB_TEST_BROWSER||'C:/Program Files/Google/Chrome/Application/chrome.exe',['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0','--user-data-dir='+path.join(output,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  let socket,checks=0;const check=(v,message)=>{assert(v,message);checks++},near=(a,b)=>Math.abs(a-b)<.1;
@@ -34,20 +36,33 @@ async function run(){
   await call('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/lib/tests/progress-editor.html'});
   for(let i=0;i<200&&!await evaluate('window.testDone');i++)await new Promise(r=>setTimeout(r,25));
   check(await evaluate('window.testDone&&!window.testError'),await evaluate('window.testError')||'Browser initialized');
+  const footerWidths = 'Math.max(...[...editor.footer.children].map(b=>b.getBoundingClientRect().width))-Math.min(...[...editor.footer.children].map(b=>b.getBoundingClientRect().width))<.1';
+  check(await evaluate(footerWidths), 'Cancel and Save progress use the same width');
+  const separators = `(() => {
+   const rect = el => el.getBoundingClientRect(), near = (a,b) => Math.abs(a-b) < .1;
+   const frame = rect(editor.contentEl), body = editor.contentEl.querySelector('.hub-modal-body');
+   const [headerLine, footerLine] = editor.contentEl.querySelectorAll('.hub-modal-separator');
+   if (!headerLine || !footerLine) return false;
+   const header = rect(headerLine), footer = rect(footerLine);
+   return [header,footer].every(line=>near(line.left,frame.left)&&near(line.right,frame.right)&&near(line.height,1)) &&
+    near(header.top-rect(headerLine.previousElementSibling).bottom,16) && near(rect(body).top-header.bottom,16) &&
+    near(footer.top-rect(body).bottom,16) && near(rect(editor.footer).top-footer.bottom,16) && rect(editor.footer).width<frame.width;
+  })()`;
+  check(await evaluate(separators), 'Manual report dividers span the window independently of the buttons');
   check(await evaluate('editor.rows.get("p").input.getBoundingClientRect().height>0'),'Reflection visible without another click');
   check(await evaluate('!editor.contentEl.querySelector(".hub-report-recorded-work").open'),'Evidence collapsed');
-  check(await evaluate('!editor.contentEl.querySelector(".hub-progress-focus").open'),'Current plan collapsed');
+  check(await evaluate('!editor.contentEl.querySelector(".hub-progress-focus")'),'Current Plan is absent');
   await click('editor.rows.get("p").buttons[0]');
   check(await evaluate('editor.rows.get("p").input.value==="Keep this reflection"'),'Zero preserves reflection');
   await click('editor.saveButton');
-  check(await evaluate('snapshot().projectWorkRatings.p[Object.keys(snapshot().projectWorkRatings.p)[0]]===0&&closeCount()===0'),'Manual save persists zero without closing application');
+  check(await evaluate('(snapshot().projectWorkRatings.p[editor.date]??null)===0&&closeCount()===0'),'Manual save persists zero without closing application');
   await evaluate('openReport();editor.addRow({projectId:"q",name:"Project B",contextKind:"project"});editor.rows.get("q").buttons[3].click();editor.rows.get("p").card.open=false');
   await click('editor.saveButton');
-  check(await evaluate('Object.values(snapshot().projectWorkLogs.p)[0].summary==="Keep this reflection"'),'Untouched collapsed comment survives another workspace save');
+  check(await evaluate('snapshot().projectWorkLogs.p[editor.date].summary==="Keep this reflection"'),'Untouched collapsed comment survives another workspace save');
   await evaluate('openReport(true);editor.rows.get("p").buttons[1].click();window.failSave=true');await click('editor.saveButton');
   check(await evaluate('!editor.saving&&editor.rows.get("p").rating===1&&closeCount()===0&&editor.error.textContent.includes("failure")'),'Failed save retains draft and keeps app open');
   await evaluate('window.failSave=false');await click('editor.saveButton');check(await evaluate('closeCount()===1'),'Successful closing save closes once');
-  await evaluate('openReport(true)');await click('[...editor.footer.querySelectorAll("button")].find(b=>b.textContent==="Close without reporting")');check(await evaluate('closeCount()===2'),'Skip closes once without requiring ratings');
+  await evaluate('openReport(true)');check(await evaluate(footerWidths), 'All three close-report actions use the same width');check(await evaluate(separators), 'Close-report dividers keep the same width and spacing');await click('[...editor.footer.querySelectorAll("button")].find(b=>b.textContent==="Skip report")');check(await evaluate('closeCount()===2'),'Skip closes once without requiring ratings');
   await evaluate('editor?.close()');
   await click('document.querySelector(".hub-log-progress-button")');await evaluate('window.editor=reportPlugin.progressEditor;true');
   check(await evaluate('editor.isOpen&&editor.modalEl.getClientRects().length>0&&nativeKeymap.scope===editor.scope&&typeof editor.scope.register==="function"'),'Real Log progress button opens visible modal with native keyboard scope intact');
@@ -73,18 +88,16 @@ async function run(){
   check(await evaluate('!!reportPlugin.progressEditor&&reportPlugin.progressEditor.isOpen'),'Opening works again after failure and stale-modal recovery');
   await evaluate('reportPlugin.progressEditor.close();window.invalidLegacyFocus=true;window.focusReads=0;controllerOpen();window.editor=reportPlugin.progressEditor;true');
   check(await evaluate('focusReads===0'),'Opening does not validate untouched legacy Next Focus');
-  await click('editor.contentEl.querySelector(".hub-progress-focus > summary")');
-  await click('editor.rows.get("p").buttons[2]');await click('editor.saveButton');
-  check(await evaluate('!reportPlugin.progressEditor&&focusReads===0'),'Opening Focus disclosure and saving a rating do not validate or submit Focus');
-  check(await evaluate('!editor.focus'),'Report no longer owns a legacy Next Focus editor');
-  await evaluate('controllerOpen();window.editor=reportPlugin.progressEditor;editor.rows.get("p").input.value="Unsaved report draft";[...editor.body.querySelectorAll("button")].find(b=>b.textContent==="Edit plan").click();true');
-  check(await evaluate('!!reportPlugin.planModal&&reportPlugin.progressEditor===editor'),'Plan opens as a child without replacing report ownership');
-  await evaluate('reportPlugin.planModal.note.value="Independent plan note";reportPlugin.planModal.note.dispatchEvent(new Event("input"));reportPlugin.globalPlan.flush()');
-  await key('Escape',27);await evaluate('new Promise(r=>setTimeout(r,50))');
-  check(await evaluate('!reportPlugin.planModal&&editor.rows.get("p").input.value==="Unsaved report draft"&&snapshot().globalPlan.plansById[snapshot().globalPlan.activePlanId].content.note==="Independent plan note"'),'Plan saves independently and returns to intact report draft');
+  check(await evaluate('!editor.contentEl.querySelector(".hub-progress-focus")&&!editor.focus'),'Report omits obsolete Focus and Plan controls');
+  check(await evaluate('editor.contentEl.textContent.includes("Reflect on your progress.")'),'Report uses the shared subtitle');
+  await evaluate('(()=>{const row=editor.rows.get("p");const option=row.buttons.find(button=>Number(button.dataset.score)!==row.rating);option.click();option.click();return true})()');
+  check(await evaluate('editor.rows.get("p").rating===null'),'Clicking the selected rating clears it');
+  await click('editor.saveButton');
+  check(await evaluate('!reportPlugin.progressEditor&&focusReads===0'),'Saving does not validate or submit Focus');
 
+  await evaluate('reportPlugin.reportEligibility.pending=()=>["p","resource:study"]');
   for(const id of ['p','resource:study']) for(const mode of ['manual','closing','historical']) {
-   const date=mode==='historical'?'2020-01-02':await evaluate('Object.keys(snapshot().projectWorkRatings.p)[0]');
+   const date=mode==='historical'?'2020-01-02':await evaluate('editor.date');
    const options={date,scope:id,...(mode==='closing'?{closeButton:{}}:{})};
    await evaluate(`reportPlugin.progressEditor?.close();controllerOpen(${JSON.stringify(options)});window.editor=reportPlugin.progressEditor;true`);
    await click(`editor.rows.get(${JSON.stringify(id)}).buttons[2]`);
@@ -107,7 +120,7 @@ async function run(){
    reportPlugin.progressEditor?.close();const w=reportPlugin.projectWizard,e=reportPlugin.reportEligibility;
    window.suggestionBackup={reports:w.getProgressReports,evidence:w.taskProgressEvidence,activity:w.activityLog,oaths:w.data.oathsByDevice,pending:e.pending,current:reportPlugin.workspaceModes.currentContext,qName:w.getProjectById('q').name};
    w.getProjectById('q').name='Itacan';
-   const date=Object.keys(snapshot().projectWorkRatings.p)[0],timestamp=Date.now();
+   const date=editor.date,timestamp=Date.now();
    w.getProgressReports=()=>[{projectId:'p',date},{projectId:'q',date}];
    w.activityLog=[{projectId:'q',action:'edited',title:'Earlier-session edit',path:'earlier.md',timestamp}];
    w.taskProgressEvidence=()=>({availability:'current',records:[{id:'earlier-task',projectId:'resource:study',text:'Earlier study',kind:'task',timestamp},{id:'day-task',projectId:'p',text:'Whole-day evidence',kind:'task',timestamp}]});
@@ -117,11 +130,13 @@ async function run(){
    controllerOpen({closeButton:{}});window.editor=reportPlugin.progressEditor;return true;
   })()`);
   check(await evaluate('JSON.stringify([...editor.rows.keys()])===JSON.stringify(["p"])'),'Closing excludes Itacan with existing reports, earlier file/Oath evidence, and an earlier-session task workspace');
-  check(await evaluate('editor.rows.get("p").rating===Object.values(snapshot().projectWorkRatings.p)[0]&&editor.rows.get("p").input.value===Object.values(snapshot().projectWorkLogs.p)[0].summary'),'Included closing workspace prefills its existing whole-day rating and reflection');
+  check(await evaluate('editor.rows.get("p").rating===(snapshot().projectWorkRatings.p[editor.date]??null)&&editor.rows.get("p").input.value===snapshot().projectWorkLogs.p[editor.date].summary'),'Included closing workspace prefills its existing whole-day rating and reflection');
   check(await evaluate('editor.rows.get("p").evidence.textContent.includes("Whole-day evidence")'),'Included workspace retains whole-day recorded evidence');
-  await click('[...editor.body.querySelectorAll("button")].find(b=>b.textContent==="Add workspace")');
-  await click('[...editor.picker.contentEl.querySelectorAll("button")].find(b=>b.textContent.startsWith("Itacan"))');
-  check(await evaluate('editor.rows.has("q")&&editor.rows.size===2'),'Add workspace deliberately includes a non-suggested Project during closing');
+  check(await evaluate('!editor.body.textContent.includes("Add workspace")'),'Editor has no manual workspace picker');
+  check(await evaluate('(()=>{const details=editor.rows.get("p").evidence.querySelector("details");return details.querySelector("summary").textContent==="View work done"&&!details.querySelector("details")})()'),'One disclosure contains the recorded work');
+  await evaluate('editor.close();reportPlugin.reportEligibility.pending=()=>["resource:study"];reportPlugin.projectWizard.taskProgressEvidence=()=>({availability:"current",records:[]});controllerOpen({closeButton:{}});window.editor=reportPlugin.progressEditor;true');
+  check(await evaluate('editor.rows.size===1&&editor.rows.has("resource:study")&&!editor.rows.get("resource:study").evidence.textContent.includes("Earlier study")'),'Engagement alone qualifies without fabricated evidence');
+  await evaluate('reportPlugin.reportEligibility.pending=(_date,{currentSession=false}={})=>currentSession?["p"]:["p","q"];reportPlugin.projectWizard.taskProgressEvidence=()=>({availability:"current",records:[{id:"study",projectId:"resource:study",text:"Study",timestamp:Date.now()}]})');
   await evaluate('editor.close();controllerOpen();window.editor=reportPlugin.progressEditor;true');
   check(await evaluate('["p","q","resource:study"].every(id=>editor.rows.has(id))'),'Manual Log progress retains prior reports, daily engagement and recorded-evidence suggestions');
   const beforeOldSessionClose=await evaluate('closeCount()');

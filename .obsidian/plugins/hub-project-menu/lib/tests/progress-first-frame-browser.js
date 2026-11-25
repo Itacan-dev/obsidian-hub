@@ -86,7 +86,7 @@ window.onload = async () => {
                 workRatings: entries, projectRatings: entries, workContributors: {}, projectLevelLabels: new Map(),
                 progressColors: colors.progressColors, progressColor: colors.progressColor, progressToolbar: toolbar,
                 placeHeatmapNavigation: navigation, layoutProgressHeatmap: () => layout(), progressScope: "projects", isResourceContext: kind === "Resource", current: { resourceType: "knowledge", projectId: "sample" },
-                root, recent: panel, recentBody: body, progressPanel: panel, activitySection: body };
+                root, recent: panel, historyGrid: body, progressPanel: panel, activitySection: body };
             const names = Object.keys(globals), values = Object.values(globals);
             const render = new Function(...names, sourceFunction(source, renderName) + ";return " + renderName)(...values);
             const sync = new Function(...names, sourceFunction(source, heightName) + ";return " + heightName)(...values);
@@ -95,8 +95,8 @@ window.onload = async () => {
                 : /frame\.(?:defer|beforePaint)\(\(\) => \{ refreshProjectProgress\(\); loadInitialProgressYears\(\); renderProjectProgressYear\(\);[^\n]*?\}\);/);
             assert(initialization, "Actual production heatmap initialization found");
             let rendered = 0, secondary = 0;
-            new Function("frame", "refreshWorkProgress", "refreshProgressYears", "renderProgressYear", "refreshProjectProgress", "loadInitialProgressYears", "renderProjectProgressYear", "syncRecentActivityHeight", "syncProjectActivityHeight", initialization[0])(
-                frame, () => {}, () => {}, () => { rendered++; render(); }, () => {}, () => {}, () => { rendered++; render(); }, sync, sync);
+            new Function("frame", "refreshWorkProgress", "refreshProgressYears", "renderProgressYear", "refreshProjectProgress", "loadInitialProgressYears", "renderProjectProgressYear", "syncRecentActivityHeight", "progressHistory", initialization[0])(
+                frame, () => {}, () => {}, () => { rendered++; render(); }, () => {}, () => {}, () => { rendered++; render(); }, sync, { rememberHeatmap() {} });
             frame.defer(() => { secondary++; });
             frame.commit();
             if (!home) fullView.mountFullViewLayout({ root, component: owner });

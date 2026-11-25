@@ -14,8 +14,8 @@ function historyItems(file,name,bodyName,reportsName,reports) {
     const start=source.indexOf(`function ${name}(`),end=source.indexOf("\nfunction ",start+1);
     assert(start>=0&&end>start,"Locate actual History renderer");
     let visible=[],empty=false;
-    new Function("historyPager",bodyName,reportsName,"el",source.slice(start,end)+`;${name}();`)(
-        {reset(){},render(items){visible=items}}, {empty(){}},reports,()=>{empty=true});
+    const body = { empty() {}, hubHistoryPager: { reset() {}, render(items) { visible = items; } } };
+    new Function(bodyName,reportsName,"el",source.slice(start,end)+`;${name}(${bodyName});`)(body,reports,()=>{empty=true});
     return {visible,empty};
 }
 async function run() {
