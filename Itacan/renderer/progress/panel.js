@@ -28,7 +28,7 @@ export function progressPanel(ctx,owner) {
     weekdays.append(label);
   }
   heat.append(months,weekdays,days);
-  const selectors=el('div','segmented-controls'),history=el('header','section-heading'),body=el('div','scroll-body progress-history');
+  const selectors=el('div','segmented-controls'),history=el('header','section-heading progress-history-heading'),body=el('div','scroll-body progress-history');
   history.append(el('h3','','History'),selectors);
   const key=owner?'workspace-progress':'home-progress';
   let historyLimit=50;
@@ -146,8 +146,8 @@ export function progressPanel(ctx,owner) {
       const detail = tab === 'Reports'
         ? (r.score == null ? 'Unrated' : r.score + '/4')
         : new Date(r.at).toLocaleTimeString();
-      metadata.append(el('span', 'progress-workspace', r.owner), ' · ',
-        el('span', 'progress-day', r.day), ' · ',
+      metadata.append(el('span', 'progress-workspace', r.owner), ' ',
+        el('span', 'progress-day', r.day), ' ',
         el('span', tab === 'Reports' ? 'progress-rating' : 'progress-time', detail));
       row.append(label, metadata);
       fragment.append(row);

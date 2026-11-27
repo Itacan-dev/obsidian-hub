@@ -7,7 +7,7 @@
 }
 
 .files > header {
-  padding: 8px 14px;
+  padding: var(--s4);
 }
 
 .folder-browser {
@@ -28,26 +28,84 @@
 
 .folder-crumbs {
   overflow-x: auto;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  min-height: calc(var(--control-small) + var(--s2));
+  border-bottom: 1px solid var(--line-soft);
 }
+
+.folder-crumbs .button {
+  min-height: var(--control-small);
+  padding: var(--s1) var(--s2);
+  color: var(--muted);
+}
+
+.folder-crumbs [aria-current] { color: var(--ink); }
+.folder-crumbs .button + .button::before { content: '/'; color: var(--muted); }
 
 .file-columns,.file-row {
   display: grid;
   width: 100%;
-  grid-template-columns: minmax(80px,1fr) repeat(2,minmax(66px,.45fr));
+  grid-template-columns: minmax(0,1fr) repeat(2,minmax(76px,.4fr));
   align-items: center;
   text-align: left;
+  gap: var(--s2);
+  padding-inline: var(--s3);
 }
+
+.file-columns {
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.file-columns .button {
+  justify-self: start;
+  justify-content: flex-start;
+  min-height: var(--control-small);
+  padding: 0;
+  gap: var(--s1);
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.file-columns [data-order]:not([data-order=""]) { color: var(--ink); }
+.file-columns :is([data-order=ascending],[data-order=descending])::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border: solid currentColor;
+  border-width: 1px 1px 0 0;
+  transform: translateY(1px) rotate(-45deg);
+}
+.file-columns [data-order=descending]::after { transform: translateY(-1px) rotate(135deg); }
 
 .file-row {
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-soft);
   background: transparent;
-  padding: var(--s2);
+  padding-block: var(--s1);
+  min-height: var(--control-height);
+  font-size: .92rem;
+}
+
+.file-row:hover { background: var(--paper); }
+.file-row[aria-selected=true] {
+  background: var(--selection);
+  color: var(--accent);
+  box-shadow: inset 2px 0 var(--accent);
 }
 
 .file-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
   overflow-wrap: anywhere;
 }
+
+.file-name .icon { width: 15px; color: var(--muted); }
+.file-row small { font-size: .8rem; font-variant-numeric: tabular-nums; }
 
 .folder-contents > .actions {
   flex-wrap: nowrap;
@@ -56,16 +114,20 @@
 .folder-browser > .file-tree {
   border: 0;
   border-radius: 0;
-  padding: 0;
+  padding: 0 var(--s1) var(--s2);
+  background: color-mix(in srgb, var(--paper) 58%, var(--surface));
 }
 
 .explorer-tools {
   gap: var(--s1);
+  padding: var(--s1) 0;
+  min-height: calc(var(--control-small) + var(--s2));
 }
 
 .file-tree .explorer-tools .button {
   min-width: 30px;
   justify-content: center;
+  background: transparent;
 }
 
 .folder-browser > .divider {

@@ -1,74 +1,11 @@
+.daily-plan, .plan-picker {
+  min-height: 0;
+  gap: var(--s3);
+  flex: 1;
+}
 .daily-plan {
   display: grid;
-  gap: var(--s4);
-}
-.daily-plan .actions {
-  flex-wrap: wrap;
-}
-.plan-list {
-  padding-left: var(--s5);
-  margin: 0;
-}
-.plan-list li, .plan-history {
-  border-top: 1px solid var(--line);
-  padding: var(--s2) 0;
-}
-.plan-list li > .actions {
-  display: inline-flex;
-  margin-left: var(--s2);
-}
-.plan-preview {
-  margin: 0;
-  padding-left: var(--s5);
-}
-.plan-preview .empty {
-  list-style: none;
-  padding: var(--s2) 0;
-}
-.plan-entry {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  align-items: center;
-}
-.plan-entry small {
-  overflow-wrap: anywhere;
-}
-.entry-controls {
-  margin-left: auto;
-  opacity: 0;
-}
-.plan-entry:hover .entry-controls,.plan-entry:focus-within .entry-controls {
-  opacity: 1;
-}
-.plan-picker {
-  display: grid;
-  gap: var(--s3);
-}
-.plan-collection {
-  min-height: 0;
-  overflow: auto;
-  scrollbar-gutter: stable;
-}
-.plan-picker .picker-list {
-  align-content: start;
-  min-height: 12vh;
-}
-.plan-picker .picker-list .button:has(small) {
-  display: grid;
-  justify-items: start;
-  gap: 0;
-}
-.plan-review {
-  max-height: 24vh;
-  overflow: auto;
-}
-
-.dialog:has(.daily-plan:not(.historical-plan)) {
-  --dialog-height: 554px;
-}
-.dialog:has(.plan-picker) {
-  --dialog-height: 680px;
+  grid-template-rows: auto minmax(60px,1fr) auto;
 }
 .daily-plan > textarea {
   height: 56px;
@@ -76,39 +13,91 @@
   max-height: 180px;
   resize: vertical;
 }
-.daily-plan {
-  gap: 12px;
+.plan-collection {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
-.dialog:has(.daily-plan,.plan-picker) {
-  --dialog-limit: min(680px,calc(100dvh - 48px));
+.plan-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
-.daily-plan {
-  flex: 1;
-  grid-template-rows: auto minmax(72px,1fr) auto;
+.plan-entry {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: start;
+  column-gap: var(--s1);
+  padding-block: var(--s2);
 }
-.plan-picker {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.plan-entry + .plan-entry, .plan-history + .plan-history {
+  border-top: 1px solid var(--line);
 }
-.plan-picker > :not(.picker-list) {
-  flex: none;
+.plan-entry > .task-row {
+  padding: 0;
 }
-.plan-picker .picker-list {
-  flex: 1;
-  max-height: none;
-  min-height: 70px;
+.plan-source {
+  display: grid;
+  grid-template-columns: 1rem minmax(0,1fr);
+  column-gap: var(--s2);
+  row-gap: 2px;
+  align-items: start;
 }
-.plan-picker .actions {
-  flex-wrap: nowrap;
-  overflow-x: auto;
+.plan-source .icon {
+  width: 1rem;
+  height: 1rem;
+  margin-top: .3rem;
+  color: var(--muted);
 }
-
+.plan-source .button, .roadmap-title.button {
+  justify-self: start;
+  justify-content: start;
+  max-width: 100%;
+  margin-left: calc(-1 * var(--s1));
+  padding: 1px var(--s1);
+  min-height: 24px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+  font-size: .95rem;
+  line-height: 1.4;
+}
+.plan-source > :not(.icon) {
+  grid-column: 2;
+}
+.plan-source small, .roadmap-item small {
+  font-size: .8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.plan-missing {
+  color: var(--warning);
+}
+.entry-controls {
+  align-self: start;
+  opacity: 0;
+  gap: 0;
+}
+.entry-controls .button {
+  min-height: 26px;
+  padding: 1px var(--s1);
+  color: var(--muted);
+  font-size: .8rem;
+}
+.plan-entry:hover .entry-controls, .plan-entry:focus-within .entry-controls {
+  opacity: 1;
+}
+@media (hover:none) {
+  .entry-controls { opacity: 1; }
+}
+.plan-excerpt, .plan-history-note {
+  color: var(--muted);
+  font-size: .85rem;
+}
 .plan-excerpt {
   flex: none;
   max-height: 3em;
   overflow: auto;
-  color: var(--muted);
 }
 .plan-footer {
   flex: none;
@@ -119,14 +108,105 @@
   flex-direction: column;
   overflow: auto;
 }
-
+.plan-history {
+  padding-block: var(--s2);
+}
 .plan-history-note {
   display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
+.dialog:has(.daily-plan:not(.historical-plan)) {
+  --dialog-height: 554px;
+}
+.dialog:has(.plan-picker) {
+  --dialog-height: 680px;
+}
+.dialog:has(.daily-plan,.plan-picker) {
+  --dialog-limit: min(680px,calc(100dvh - 48px));
+}
+.plan-picker {
+  display: flex;
+  flex-direction: column;
+}
+.plan-picker > :not(.picker-list) {
+  flex: none;
+}
+.plan-picker .picker-list {
+  flex: 1;
+  max-height: none;
+  min-height: 64px;
+  gap: var(--s1);
+}
+.plan-picker .picker-list .button:has(small) {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  justify-items: start;
+  gap: 0 var(--s2);
+}
+.plan-picker .picker-list .button small:first-of-type {
+  grid-column: 1;
+  font-weight: 400;
+}
+.plan-picker .picker-list .button small:last-of-type {
+  grid-area: 1 / 2 / span 2;
+  align-self: center;
+}
+.plan-picker > .actions {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
 .plan-picker > .actions:empty {
   display: none;
+}
+.plan-review {
+  max-height: 24vh;
+  overflow: auto;
+  font-size: .85rem;
+}
+.plan-review > summary {
+  cursor: pointer;
+}
+.plan-review > strong {
+  display: block;
+  margin-top: var(--s2);
+}
+.roadmap {
+  grid-template-rows: auto minmax(0,1fr);
+}
+.workspace-plan {
+  grid-template-rows: minmax(0,1fr) auto;
+}
+.roadmap-item, .roadmap-editor {
+  display: grid;
+  align-content: start;
+}
+.roadmap-item {
+  padding-block: var(--s3);
+  gap: 2px;
+}
+.roadmap-item + .roadmap-item {
+  border-top: 1px solid var(--line);
+}
+.roadmap-item .task-row {
+  margin-left: var(--s3);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line);
+}
+.roadmap-editor {
+  gap: var(--s3);
+}
+.roadmap-editor .field:has(input[type=checkbox]) {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: start;
+  align-items: center;
+}
+.roadmap-editor input[type=checkbox] {
+  width: auto;
+  margin: 0;
 }

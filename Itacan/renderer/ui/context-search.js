@@ -32,6 +32,22 @@ export function contextSearch(ctx, scope, currentFolder) {
     region.prepend(chooser);
   }
   let generation = 0, timer, index, token;
+  let viewport, resizeObserver;
+  function placeResults() {
+    if (!viewport) return;
+    const frame = viewport.getBoundingClientRect();
+    const field = region.getBoundingClientRect();
+    const below = frame.bottom - field.bottom - 4;
+    const above = field.top - frame.top - 4;
+    const upward = below < Math.min(180, results.scrollHeight + 2) && above > below;
+    const height = results.clientHeight;
+    const flipped = results.classList.contains('above-field') !== upward;
+    results.classList.toggle('above-field', upward);
+    results.style.setProperty('--search-space', Math.max(0, Math.floor(upward ? above : below)) + 'px');
+    if (flipped || results.clientHeight !== height) {
+      results.querySelector('[aria-selected=true]')?.scrollIntoView({block:'nearest',container:'nearest'});
+    }
+  }
   function cancel() {
     if (token) window.itacan.cancelSearch(ctx.library.session,token).catch(()=>{});
     token=null;
@@ -41,6 +57,9 @@ export function contextSearch(ctx, scope, currentFolder) {
     results.hidden = true;results.inert=false;
     input.setAttribute('aria-expanded','false');
     input.removeAttribute('aria-activedescendant');
+    viewport?.removeEventListener('scroll', placeResults);
+    resizeObserver?.disconnect();
+    viewport = resizeObserver = null;
   }
   function schedule() {
     cancel(); clearTimeout(timer);generation++;index=-1;
@@ -72,8 +91,9 @@ export function contextSearch(ctx, scope, currentFolder) {
         list=el('div','match-list');
         results.append(el('strong','',group),list);groups.set(group,list);
       }
-      const option=button(label,async()=>{close();await open();});
-      option.append(el('small','muted',detail));option.setAttribute('role','option');
+      const option=button('',async()=>{close();await open();}, {variant:'quiet'});
+      option.append(el('span','match-title',label),el('small','muted',detail));
+      option.setAttribute('role','option');
       option.tabIndex=-1;option.id='match-'+crypto.randomUUID();
       option.onpointerdown=e=>e.preventDefault();list.append(option);
     }
@@ -94,6 +114,14 @@ export function contextSearch(ctx, scope, currentFolder) {
     }
     function reveal() {
       results.hidden=false;results.inert=false;input.setAttribute('aria-expanded','true');
+      if (!viewport) {
+        viewport = region.closest('main');
+        viewport.addEventListener('scroll', placeResults, {passive:true});
+        resizeObserver = new ResizeObserver(placeResults);
+        resizeObserver.observe(viewport);
+        resizeObserver.observe(region);
+      }
+      placeResults();
     }
     const overlay=new Set();
     function noteHit(item) {

@@ -1,5 +1,5 @@
 import './shell.css';
-import { button, el } from '../ui/elements.js';
+import { button, el, icon } from '../ui/elements.js';
 import { quickAdd, inbox } from '../capture/capture.js';
 import { oathControl } from '../oath/oath.js';
 import { musicButton } from '../music/music.js';
@@ -22,7 +22,9 @@ export function createShell(ctx, { openWorkspace, resumeDesk, logProgress }) {
   const presets = button('Presets', () => presetMenu(ctx, presets, activeView === 'desk'));
   routes.append(home, workspace, lastFile, presets);
 
-  const library = button('Choose library', ctx.chooseLibrary, { variant: 'quiet' });
+  const library = button('', ctx.chooseLibrary, { variant: 'quiet' });
+  const libraryName = el('span', '', 'Choose library');
+  library.append(icon('library'), libraryName);
   library.id = 'library-button';
   library.title = 'Choose library folder';
   navigation.append(routes, library);
@@ -38,7 +40,7 @@ export function createShell(ctx, { openWorkspace, resumeDesk, logProgress }) {
   const inboxButton = button('Inbox', () => inbox(ctx));
   inboxButton.setAttribute('aria-label', 'Inbox');
   toolbar.append(oath.root, button('Log progress', logProgress),
-    button('Quick Add', () => quickAdd(ctx)), inboxButton,
+    button('Quick Add', () => quickAdd(ctx), { symbol: 'plus' }), inboxButton,
     music.root, button('Settings', () => settingsDialog(ctx)));
 
   const notice = el('p');
@@ -68,7 +70,7 @@ export function createShell(ctx, { openWorkspace, resumeDesk, logProgress }) {
     }
     presets.disabled = recovering || !ctx.library;
     toolbar.hidden = recovering || !ctx.library;
-    library.textContent = ctx.library?.name || 'Choose library';
+    libraryName.textContent = ctx.library?.name || 'Choose library';
     refreshTools();
   }
 

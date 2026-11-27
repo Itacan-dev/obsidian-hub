@@ -115,9 +115,9 @@ export function inbox(ctx) {
         if(p.name) await fileAttachments(ctx,[p],false,true);
         else await ctx.inbox.remove({id:p.id});
       }
-    }));
+    }),{variant:'quiet'});
     remove.classList.add('inbox-delete');
-    const clear=button('Clear selection',()=>act(()=>{selected.clear();emptySelection=true;anchor=null;}));
+    const clear=button('Clear selection',()=>act(()=>{selected.clear();emptySelection=true;anchor=null;}),{variant:'quiet'});
     detail.append(actions,bulk?clear:remove);
   }
   render();

@@ -1,173 +1,241 @@
 .home {
   --top-row: 320px;
   --bottom-row: 404px;
-  --cover-height: 275px;
 }
 
 .library-guide {
   display: grid;
-  gap: var(--s3);
+  gap: var(--s2);
   min-width: 0;
+}
+
+.library-guide p + h3 {
+  margin-top: var(--s3);
 }
 
 .home-cover {
   background: linear-gradient(85deg,#0d221cbb,#13291a08 85%),var(--home-cover,url('/assets/horizon.jpg')) center var(--cover-position,47%) / cover;
 }
+
 .home-commands {
   display: flex;
   gap: var(--s2);
   align-items: center;
 }
+
 .home-commands .context-search {
   flex: 1;
   min-width: 0;
+  margin: 0;
 }
-.home-section, .welcome {
-  margin-top: var(--s6);
-}
-.home-section.panel, .welcome {
-  padding: var(--s5);
-}
+
 .welcome {
   display: grid;
   justify-items: start;
-  gap: var(--s4);
-  padding: var(--s6);
+  gap: var(--s2);
+  padding: var(--s5);
+}
+
+.welcome .actions {
+  flex-wrap: wrap;
+  margin-top: var(--s2);
 }
 
 /* Calendar, Plan and Tasks share the upper row. Collections span two units. */
 .home-panels {
   display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
+  grid-template-columns: repeat(3, minmax(0,1fr));
   gap: var(--panel-gap);
 }
+
 .home-panels > section {
   height: var(--top-row);
   min-width: 0;
   margin: 0;
-  padding: 14px;
+  padding: var(--s4);
 }
+
 .home-panels > .home-section {
   grid-column: span 2;
   overflow: auto;
 }
+
 .home-panels > :is(.home-section,.progress-panel) {
   height: var(--bottom-row);
 }
-@container dashboard (max-width:1000px) {
-  .home-panels {grid-template-columns:repeat(2,minmax(0,1fr));}
+
+@container dashboard (max-width: 1000px) {
+  .home-panels { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .home-panels > :is(.home-tasks,.progress-panel) { grid-column: 1 / -1; }
 }
-@container dashboard (max-width:700px) {
-  .home-panels {grid-template-columns:minmax(0,1fr);}
-  .home-panels > .home-section {grid-column:auto;}
+
+@container dashboard (max-width: 700px) {
+  .home-panels { grid-template-columns: minmax(0,1fr); }
+  .home-panels > .home-section { grid-column: auto; }
 }
 
 .project-grid, .resource-grid {
-  block-size: 144px;
-  overflow: auto;
-  gap: var(--s4);
-  margin-top: var(--s2);
+  gap: var(--s3);
+  margin-top: var(--s3);
 }
+
 .project-grid {
+  block-size: 144px;
   display: flex;
   align-items: start;
+  overflow: auto;
 }
+
 .project-grid .collection-card {
-  flex: 0 0 clamp(150px,18vw,215px);
+  flex: 0 0 clamp(166px,18vw,215px);
 }
+
 .project-grid .empty {
   flex: 1;
   align-self: stretch;
-  border: 1px dashed var(--line);
-  border-radius: var(--panel-radius);
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  border-radius: var(--control-radius);
 }
+
+.home-section > .home-section {
+  container: resources / inline-size;
+  margin-top: var(--s4);
+}
+
 .resource-grid {
-  block-size:112px;display:grid;
-  grid-template-columns:repeat(4,minmax(120px,1fr));
-  grid-auto-rows:max-content;
-  align-content:start;
-  scrollbar-gutter:stable;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
 }
+
 .collection-card {
   min-width: 0;
   padding: 0;
   text-align: left;
   overflow: hidden;
-  border-radius: var(--panel-radius);
+  border-radius: var(--control-radius);
   border: 1px solid var(--line);
   background: var(--surface);
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
+
 .collection-card:hover {
+  background: var(--tint);
   border-color: var(--accent);
 }
-.collection-card:hover .card-caption {
-  color: var(--accent);
+
+.collection-card:focus-visible {
+  outline-offset: -3px;
 }
+
 .collection-card img {
   display: block;
   width: 100%;
-  height: 92px;
-  object-fit: cover;
-}
-.project-grid img {
   height: 84px;
-}
-.resource-grid img {
-  width: 40%;
-  height: 100%;
   object-fit: cover;
 }
+
 .resource-grid .collection-card {
   display: flex;
   align-items: center;
+  min-height: 104px;
+}
+
+.resource-grid img {
+  width: 34%;
   height: 104px;
 }
-.resource-grid .card-caption {
-  min-width: 0;
-  flex: 1;
-}
-.home-section > .home-section {
-  margin-top: 12px;
-}
+
 .card-caption {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
-  padding: var(--s3) var(--s4);
+  padding: var(--s2) var(--s3);
   font-weight: 600;
+  line-height: 1.4;
+  min-height: 40px;
 }
+
 .card-caption > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .card-caption .icon {
   color: var(--muted);
 }
 
+@container resources (max-width: 62rem) {
+  .resource-grid .collection-card {
+    display: block;
+    min-height: 0;
+  }
+  .resource-grid img {
+    width: 100%;
+    height: 60px;
+  }
+}
+
+@container resources (max-width: 40rem) {
+  .resource-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .resource-grid .collection-card { display: flex; }
+  .resource-grid img { width: 26%; height: 52px; }
+}
 
 .calendar-panel {
-  gap: 8px;
+  gap: var(--s2);
 }
+
 .calendar-agenda > .section-heading {
-  margin: 8px 0;
+  margin-block: var(--s2);
+  font-size: .9rem;
 }
+
 .agenda-day {
   display: grid;
-  gap: 2px;
-  border-top: 1px solid var(--line);
-  padding: 6px 0;
+  gap: var(--s1);
+  border-top: 1px solid var(--line-soft);
+  padding-block: var(--s2);
 }
+
+.agenda-day > strong {
+  font-size: .9rem;
+}
+
 .agenda-day [aria-current=date] {
   color: var(--accent);
 }
-.agenda-day button {
-  justify-self: start;
-  white-space: normal;
+
+.agenda-day .button {
+  justify-content: space-between;
   text-align: left;
+  white-space: normal;
+  flex-wrap: wrap;
+  column-gap: var(--s3);
+  row-gap: 0;
+  padding-inline: var(--s2);
 }
 
-.home > .dashboard-heading {
-  margin-block: 4px;
+.agenda-task-title {
+  overflow-wrap: anywhere;
+}
+
+.agenda-day .button small {
+  font-size: .8rem;
+  font-weight: 400;
+}
+
+.home-section details {
+  margin-top: var(--s3);
+  overflow-wrap: anywhere;
+}
+
+.home-section summary {
+  color: var(--muted);
+  cursor: pointer;
 }

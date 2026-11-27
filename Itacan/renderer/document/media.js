@@ -17,7 +17,13 @@ export function mediaView(record,position) {
   let revision=0;
   const url=new URL('itacan://app/media/'+record.path.split('/').map(encodeURIComponent).join('/'));
   url.searchParams.set('library',record.session);
-  const previous=button('Previous page',()=>turn(page-1)),next=button('Next page',()=>turn(page+1));
+  function pageButton(label, symbol, step) {
+    const control=button('',()=>turn(page+step),{symbol,variant:'icon-button'});
+    control.setAttribute('aria-label',label);
+    control.title=label;
+    return control;
+  }
+  const previous=pageButton('Previous page','back',-1),next=pageButton('Next page','chevron',1);
   function turn(number) {
     if(!pdfDocument || !Number.isFinite(number))return;
     page=Math.max(1,Math.min(pdfDocument.numPages,Math.trunc(number)));
@@ -30,8 +36,14 @@ export function mediaView(record,position) {
   smaller.setAttribute('aria-label','Zoom out');larger.setAttribute('aria-label','Zoom in');
   function magnify(value){scrollX=area.scrollLeft;scrollY=area.scrollTop;zoom=value;return render();}
   toolbar.append(title);
-  if(pdf)toolbar.append(previous,pageInput,pageCount,next);
-  toolbar.append(smaller,fit,larger);root.append(toolbar,area);
+  if(pdf) {
+    const paging=el('div','media-controls');
+    paging.append(previous,pageInput,pageCount,next);
+    toolbar.append(paging);
+  }
+  const zoomControls=el('div','media-controls');
+  zoomControls.append(smaller,fit,larger);
+  toolbar.append(zoomControls);root.append(toolbar,area);
   function restore(){area.scrollLeft=scrollX;area.scrollTop=scrollY;}
   async function render() {
     if(disposed)return;
@@ -44,7 +56,7 @@ export function mediaView(record,position) {
         if(zoom)picture.style.width=picture.naturalWidth*zoom+'px';
         restore();
       };
-      picture.onerror=()=>{if(ticket===serial)area.textContent='Image unavailable · '+record.path;};
+      picture.onerror=()=>{if(ticket===serial)unavailable(Error('Image unavailable · '+record.path));};
       if(zoom)picture.classList.add('scaled-image');
       area.replaceChildren(picture);picture.src=url.href+'&v='+revision;return;
     }

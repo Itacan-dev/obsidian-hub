@@ -1,118 +1,199 @@
-.task-form,.task-steps {
+.task-row {
   display: grid;
+  grid-template-columns: 1rem minmax(0,1fr);
+  align-items: start;
+  column-gap: var(--s2);
+  row-gap: 2px;
+  min-width: 0;
+  padding: var(--s2) 0;
+}
+.task-row + .task-row {
+  border-top: 1px solid var(--line);
+}
+.task-row > :not(input) {
+  grid-column: 2;
+}
+.task-row > input {
+  margin: .34em 0 0;
+  justify-self: center;
+}
+.task-row .task-label {
+  justify-self: start;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 1px var(--s1);
+  margin-left: calc(-1 * var(--s1));
+  text-align: start;
+  justify-content: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: .95rem;
+  line-height: 1.4;
+}
+.task-row > input:checked + .task-label {
+  color: var(--muted);
+  font-weight: 400;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb,var(--muted) 62%,transparent);
+}
+.task-context,.task-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--s2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.task-metadata {
+  font-size: .8rem;
+  line-height: 1.5;
+}
+.task-metadata:empty, .task-context:has(> :only-child:empty) {
+  display: none;
+}
+.task-date {
+  font-variant-numeric: tabular-nums;
+}
+.task-importance {
+  font-weight: 600;
+  color: var(--ink);
+}
+.task-metadata[data-importance="Must do"] .task-importance {
+  color: var(--accent);
+}
+.task-source.button {
+  padding: 0 var(--s1);
+  min-height: 22px;
+  font-size: .8rem;
+  color: var(--accent);
+}
+.task-missing {
+  color: var(--warning);
+}
+.task-row details {
+  color: var(--muted);
+  font-size: .85rem;
+  overflow-wrap: anywhere;
+}
+.task-row summary,.task-list > details > summary,.task-checklist summary {
+  cursor: pointer;
+  padding-block: var(--s1);
+}
+.task-list > details > summary {
+  font-size: .85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.task-row-steps label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: 2px var(--s2);
+}
+.task-row-steps label input {
+  flex: none;
+  margin: 0;
+}
+.task-row-steps label:has(:checked) {
+  text-decoration: line-through;
+}
+.dialog:has(.task-form) {
+  --dialog-width: 560px;
+}
+.task-form,.task-steps,.task-preview,.task-properties {
+  display: grid;
+  align-content: start;
+}
+.task-form {
   gap: var(--s3);
+}
+.task-preview {
+  padding: var(--s3);
+  gap: var(--s1);
+}
+.task-title,.task-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.task-title > input[type=checkbox] {
+  flex: none;
+  margin: 0;
+}
+.task-title .text-input {
+  min-width: 0;
+  font-weight: 600;
+}
+.task-preview > .button {
+  justify-self: start;
+  min-height: 26px;
+  max-width: calc(100% - 20px);
+  margin-left: 20px;
+  padding: 1px var(--s1);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+  color: var(--muted);
+}
+.task-checklist {
+  margin-left: 20px;
+}
+.task-checklist > summary {
+  color: var(--muted);
+  font-size: .85rem;
+}
+.task-steps {
+  gap: var(--s1);
+  margin-block: var(--s1) var(--s2);
+}
+.task-step input:not([type=checkbox]) {
+  min-width: 0;
+  flex: 1;
+}
+.task-property > .button {
+  display: grid;
+  grid-template-columns: 18px minmax(0,1fr) 16px;
+  text-align: start;
+  width: 100%;
+  min-height: 34px;
+  padding: var(--s1) var(--s3);
+}
+.task-property > .button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-property > .button .icon {
+  color: var(--muted);
+}
+.task-property > .button[aria-expanded=true] {
+  background: var(--tint);
+  color: var(--accent);
+}
+.task-property > .button[aria-expanded=true] .icon:last-child {
+  transform: rotate(90deg);
+}
+.task-property-fields {
+  padding: var(--s3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.task-property-fields > :is(.field,.task-dates) {
+  flex: 1 0 100%;
 }
 .task-dates {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
   gap: var(--s3);
 }
-.task-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  padding: var(--s2) 0;
-  border-bottom: 1px solid var(--line);
-}
-.task-row small {
-  margin-left: auto;
-}
-.work-panel > .field {
-  max-width: 12rem;
-  margin-block: var(--s3);
-}
-.task-steps input:not([type=checkbox]) {
-  flex: 1;
-}
-/* Task editor */
-.task-preview {
-  display: grid;
-  padding: 8px 15px;
-  gap: 0;
-}
-.task-properties {
-  display: grid;
-  gap: 0;
-}
-.task-row small {
-  overflow-wrap: anywhere;
-}
-.task-checklist summary,.task-list summary {
-  cursor: pointer;
-  padding: var(--s2);
-}
-
-.task-row-steps {
-  flex-basis: 100%;
-}
-.task-row-steps label {
-  display: block;
-}
-.task-title {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-}
-
-.dialog:has(.task-form) {
-  --dialog-width: 560px;
-}
-.dialog:has(.task-form) form {
-  gap: 10px;
-}
-.task-form {
-  gap: 8px;
-  align-content: start;
-}
-.task-title .text-input {
-  padding: 2px 6px;
-}
-.task-preview > .button {
-  justify-self: start;
-  min-height: 22px;
-  padding: 2px 6px;
-  margin-left: 25px;
-}
-.task-preview summary {
-  padding: 2px;
-}
-.task-property > .button {
-  display: grid;
-  grid-template-columns: 18px minmax(0,1fr) 16px;
-  text-align: left;
-  width: 100%;
-  min-height: 34px;
-  padding: 3px 22px;
-}
-.task-property > .button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.task-form {
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.task-property > .button[aria-expanded=true] {
-  background: var(--tint);
-}
-.task-property-fields {
-  padding: 8px 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.task-property-fields > :is(.field,.task-dates) {
-  flex: 1 0 100%;
-}
-
 .dialog:has(.task-location-picker) {
   --dialog-width: 680px;
 }
 .task-location-picker .picker-list {
   flex: 0 1 272px;
   min-height: 64px;
-  padding: 4px;
+  padding: var(--s1);
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
 }

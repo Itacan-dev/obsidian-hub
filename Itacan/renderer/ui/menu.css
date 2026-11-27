@@ -1,23 +1,43 @@
 .action-menu {
   position: fixed;
   margin: 0;
-  padding: var(--s2);
+  padding: var(--s1);
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 6px 20px #0002;
-  max-height: 75vh;
+  box-shadow: var(--popover-shadow);
+  min-width: min(10rem,calc(100vw - 8px));
+  max-width: min(32rem,calc(100vw - 8px));
+  max-height: 75dvh;
   overflow: auto;
 }
 
 .action-menu:popover-open {
   display: grid;
-  gap: var(--s1);
+  gap: 2px;
 }
 
 .action-menu .button {
   justify-content: flex-start;
+  min-height: var(--control-small);
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.action-menu [aria-haspopup=menu][role=menuitem]::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border: solid currentColor;
+  border-width: 1px 1px 0 0;
+  transform: rotate(45deg);
+}
+
+.menu-row > :first-child {
+  flex: 1;
 }
 
 .menu-row {

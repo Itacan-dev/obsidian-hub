@@ -1,4 +1,5 @@
 import { el,button,report } from '../ui/elements.js';
+import { icon } from '../ui/icons.js';
 import { showDialog } from '../ui/dialog.js';
 import { confirmAction } from '../ui/forms.js';
 import { taskRow,taskEditor,replaceTaskRow } from '../tasks/tasks.js';
@@ -37,12 +38,15 @@ function entryList(ctx,plan,{edit=false,historical=false,refresh=()=>{},before=a
       const status = entry.kind === 'task' ? entry.done == null ? 'State at day end unknown' : entry.done ? 'Completed' : 'Open' : '';
       const route = entry.kind === 'workspace' ? entry.ref.startsWith('Projects/')?'Project':'Resource' : entry.ref.split('/').slice(0,-1).join(' / ');
       const detail = historical ? [status,entry.route || route].filter(Boolean).join(' · ') : route;
-      row.append(open,el('small','muted',entry.missing?'Source unavailable':detail));
+      const source=el('div','plan-source');
+      const symbol=entry.kind==='workspace'?'folder':entry.kind==='task'?'lines':entry.kind==='note'?'note':'file';
+      source.append(icon(symbol),open,el('small',entry.missing?'plan-missing':'muted',entry.missing?'Source unavailable':detail));
+      row.append(source);
     }
     if(edit){
       if(['note','file'].includes(entry.kind)){
-        const relink=button('Relink',async()=>{await before();await planPicker(ctx,plan,entry);refresh();});
-        row.append(relink); relink.hidden=!entry.missing;
+        const relink=button('Relink',async()=>{await before();await planPicker(ctx,plan,entry);refresh();},{variant:'quiet'});
+        row.firstElementChild.append(relink); relink.hidden=!entry.missing;
         if (!entry.missing) {
           const parent=entry.ref.split('/').slice(0,-1).join('/');
           if (!contents.has(parent)) contents.set(parent,window.itacan.entries(ctx.library.session,parent).catch(()=>[]));
@@ -54,8 +58,8 @@ function entryList(ctx,plan,{edit=false,historical=false,refresh=()=>{},before=a
         }
       }
       const controls=el('div','actions entry-controls');
-      const grip=reorderHandle('Reorder '+entry.label,'');
-      controls.append(grip,button('Remove',()=>change(ctx.plans.remove,{id:entry.id})));row.append(controls);
+      const grip=reorderHandle('Reorder '+entry.label);
+      controls.append(grip,button('Remove',()=>change(ctx.plans.remove,{id:entry.id}),{variant:'quiet'}));row.append(controls);
     }
     list.append(row);
   }

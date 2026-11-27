@@ -27,7 +27,9 @@ function chart(host,days,start,end,series){
     bar.title=new Date((ordinal(start)+i*step)*86400000).toISOString().slice(0,10)+' · '+series.map((name,j)=>name+' '+values[j]).join(', ');
     values.forEach((n,j)=>{const segment=el('i','series-'+j);segment.style.height=(100*n/scale)+'%';bar.append(segment);});bars.append(bar);
   });
-  host.append(el('small','muted',series.map((name,i)=>name+' '+days.filter(d=>d.series===i).length).join(' · ')),bars,el('small','muted',start+' — '+end));
+  const legend=el('small','stat-legend muted');
+  series.forEach((name,i)=>legend.append(el('span','series-'+i,name+' '+days.filter(d=>d.series===i).length)));
+  host.append(legend,bars,el('small','muted stat-dates',start+' — '+end));
 }
 export async function statistics(ctx) {
   const body=el('div','statistics'),filters=el('div','statistics-filters'),ranges=el('div','segmented-controls');

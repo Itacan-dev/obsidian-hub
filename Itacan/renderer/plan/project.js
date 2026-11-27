@@ -5,7 +5,7 @@ import {taskRow} from '../tasks/tasks.js';
 import {openPlan} from './plan.js';
 
 async function editItem(ctx,owner,kind,item={}) {
-  const body=el('div','daily-plan');
+  const body=el('div','roadmap-editor');
   const title=field(body,'Name','text',item.title || ''); title.required=true;
   const start=field(body,kind==='phase'?'Start date':'Milestone date','date',item.start || '');start.required=true;
   let end,achieved;
@@ -34,16 +34,16 @@ async function editItem(ctx,owner,kind,item={}) {
 }
 
 export function roadmapDialog(ctx,owner) {
-  const body=el('div','daily-plan'),list=el('div','plan-collection'),actions=el('div','actions');
+  const body=el('div','daily-plan roadmap'),list=el('div','plan-collection'),actions=el('div','actions');
   for(const kind of ['phase','milestone']) actions.append(button('Add '+kind,async()=>{await editItem(ctx,owner,kind);draw();}));
   body.append(actions,list);
   function draw() {
     list.replaceChildren();
     const items=[...ctx.roadmaps.entries(owner)].sort((a,b)=>a.start.localeCompare(b.start));
     for(const item of items) {
-      const row=el('section','panel'),label=item.kind==='phase'?'Phase':'Milestone';
-      row.append(el('small','muted',label+' · '+item.start+(item.end?' – '+item.end:'')+(item.achieved?' · Achieved':'')),
-        button(item.title,async()=>{await editItem(ctx,owner,item.kind,item);draw();},{variant:'quiet'}));
+      const row=el('section','roadmap-item'),label=item.kind==='phase'?'Phase':'Milestone';
+      row.append(button(item.title,async()=>{await editItem(ctx,owner,item.kind,item);draw();},{variant:'quiet roadmap-title'}),
+        el('small','muted',label+' · '+item.start+(item.end?' – '+item.end:'')+(item.achieved?' · Achieved':'')));
       for(const id of item.taskIds || []){
         const t=ctx.tasks.find(id);
         if(t)row.append(taskRow(ctx,t,draw));
@@ -57,7 +57,7 @@ export function roadmapDialog(ctx,owner) {
 }
 
 export function workspacePlan(ctx,owner) {
-  const body=el('div','daily-plan'),list=el('div','plan-collection');
+  const body=el('div','daily-plan workspace-plan'),list=el('div','plan-collection');
   function draw(){
     list.replaceChildren();
     for(const entry of ctx.plans.current()?.entries || []) {

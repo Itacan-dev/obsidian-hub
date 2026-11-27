@@ -22,15 +22,19 @@ function saveState(buffer) {
 
 export function documentView(buffer, pane, { openNote, anchor, position, changedMode, pickCopyFolder }) {
   const root = el('section', 'document-pane panel');
-  const heading = el('h1', 'note-name', buffer.path.split('/').at(-1).replace(/\.md$/i, ''));
-  const name = heading.textContent;
+  const parts = buffer.path.replace(/\.md$/i, '').split('/');
+  const name = parts.pop();
+  const heading = el('h1', 'note-name');
   heading.setAttribute('aria-label',name);
-  heading.textContent = buffer.path.replace(/\.md$/i,'').split('/').join(' / ');
-  heading.title = heading.textContent;
+  heading.title = [...parts, name].join(' / ');
+  if (parts.length) heading.append(el('span', 'note-location', parts.join(' / ') + ' / '));
+  heading.append(el('span', 'note-leaf', name));
   const inlineTitle = el('div','reading-title',name);
   inlineTitle.setAttribute('aria-hidden','true');
   const toolbar = el('div', 'document-tools');
   const modes = el('div', 'switcher');
+  modes.setAttribute('role', 'group');
+  modes.setAttribute('aria-label', 'Document mode');
   const actions = el('div', 'actions');
   const preview = el('article', 'prose');
   const source = el('div', 'source');
@@ -119,6 +123,7 @@ export function documentView(buffer, pane, { openNote, anchor, position, changed
     edit.setAttribute('aria-pressed', String(editing===true));
     live.setAttribute('aria-pressed',String(editing==='live'));
     source.hidden = !editing;
+    source.classList.toggle('live-source', editing === 'live');
     preview.hidden = editing;
     if (editing) {
       if (!editor) editor=makeEditor(source,buffer,position.selection,editing==='live');

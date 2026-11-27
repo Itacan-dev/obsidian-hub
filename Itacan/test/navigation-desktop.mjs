@@ -184,7 +184,22 @@ try {
     sizes.push(metrics);
   }
   assert.ok(sizes[0].columns<sizes[1].columns,JSON.stringify(sizes));
-  await button('Forest survey').click();await row('Field notes.md').dblclick();
+  await button('Forest survey').click();
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(680,480));
+  await page.waitForFunction(()=>innerWidth<=680);
+  const smallSearch=page.getByRole('combobox',{name:'Search this project'});
+  await smallSearch.fill('Field');
+  const smallResults=page.locator('.search-results');
+  await smallResults.getByRole('option').first().waitFor();
+  await smallSearch.press('ArrowUp');
+  const selected=smallResults.locator('[aria-selected=true]');
+  assert.ok(await selected.evaluate(option=>{
+    const box=option.getBoundingClientRect();
+    return option.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2));
+  }),'The keyboard-selected search result must be visible above the toolbar.');
+  await smallSearch.press('Escape');
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1320,800));
+  await row('Field notes.md').dblclick();
   // The copied sample can already have this note open in another saved pane.
   await page.locator('.selected-pane').getByRole('heading', { name: 'Field notes', exact: true }).waitFor();
   assert.deepEqual(errors,[]);

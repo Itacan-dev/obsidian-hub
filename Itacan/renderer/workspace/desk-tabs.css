@@ -1,11 +1,13 @@
 .tabs {
   display: flex;
-  align-items: start;
+  align-items: stretch;
   min-width: 0;
   height: 40px;
-  overflow-x: auto;
-  gap: 3px;
-  padding: 2px;
+  overflow: auto hidden;
+  scrollbar-width: thin;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2) 0;
+  background: var(--paper);
 }
 
 .tabs .button {
@@ -13,18 +15,41 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-height: 29px;
-  padding: 4px 8px;
+  min-height: 24px;
+  padding: 2px var(--s2);
+  font-size: .85rem;
+  border: 0;
+  background: transparent;
 }
 
 .document-tab {
   display: flex;
   align-items: center;
-  flex: none;
+  flex: 0 1 auto;
   max-width: min(18em,85%);
+  min-width: min(7rem,85%);
+  padding-inline-end: 2px;
+  border-radius: var(--control-radius) var(--control-radius) 0 0;
+  color: var(--muted);
+}
+
+.document-tab:hover { background: var(--surface); }
+.document-tab:has([aria-pressed=true]) {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 -2px var(--line);
+}
+.selected-pane .document-tab:has([aria-pressed=true]) {
+  color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.tabs .document-tab .button[aria-pressed=true] {
+  background: transparent;
+  color: inherit;
 }
 
 .document-tab .tab-close {
+  flex: none;
   padding: 2px;
   min-height: 22px;
   background: transparent;
@@ -72,10 +97,14 @@
   top: 50%;
 }
 
-.selected-pane .tabs .button[aria-pressed=true] {
-  border-color: var(--accent);
+.document-tab .tab-close:hover:enabled {
+  background: var(--tint);
 }
 
 .closed-rail .panes .tabs {
   padding-left: 32px;
+}
+
+.closed-rail .split-group > :not(:first-child) .tabs {
+  padding-left: var(--s2);
 }

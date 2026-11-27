@@ -1,7 +1,8 @@
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { Annotation, Compartment } from '@codemirror/state';
 import { defaultKeymap } from '@codemirror/commands';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { syntaxHighlighting } from '@codemirror/language';
+import { classHighlighter } from '@lezer/highlight';
 import { livePreview } from './live-preview.js';
 const mirrored=Annotation.define();
 export const presentation=new Compartment();
@@ -11,7 +12,7 @@ export function makeEditor(parent, buffer, caret, live) {
   const doc=buffer.text;
   const selection = caret && {anchor:Math.min(caret.anchor,doc.length), head:Math.min(caret.head,doc.length)};
   return new EditorView({ parent, doc, selection, extensions: [
-    markdown(), syntaxHighlighting(defaultHighlightStyle), EditorView.lineWrapping,
+    markdown(), syntaxHighlighting(classHighlighter), EditorView.lineWrapping,
     presentation.of(live ? livePreview(buffer) : [lineNumbers(),highlightActiveLine()]),
     keymap.of([{key:'Mod-z',run:v=>buffer.undo(v,true),preventDefault:true},
       {key:'Mod-Shift-z',run:v=>buffer.undo(v,false),preventDefault:true},

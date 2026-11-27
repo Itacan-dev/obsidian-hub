@@ -3,9 +3,11 @@
   align-self: stretch;
   cursor: col-resize;
   touch-action: none;
+  background: var(--paper);
   border-inline-start: 1px solid var(--line);
 }
 
 .divider:hover, .divider:focus-visible {
-  background: var(--tint);
+  background: var(--selection);
+  border-color: var(--accent);
 }

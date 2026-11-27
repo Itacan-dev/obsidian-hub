@@ -1,4 +1,4 @@
-import { el, report } from '../ui/elements.js';
+import { el, icon, report } from '../ui/elements.js';
 import { onContext } from '../ui/menu.js';
 
 export function fileList(ctx, owner, actions, currentFolder) {
@@ -40,7 +40,9 @@ export function fileList(ctx, owner, actions, currentFolder) {
     const row = el('button', 'file-row');
     row.setAttribute('role', 'option');
     row.dataset.path = entry.path;
-    row.append(el('span', 'file-name', entry.name));
+    const name = el('span', 'file-name');
+    name.append(icon(entry.kind), el('span', '', entry.name));
+    row.append(name);
     for (const [key, className] of [['mtime', 'file-modified'], ['ctime', 'file-created']]) {
       const date = entry[key] ? new Date(entry[key]).toLocaleDateString() : '—';
       row.append(el('small', 'muted ' + className, date));

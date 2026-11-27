@@ -43,7 +43,8 @@ export function calendarPanel(ctx) {
       group.append(label);
       const entries = schedule.get(key) || [];
       for (const {task, time, label} of entries.sort((a,b)=>(a.time || '').localeCompare(b.time || ''))) {
-        const row = button([label,time,task.title].filter(Boolean).join(' · '),()=>taskEditor(ctx,task),{variant:'quiet'});
+        const row = button('',()=>taskEditor(ctx,task),{variant:'quiet'});
+        row.append(el('span','agenda-task-title',task.title), el('small','muted',[label,time].filter(Boolean).join(' · ')));
         row.dataset.key=task.id+label;
         group.append(row);
       }

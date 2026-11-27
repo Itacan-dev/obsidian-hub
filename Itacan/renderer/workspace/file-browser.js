@@ -15,7 +15,9 @@ export function fileBrowser(ctx, owner, folder, go, onTreeRefresh) {
   const browser = el('div', 'folder-browser');
   const content = el('div', 'folder-contents');
   const crumbs = el('nav', 'actions folder-crumbs');
+  crumbs.setAttribute('aria-label', 'Folder path');
   const columns = el('div', 'file-columns');
+  const sortButtons = new Map();
   const tools = el('div', 'actions explorer-tools');
 
   const stored = ctx.workspaces.explorer(owner) || {};
@@ -56,18 +58,31 @@ export function fileBrowser(ctx, owner, folder, go, onTreeRefresh) {
     sort = key;
     direction = nextDirection;
     list.sort(sort, direction);
+    showSort();
     await saveView();
   }
 
   const choices = [];
+  function showSort() {
+    for (const [key, control] of sortButtons) {
+      const order = key !== sort ? '' : direction === 1 ? 'ascending' : 'descending';
+      control.dataset.order = order;
+      control.title = order ? control.textContent + ', ' + order : control.textContent;
+      if (order) control.setAttribute('aria-description', 'Sorted ' + order);
+      else control.removeAttribute('aria-description');
+    }
+  }
   for (const [key, label] of [['name', 'Name'], ['mtime', 'Modified'], ['ctime', 'Created']]) {
     const defaultDirection = key === 'name' ? 1 : -1;
-    columns.append(button(label, () => applySort(key, sort === key ? -direction : defaultDirection), { variant: 'quiet' }));
+    const control = button(label, () => applySort(key, sort === key ? -direction : defaultDirection), { variant: 'quiet' });
+    sortButtons.set(key, control);
+    columns.append(control);
     const labels = key === 'name' ? ['Ascending', 'Descending'] : ['Oldest', 'Newest'];
     labels.forEach((order, index) => choices.push({
       label: label + ' · ' + order, run: () => applySort(key, index === 0 ? 1 : -1)
     }));
   }
+  showSort();
   function tool(name, symbol, run) {
     const control = button('', run, { symbol });
     control.title = name;
@@ -98,7 +113,9 @@ export function fileBrowser(ctx, owner, folder, go, onTreeRefresh) {
     const parts = folder.split('/');
     crumbs.replaceChildren(...parts.slice(1).map((name, index) => {
       const target = parts.slice(0, index + 2).join('/');
-      return button(index ? name : workspaceName(ctx.library, target), () => go(target), { variant: 'quiet' });
+      const crumb = button(index ? name : workspaceName(ctx.library, target), () => go(target), { variant: 'quiet' });
+      if (target === folder) crumb.setAttribute('aria-current', 'location');
+      return crumb;
     }));
   }
 

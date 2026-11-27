@@ -126,10 +126,12 @@ export async function settingsDialog(ctx,initial='Appearance') {
         cover.path = path;
         file.textContent = path;
       });
-      group.append(file, choose, button('Use bundled image', () => {
+      const actions = el('div','actions');
+      actions.append(choose, button('Use bundled image', () => {
         cover.path = '';
         file.textContent = 'Using bundled image';
-      }));
+      }, {variant:'quiet'}));
+      group.append(file,actions);
       const position = field(group,'Vertical position (%)','number',cover.position);
       position.min = '0';
       position.max = '100';

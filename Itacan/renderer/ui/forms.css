@@ -1,7 +1,8 @@
 .field {
   display: grid;
-  gap: var(--s2);
-  font-size: 13px;
+  min-width: 0;
+  gap: var(--s1);
+  font-size: .875rem;
   font-weight: 600;
 }
 
@@ -29,14 +30,26 @@
   scrollbar-gutter: stable;
 }
 
-.field :is(input,select,textarea), .text-input {
+.field :is(input:not([type=checkbox],[type=radio],[type=range]),select,textarea), .text-input {
   width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
   font: inherit;
+  font-weight: 400;
+  line-height: 1.4;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   background: var(--surface);
-  padding: var(--s2) var(--s3);
+  padding: 6px var(--s3);
+}
+
+:is(input[type=checkbox],input[type=radio],input[type=range]) {
+  accent-color: var(--accent);
+}
+
+.field :is(input,select,textarea):focus-visible, .text-input:focus-visible {
+  border-color: var(--focus-ring);
 }
 
 .field textarea {
@@ -56,4 +69,7 @@
 
 .picker-list .button {
   justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

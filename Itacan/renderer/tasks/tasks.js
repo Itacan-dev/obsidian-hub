@@ -11,12 +11,13 @@ function taskMetadata(task) {
 
   function append(className, text) {
     if (!text) return;
-    if (metadata.childNodes.length) metadata.append(' · ');
+    if (metadata.childElementCount) metadata.append(' ');
     metadata.append(el('span', className, text));
   }
 
   append('task-workspace', task.owner?.split('/').at(-1));
   append('task-importance', task.importance);
+  if (task.importance) metadata.dataset.importance = task.importance;
   for (const [key, label] of [['start', 'From'], ['until', 'Until'], ['planned', 'Planned'], ['due', 'Due']]) {
     if (task[key]) {
       const date = [label, task[key], task[key + 'Time']].filter(Boolean).join(' ');
@@ -38,15 +39,17 @@ export function taskRow(ctx,task,afterChange = () => {}) {
     try { await ctx.tasks.setCompleted({id:task.id,done:check.checked}); afterChange(); }
     catch (e) { check.checked = task.done; report(e); } finally { toggling = false; }
   };
-  row.append(check,button(task.title,async () => { await taskEditor(ctx,task); afterChange(); },{variant:'quiet'}));
-  row.append(taskMetadata(task));
+  row.append(check,button(task.title,async () => { await taskEditor(ctx,task); afterChange(); },{variant:'quiet task-label'}));
+  const context = el('div', 'task-context');
+  context.append(taskMetadata(task));
+  row.append(context);
   async function relink() {
     const source=await chooseTaskSource(ctx,task,'Relink task source');
     if(!source)return;
     await ctx.tasks.attach({id:task.id,...source});
     afterChange();
   }
-  if (task.location) row.append(button('Location',async() => {
+  if (task.location) context.append(button('Location',async() => {
     const path=task.location;
     const workspace=ctx.workspaces.contextFor(path,task.owner?.startsWith('Projects/') ? task.owner : ctx.workspaces.lastWorkspace());
     let source;
@@ -65,9 +68,9 @@ export function taskRow(ctx,task,afterChange = () => {}) {
     if(source.kind==='folder') return ctx.openFolder(path,{workspace});
     if(source.kind==='note' || source.openable) return ctx.openNote(path,undefined,'','replace',workspace);
     return relink();
-  }));
+  },{variant:'quiet task-source'}));
   if (task.missingLocation || task.missingOwner) {
-    row.append(el('small','muted','Missing source · '+(task.missingLocation || task.missingOwner)),button('Relink',relink));
+    context.append(el('small','task-missing','Missing source · '+(task.missingLocation || task.missingOwner)),button('Relink',relink,{variant:'quiet task-source'}));
   }
   onContext(row,()=>[
     {label:'Add to plan',run:()=>ctx.plans.add({kind:'task',ref:task.id})},

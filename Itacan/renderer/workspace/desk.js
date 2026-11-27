@@ -73,8 +73,8 @@ export async function deskView(ctx, anchor) {
 
   function unavailableDocument(pane, error) {
     const missing = pane.file;
-    const content = el('section', 'empty');
-    content.append(el('p', '', 'Document unavailable · ' + missing + ' · ' + error.message));
+    const content = el('section', 'document-unavailable');
+    content.append(el('h2', '', 'Document unavailable'), el('strong', '', missing), el('p', 'muted', error.message));
     content.append(button('Relink document', async () => {
       const selected = await pickPath(ctx, 'Relink document', 'document', '');
       if (!selected) return;

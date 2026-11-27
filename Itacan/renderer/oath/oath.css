@@ -1,27 +1,90 @@
 .oath-control.active {
   background: var(--accent);
-  color: white;
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.dialog:has(.oath-form) {
+  --dialog-width: 504px;
 }
 .oath-form {
   display: grid;
-  gap: 10px;
+  gap: var(--s3);
+  align-content: start;
 }
-.oath-form [hidden] {
-  display: none;
+.oath-fields {
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: repeat(auto-fit,minmax(min(100%,12rem),1fr));
+}
+.oath-fields > .field {
+  min-width: 0;
 }
 .oath-tasks {
   display: grid;
   align-content: start;
-  gap: 5px;
+  min-inline-size: 0;
   max-height: 13rem;
   overflow: auto;
-  padding: 8px;
+  gap: var(--s1);
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+}
+.oath-tasks legend {
+  padding-inline: var(--s1);
+  font-weight: 600;
+  font-size: .85rem;
 }
 .oath-tasks label {
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
   align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.oath-tasks label input {
+  margin: 0;
+  flex: none;
+}
+.oath-tasks label:has(:checked) {
+  color: var(--accent);
+}
+.oath-tasks .empty {
+  padding: var(--s1) 0;
+}
+.oath-form > .button {
+  justify-self: start;
 }
 .oath-pledge {
-  font-style: italic;
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
+  font: italic 1.1rem/1.45 var(--display);
+}
+.oath-condition {
+  font: 1.35rem/1.2 var(--display);
+}
+.oath-status {
+  overflow-wrap: anywhere;
+  font-size: .9rem;
+}
+.oath-state {
+  color: var(--accent);
+  font-weight: 600;
+}
+.oath-deadline {
+  font-variant-numeric: tabular-nums;
+}
+.oath-actions {
+  gap: var(--s2);
+}
+.oath-action-row {
+  flex: 1 0 100%;
+  align-items: end;
+}
+.oath-action-row > :is(.text-input,.field) {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+.oath-form :is(.oath-tasks,.oath-actions):empty {
+  display: none;
 }

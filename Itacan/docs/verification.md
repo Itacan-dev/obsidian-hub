@@ -1,5 +1,9 @@
 # Itacan verification
 
+## First desktop UI polish pass on Windows x64
+
+The [visual report and paired screenshots](comparisons/first-polish/README.md) cover the dashboard, desk, planning, dialogs, search and recovery, including keyboard and reduced-motion checks at the minimum window size.
+
 ## UI maintainability refactor on Windows x64
 
 Compared the refactor with commit `0365163` across 14 desktop screenshots, including wide and narrow Home, Workspace, the document desk, Settings, Music, Oath, Quick Add and Inbox. The Workspace and task-properties acceptance screenshots matched pixel for pixel. Small raster differences remained on other surfaces. All 1,533 sampled dimensions and computed style values matched at 1140 × 780 across Workspace Files, the desk rail, Markdown reading and editing, and the image viewer.

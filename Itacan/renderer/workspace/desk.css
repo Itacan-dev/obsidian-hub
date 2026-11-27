@@ -4,19 +4,14 @@
 }
 
 .desk-grid {
-  --full-rail: min(calc(clamp(460px,40vw,600px) - 12px),calc(100% - 170px));
+  /* Keep the user's rail size within the room left for the document. */
+  --full-rail: min(clamp(408px,calc(40vw - 12px),588px),max(240px,calc(100vw - 492px)),calc(100% - 170px));
   position: relative;
   height: 100%;
   display: grid;
   --rail-size: clamp(170px,var(--rail-width,var(--full-rail)),var(--full-rail));
   grid-template-columns: var(--rail-size) 5px minmax(0,1fr);
   grid-template-rows: minmax(0,1fr);
-}
-
-@media(max-width:1100px) {
-  .desk-grid {
-    --full-rail: min(calc(clamp(420px,46vw,506px) - 12px),calc(100% - 170px));
-  }
 }
 
 .desk-grid > .divider {
@@ -46,6 +41,7 @@
   min-height: 0;
   min-width: 170px;
   flex: 1;
+  container: pane / inline-size;
 }
 
 .split-group {
@@ -73,3 +69,18 @@
 .stacked > .pane {
   min-height: 180px;
 }
+
+.document-unavailable {
+  overflow: auto;
+  padding: var(--s5) var(--s4);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.document-unavailable h2 { font-size: 1.65rem; }
+.document-unavailable > * + * {
+  display: block;
+  margin-top: var(--s2);
+}
+.document-unavailable .button { margin-top: var(--s4); }

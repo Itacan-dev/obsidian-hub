@@ -1,6 +1,7 @@
 .view-width {
   --content-width: 1700px;
-  --dashboard-gap: 14px;
+  --cover-height: clamp(172px,22vw,275px);
+  --dashboard-gap: var(--s4);
   display: flex;
   flex-direction: column;
   gap: var(--dashboard-gap);
@@ -19,7 +20,11 @@
 }
 
 .dashboard-date {
+  flex: none;
   text-align: right;
+  font-size: .9rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .dashboard-heading {
@@ -32,7 +37,12 @@
 }
 
 .dashboard-heading h1 {
-  font-size: clamp(26px,3vw,29px);
+  font-size: clamp(1.85rem,3vw,2.3rem);
+  overflow-wrap: anywhere;
+}
+
+.dashboard-heading > :first-child {
+  min-width: 0;
 }
 
 .dashboard-cover {

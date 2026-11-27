@@ -1,54 +1,20 @@
 .capture-form,.capture-editor,.inbox-sidebar,.inbox-detail,.inbox-list,.capture-files {
   display: grid;
   align-content: start;
-  gap: var(--s3);
   min-width: 0;
+  gap: var(--s3);
 }
-.capture-editor {
-  align-content: start;
-}
-.capture-files,.inbox-list,.inbox-detail {
-  overflow: auto;
-}
-
-.inbox {
-  display: grid;
-  grid-template-columns: minmax(0,.47fr) minmax(0,.53fr);
-  flex: 1;
-  grid-template-rows: minmax(0,1fr);
-  gap: var(--s4);
-}
-.inbox-sidebar {
-  grid-template-rows: auto minmax(0,1fr);
-}
-.inbox-list {
-  gap: 2px;
-}
-.inbox-row {
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  background: transparent;
-  padding: var(--s2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.capture-destinations {
-  flex-wrap: wrap;
-}
-@media(max-width:680px){.inbox {grid-template-columns:1fr;grid-template-rows:minmax(100px,.65fr) minmax(0,1fr);gap:12px;}}
-.inbox-row small {
-  display: block;
-}
-.inbox-row[aria-pressed=true] {
-  background: var(--tint);
-  color: var(--accent);
-}
-
 .dialog:has(.capture-form) {
   --dialog-width: 560px;
   --dialog-height: 427px;
+}
+.capture-form {
+  flex: 1;
+  grid-template-rows: minmax(0,1fr) auto;
+}
+.capture-editor,.capture-files,.inbox-list,.inbox-detail {
+  min-height: 0;
+  overflow: auto;
 }
 .capture-editor textarea {
   height: 90px;
@@ -57,54 +23,113 @@
 .capture-editor .capture-destinations {
   display: grid;
   grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: var(--s2);
 }
-
-.capture-form {
-  flex: 1;
-  grid-template-rows: minmax(0,1fr) auto;
-  gap: 8px;
-  padding: 16px 5px 5px;
-  border-top: 1px solid var(--line);
-  position: relative;
+.capture-editor .capture-destinations .button {
+  flex-direction: column;
+  white-space: normal;
+  min-height: 60px;
 }
-.capture-form > [role=status] {
-  position: absolute;
-  bottom: 4px;
-  right: 10px;
-  pointer-events: none;
+.capture-editor .capture-destinations .icon {
+  color: var(--accent);
 }
 .capture-form > .button {
-  min-height: 44px;
+  min-height: 36px;
 }
-.capture-editor .capture-destinations > .button {
-  flex-direction: column;
-  min-height: 66px;
-}
-.dialog:has(.capture-form) footer > :first-child {
+.dialog:has(.capture-form) footer > [role=status] {
   margin-right: auto;
+  color: var(--accent);
 }
-.capture-editor,.capture-files {
-  overflow: auto;
+.capture-files {
+  gap: 0;
 }
-.inbox-sidebar,.inbox-detail {
-  min-height: 0;
+.capture-file {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: var(--s2);
+  align-items: center;
+  padding-block: var(--s1);
+  overflow-wrap: anywhere;
 }
-
+.capture-file + .capture-file {
+  border-top: 1px solid var(--line);
+}
 .dialog:has(.inbox) {
   --dialog-width: 980px;
   --dialog-height: 700px;
 }
-.dialog:has(.inbox) form {
-  gap: 16px;
-}
 .inbox {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
+  display: grid;
+  grid-template-columns: minmax(0,.47fr) minmax(0,.53fr);
+  grid-template-rows: minmax(0,1fr);
+  flex: 1;
+  gap: var(--s4);
 }
-.inbox-detail {
-  border-left: 1px solid var(--line);
-  padding-left: 16px;
+.inbox-sidebar {
+  min-height: 0;
+  grid-template-rows: auto minmax(0,1fr);
 }
 .inbox-sidebar > .actions {
   justify-content: space-between;
+}
+.inbox-list {
+  grid-auto-rows: max-content;
+  gap: var(--s1);
+}
+.inbox-row {
+  min-width: 0;
+  padding: var(--s2) var(--s3);
+  border: none;
+  border-radius: var(--control-radius);
+  background: transparent;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .95rem;
+  line-height: 1.4;
+}
+.inbox-row small {
+  display: block;
+  margin-top: 2px;
+  font-size: .8rem;
+  font-variant-numeric: tabular-nums;
+}
+.inbox-row:hover {
+  background: var(--paper);
+}
+.inbox-row[aria-pressed=true] {
+  background: var(--tint);
+  color: var(--accent);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.inbox-detail {
+  border-left: 1px solid var(--line);
+  padding-left: var(--s4);
+}
+.inbox-detail > .button {
+  justify-self: start;
+}
+.inbox-detail > .field textarea {
+  min-height: 6em;
+  font-weight: 400;
+}
+.inbox-detail .empty, .inbox-list .empty {
+  padding: var(--s2) 0;
+}
+@media(max-width:680px) {
+  .inbox {
+    grid-template-columns: minmax(0,1fr);
+    grid-template-rows: minmax(94px,.75fr) minmax(86px,1fr);
+    gap: var(--s2);
+  }
+  .inbox-sidebar {
+    gap: var(--s1);
+  }
+  .inbox-detail {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    padding-top: var(--s2);
+  }
 }

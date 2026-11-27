@@ -11,7 +11,7 @@ body {
   display: none !important;
 }
 
-button, input {
+button, input, select, textarea {
   font: inherit;
   color: inherit;
 }
@@ -32,10 +32,6 @@ button {
 
 :focus:not(:focus-visible) {
   outline: none;
-}
-
-.button:active:enabled {
-  background: var(--tint);
 }
 
 [data-insert] {
@@ -80,7 +76,7 @@ button {
 }
 
 button:disabled {
-  opacity: .5;
+  opacity: .62;
   cursor: default;
 }
 
@@ -118,19 +114,26 @@ h2 {
   align-items: center;
   justify-content: center;
   gap: var(--s2);
-  padding: 7px var(--s3);
-  min-height: 35px;
+  padding: var(--s1) var(--s3);
+  min-height: var(--control-height);
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   background: var(--surface);
-  font-size: 13px;
+  font-size: .875rem;
+  line-height: 1.35;
   font-weight: 600;
   white-space: nowrap;
 }
 
-.button:hover:enabled, .button[aria-pressed="true"] {
+.button:hover:enabled {
   background: var(--tint);
   color: var(--accent);
+}
+
+.button:active:enabled, .button[aria-pressed="true"] {
+  background: var(--selection);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
 }
 
 .button.primary {
@@ -144,13 +147,20 @@ h2 {
   background: var(--accent-hover);
 }
 
-.button.quiet, .button.icon-button {
+.button:where(.quiet,.icon-button) {
   background: transparent;
   border-color: transparent;
 }
 
 .button.icon-button {
-  padding: var(--s2);
+  min-width: var(--control-small);
+  padding: var(--s1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .button {
+    transition: background-color .1s ease-out, border-color .1s ease-out, color .1s ease-out;
+  }
 }
 
 .section-heading, .actions {
@@ -176,7 +186,8 @@ h2 {
 }
 
 .empty {
-  padding: var(--s5);
+  padding: var(--s4);
+  line-height: 1.5;
 }
 
 .work-panel {
@@ -224,8 +235,13 @@ h2 {
 }
 
 .segmented-controls > .button:not(:first-child) {
+  margin-inline-start: -1px;
   border-start-start-radius: 0;
   border-end-start-radius: 0;
+}
+
+.segmented-controls > .button:is([aria-pressed="true"],:focus-visible) {
+  z-index: 1;
 }
 
 .segmented-controls > .button:not(:last-child) {

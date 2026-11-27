@@ -11,11 +11,17 @@ export function placements(ctx, entry, workspace) {
   ]}];
 }
 export function fileTree(ctx, workspace, {foldersOnly=false, expanded=[], selected, changed=()=>{}, activeFile, folderMenu, fileDrag, folderOrder, reorderFolders, select=foldersOnly ? ctx.openFolder : null} = {}) {
+  function entryButton(name, action, symbol) {
+    const control = button('', action, {symbol});
+    control.append(el('span', 'tree-name', name));
+    control.title = name;
+    return control;
+  }
   const rail = el('aside','file-tree panel');
   const filter = el('input','text-input');
   filter.type = 'search'; filter.placeholder = 'Search files…'; filter.setAttribute('aria-label','Search workspace files');
   const tree = el('div','tree-rows');
-  const header = button(workspaceName(ctx.library,workspace), () => ctx.openFolder(workspace,{workspace}), {symbol:'folder'});
+  const header = entryButton(workspaceName(ctx.library,workspace), () => ctx.openFolder(workspace,{workspace}), 'folder');
   header.dataset.folder = workspace;
   fileDrag?.target(header,workspace);
   rail.append(header);
@@ -73,7 +79,7 @@ export function fileTree(ctx, workspace, {foldersOnly=false, expanded=[], select
         toggle.setAttribute('aria-label',(open ? 'Collapse ' : 'Expand ')+entry.name);
         toggle.dataset.toggle = entry.path;
         toggle.setAttribute('aria-expanded',String(open));
-        const folder = button(entry.name,() => select ? select(entry.path) : toggle.click(),{symbol:'folder'});
+        const folder = entryButton(entry.name,() => select ? select(entry.path) : toggle.click(),'folder');
         bindFolder(folder,entry.path); fileDrag?.target(folder,entry.path);
         if (!entry.shared) fileDrag?.source(folder,()=>[entry.path]);
         folder.dataset.folder = entry.path;
@@ -93,7 +99,7 @@ export function fileTree(ctx, workspace, {foldersOnly=false, expanded=[], select
           if (query && !nested.children.length && !entry.name.toLowerCase().includes(query)) group.remove();
         }
       } else if (!foldersOnly && entry.name.toLowerCase().includes(query) && (entry.kind === 'note' || entry.openable)) {
-        const b = button(entry.name,() => ctx.openNote(entry.path,undefined,'','replace',workspace),{symbol:entry.kind});
+        const b = entryButton(entry.name,() => ctx.openNote(entry.path,undefined,'','replace',workspace),entry.kind);
         b.dataset.path = entry.path;
         if (entry.path===activeFile?.()) b.setAttribute('aria-current','page');
         fileDrag?.source(b,()=>[entry.path]);

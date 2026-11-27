@@ -97,7 +97,7 @@ export async function progressEditor(ctx,day=localDay(),scope=null,options={}) {
     ratingTitles[owner.split('/')[0]].forEach((title,n)=>{
       const b=button(String(n),()=>{row.reviewed=true;rate(n);});b.dataset.score=n;b.title=title;controls.append(b);
     });
-    controls.append(button('Clear rating',()=>{row.reviewed=true;rate(null);}));
+    controls.append(button('Clear rating',()=>{row.reviewed=true;rate(null);},{variant:'quiet'}));
     row.useSaved=latest=>{
       row.note.value=latest?.summary || '';
       row.reviewed=false;

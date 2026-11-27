@@ -1,5 +1,95 @@
-.music-player,.music-playlist {
+.dialog:has(.music-player) {
+  --dialog-width: 480px;
+}
+
+.music-player, .music-playlist {
   display: grid;
+  grid-template-columns: minmax(0,1fr);
+  align-content: start;
   gap: var(--s3);
   min-width: 0;
+}
+
+.music-current-track, .music-feedback {
+  overflow-wrap: anywhere;
+}
+
+.music-current-track {
+  display: grid;
+  gap: var(--s1);
+  line-height: 1.4;
+}
+
+.music-current-track small:empty {
+  display: none;
+}
+
+.music-transport {
+  gap: var(--s1);
+}
+
+.music-player .field {
+  grid-template-columns: 9.5em minmax(0,1fr);
+  column-gap: var(--s3);
+  align-items: center;
+  color: var(--muted);
+}
+
+.music-player input[type=range] {
+  min-width: 0;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
+}
+
+.music-feedback {
+  font-size: .9rem;
+  color: var(--warning);
+}
+
+.music-feedback:empty {
+  display: none;
+}
+
+.music-playlist {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s3);
+  gap: var(--s1);
+}
+
+.music-playlist .empty {
+  padding: var(--s2) 0;
+}
+
+.music-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s1);
+}
+
+.music-track > .button {
+  flex: 1 1 10em;
+  justify-content: flex-start;
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.music-track .actions {
+  gap: 0;
+  margin-left: auto;
+}
+
+.music-track .actions .button {
+  min-width: var(--control-small);
+  padding-inline: var(--s1);
+}
+
+.music-player > .button {
+  justify-self: start;
 }

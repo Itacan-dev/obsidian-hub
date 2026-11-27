@@ -55,8 +55,10 @@ export function homeView(library, ctx) {
   root.append(hero);
   if (!library) {
     const welcome = el('section', 'welcome panel');
-    welcome.append(el('h2', '', 'Open your library'), el('p', 'muted', 'Choose your Itacan folder, or select an empty folder to start a library on this device.'),
-      button('Choose a folder', chooseLibrary, { variant: 'primary', symbol: 'folder' }),button('Try Field Library',ctx.chooseSample),button('Library guide',libraryGuide,{variant:'quiet'}));
+    const actions = el('div', 'actions');
+    actions.append(button('Choose a folder', chooseLibrary, { variant: 'primary', symbol: 'folder' }),
+      button('Try Field Library',ctx.chooseSample),button('Library guide',libraryGuide,{variant:'quiet'}));
+    welcome.append(el('h2', '', 'Open your library'), el('p', 'muted', 'Choose your Itacan folder, or select an empty folder to start a library on this device.'),actions);
     root.append(welcome);
     return { root };
   }
@@ -133,6 +135,7 @@ export function homeView(library, ctx) {
     resources.append(others);
   }
   const tasks = taskPanel(ctx);
+  tasks.root.classList.add('home-tasks');
   const plan = planPanel(ctx);
   const calendar=calendarPanel(ctx);
   const panels=el('div','home-panels');

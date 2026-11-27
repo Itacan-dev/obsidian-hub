@@ -28,6 +28,11 @@
   --s6: 32px;
   --s7: 48px;
   --control-radius: 7px;
+  --control-height: 36px;
+  --control-small: 32px;
+  --line-soft: color-mix(in srgb, var(--line) 68%, transparent);
+  --selection: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  --popover-shadow: 0 4px 18px #10241d22;
   --panel-radius: 13px;
   --panel-gap: 12px;
   --gutter: clamp(16px, 2.5vw, 32px);
@@ -54,12 +59,22 @@
   --s4: 12px;
   --s5: 18px;
   --panel-gap: 9px;
+  --control-height: 32px;
+  --control-small: 28px;
 }
 
 :root[data-motion=Reduced] *, :root[data-motion=Reduced] *::before, :root[data-motion=Reduced] *::after {
-  animation-duration: .01ms!important;
-  transition-duration: .01ms!important;
+  animation: none!important;
+  transition: none!important;
   scroll-behavior: auto!important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none!important;
+    transition: none!important;
+    scroll-behavior: auto!important;
+  }
 }
 
 :root[data-accent=Blue] {

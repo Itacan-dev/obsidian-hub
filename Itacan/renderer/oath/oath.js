@@ -20,8 +20,11 @@ async function setup(ctx) {
   if (!workspaces.length) throw Error('Create a workspace before taking an Oath.');
   const lastWorkspace = ctx.workspaces.lastWorkspace() || ctx.workspaces.lastFolder()?.split('/').slice(0, 2).join('/');
   const owner = field(body, 'Workspace', 'select', workspaces.includes(lastWorkspace) ? lastWorkspace : workspaces[0], workspaces);
-  const when = field(body, 'Start', 'select', 'Now', ['Now', 'Schedule']);
-  const start = field(body, 'Scheduled start', 'datetime-local');
+  const timing = el('div', 'oath-fields');
+  const fulfilment = el('div', 'oath-fields');
+  body.append(timing, fulfilment);
+  const when = field(timing, 'Start', 'select', 'Now', ['Now', 'Schedule']);
+  const start = field(timing, 'Scheduled start', 'datetime-local');
   function showSchedule() {
     start.parentElement.hidden = when.value === 'Now';
     start.required = !start.parentElement.hidden;
@@ -29,8 +32,8 @@ async function setup(ctx) {
   when.onchange = showSchedule;
   showSchedule();
 
-  const condition = field(body, 'Fulfilment', 'select', conditions.duration, Object.values(conditions));
-  const minutes = field(body, 'Duration in minutes', 'number', 50);
+  const condition = field(fulfilment, 'Fulfilment', 'select', conditions.duration, Object.values(conditions));
+  const minutes = field(fulfilment, 'Duration in minutes', 'number', 50);
   minutes.min = 1;
   minutes.max = 10080;
   function showDuration() {
@@ -108,7 +111,7 @@ async function activeDialog(ctx, oath) {
   const heading = el('strong', 'oath-condition', conditions[oath.condition]);
   const status = el('p', 'muted oath-status');
   const list = el('div', 'oath-tasks');
-  const actions = el('div', 'actions');
+  const actions = el('div', 'actions oath-actions');
   body.append(heading, status, list, actions);
 
   function changed(operation, data = {}) {
@@ -146,10 +149,12 @@ async function activeDialog(ctx, oath) {
       const select = el('select', 'text-input');
       select.setAttribute('aria-label', 'Additional task');
       for (const task of candidates) select.add(new Option(task.title, task.id));
-      actions.append(select, button('Add task to Oath', async () => {
+      const add = el('div', 'actions oath-action-row');
+      add.append(select, button('Add task to Oath', async () => {
         await changed(ctx.oaths.addTask, { taskId: select.value });
         render();
       }));
+      actions.append(add);
     }
     if (current.status === 'active' && current.condition === 'manual') {
       actions.append(button('End Oath', async () => {
@@ -167,13 +172,15 @@ async function activeDialog(ctx, oath) {
       }));
     }
     if (current.status === 'active' && current.condition !== 'duration') {
-      const minutes = field(actions, 'Rest minutes', 'number', 5);
+      const rest = el('div', 'actions oath-action-row');
+      const minutes = field(rest, 'Rest minutes', 'number', 5);
       minutes.min = 1;
       minutes.max = 60;
-      actions.append(button('Start rest', async () => {
+      rest.append(button('Start rest', async () => {
         await changed(ctx.oaths.rest, { minutes: minutes.valueAsNumber });
         render();
       }));
+      actions.append(rest);
     }
     if (current.status === 'rest') {
       actions.append(button('Resume now', async () => {

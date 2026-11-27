@@ -102,8 +102,11 @@ export function musicButton(ctx) {
 
   async function open() {
     const body = el('div', 'music-player');
-    const caption = el('strong', 'music-current-track');
-    const feedback = el('p', 'muted');
+    const caption = el('div', 'music-current-track');
+    const trackName = el('strong');
+    const trackFolder = el('small', 'muted');
+    caption.append(trackName, trackFolder);
+    const feedback = el('p', 'music-feedback');
     feedback.setAttribute('role', 'status');
 
     const seek = el('input');
@@ -112,9 +115,9 @@ export function musicButton(ctx) {
       if (!player.paused) return player.pause();
       return play(playingPath || ctx.music.playlist().find(allowed));
     });
-    const previous = button('Previous', () => adjacent(-1));
-    const next = button('Next', () => adjacent(1));
-    const tools = el('div', 'actions');
+    const previous = button('Previous', () => adjacent(-1), {variant:'quiet'});
+    const next = button('Next', () => adjacent(1), {variant:'quiet'});
+    const tools = el('div', 'actions music-transport');
     tools.append(previous, toggle, next);
 
     const list = el('div', 'music-playlist');
@@ -150,20 +153,20 @@ export function musicButton(ctx) {
         return store(ordered);
       }
       for (const [index, track] of tracks.entries()) {
-        const row = el('div', 'section-heading');
-        const name = button(track.split('/').at(-1), () => play(track));
+        const row = el('div', 'music-track');
+        const name = button(track.split('/').at(-1), () => play(track), {variant:'quiet'});
         name.title = track;
         name.disabled = !allowed(track);
         name.setAttribute('aria-pressed', String(track === playingPath));
 
-        const up = button('↑', () => shift(index, index - 1));
-        const down = button('↓', () => shift(index, index + 1));
+        const up = button('↑', () => shift(index, index - 1), {variant:'quiet'});
+        const down = button('↓', () => shift(index, index + 1), {variant:'quiet'});
         up.setAttribute('aria-label', 'Move up ' + track);
         down.setAttribute('aria-label', 'Move down ' + track);
         up.disabled = index === 0;
         down.disabled = index + 1 === tracks.length;
         const actions = el('div', 'actions');
-        actions.append(up, down, button('Remove', () => store(tracks.filter(path => path !== track))));
+        actions.append(up, down, button('Remove', () => store(tracks.filter(path => path !== track)), {variant:'quiet'}));
         row.append(name, actions);
         list.append(row);
       }
@@ -171,7 +174,9 @@ export function musicButton(ctx) {
     renderTransport = () => {
       const tracks = ctx.music.playlist().filter(allowed);
       const index = tracks.indexOf(playingPath);
-      caption.textContent = playingPath || 'Local playlist';
+      const parts = playingPath.split('/');
+      trackName.textContent = parts.pop() || 'Local playlist';
+      trackFolder.textContent = parts.join(' / ');
       toggle.textContent = player.paused ? 'Play' : 'Pause';
       toggle.disabled = !tracks.length;
       previous.disabled = index < 1;

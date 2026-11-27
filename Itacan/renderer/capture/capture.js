@@ -33,7 +33,7 @@ export function quickAdd(ctx) {
   const clear = button('Clear',() => run(async () => {
     await fileAttachments(ctx,[...records()],true,true);
     await ctx.capture.saveDraft({text:''}); input.value = '';
-  }));
+  }),{variant:'quiet'});
   const place = button('Add files to…',() => run(() => fileAttachments(ctx,[...records()],true)));
   const send = button('Send to Inbox',() => run(async () => {
     await ctx.capture.send({text:input.value});
@@ -52,8 +52,10 @@ export function quickAdd(ctx) {
     for (const b of actions.children) b.disabled = !text;
     files.replaceChildren();
     for (const item of records()) {
-      const row = el('div','section-heading');
-      row.append(el('span','',item.name),button('Remove '+item.name,() => run(() => fileAttachments(ctx,[item],true,true))));
+      const row = el('div','capture-file');
+      const remove = button('Remove',() => run(() => fileAttachments(ctx,[item],true,true)),{variant:'quiet'});
+      remove.setAttribute('aria-label','Remove '+item.name);
+      row.append(el('span','',item.name),remove);
       files.append(row);
     }
   }
@@ -77,8 +79,8 @@ export function quickAdd(ctx) {
     if (input.value.trim()) return report('Clear the text before choosing files.');
     run(async () => ctx.install(await window.itacan.stageFiles(ctx.library.session,incoming),'capture')).catch(report);
   };
-  editor.append(actions); body.append(editor,files,choose,feedback); sync();
-  return showDialog({title:'Quick Add',description:'Write down a thought, or choose files',content:body,wide:true,actions:[],footerControls:[clear,place,send],
+  editor.append(actions); body.append(editor,files,choose); sync();
+  return showDialog({title:'Quick Add',description:'Write down a thought, or choose files',content:body,wide:true,actions:[],footerControls:[clear,feedback,place,send],
     beforeClose:async () => {
       if (busy) throw Error('Finish the current capture action first.');
       await checkpoint();
