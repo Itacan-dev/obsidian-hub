@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "tasks": [],
+  "inbox": [],
+  "plan": null,
+  "history": [],
+  "presets": [],
+  "lastLayout": {
+    "active": 0,
+    "panes": [
+      {
+        "tabs": [
+          "Projects/Forest survey/Field notes.md",
+          "Resources/Research/Papers/Hello.md"
+        ],
+        "file": "Resources/Research/Papers/Hello.md",
+        "edit": false,
+        "id": "2c201475-a821-4dc7-8220-79637875dd1b",
+        "views": {
+          "Resources/Research/Papers/Hello.md": {
+            "editing": false,
+            "read": 0
+          },
+          "Projects/Forest survey/Field notes.md": {
+            "editing": false,
+            "read": 0
+          }
+        }
+      },
+      {
+        "file": "Resources/Research/Papers/Hello.md",
+        "tabs": [
+          "Resources/Research/Papers/Hello.md"
+        ],
+        "edit": false,
+        "id": "3ff33900-2af9-46f2-b8f9-2a61087880c2",
+        "views": {
+          "Resources/Research/Papers/Hello.md": {
+            "editing": false,
+            "read": 0
+          }
+        }
+      }
+    ],
+    "expanded": [
+      "Resources/Research/Papers"
+    ],
+    "folder": "Resources/Research/Papers",
+    "split": {
+      "axis": "row",
+      "share": 0.5,
+      "first": "2c201475-a821-4dc7-8220-79637875dd1b",
+      "second": "3ff33900-2af9-46f2-b8f9-2a61087880c2"
+    }
+  },
+  "lastFolder": "Resources/Explorations",
+  "explorers": {
+    "Projects/Forest survey": {
+      "expanded": [],
+      "folder": "Projects/Forest survey"
+    },
+    "Resources/Research": {
+      "expanded": [],
+      "folder": "Resources/Research/Papers"
+    },
+    "Projects/Test": {
+      "expanded": [],
+      "folder": "Projects/Test"
+    },
+    "Resources/Explorations": {
+      "expanded": [],
+      "folder": "Resources/Explorations"
+    }
+  },
+  "activity": [
+    {
+      "day": "2026-11-25",
+      "at": "2026-11-25T11:44:40.278Z",
+      "action": "project-created",
+      "owner": "Projects/Test",
+      "path": "Projects/Test",
+      "title": "Test"
+    },
+    {
+      "day": "2026-11-25",
+      "at": "2026-11-25T11:42:14.467Z",
+      "action": "created",
+      "owner": "Resources/Research",
+      "path": "Resources/Research/Papers/Hello.md",
+      "title": "Hello.md"
+    }
+  ]
+}
