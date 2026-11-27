@@ -1,10 +1,21 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
-const { atomicReplace, validName } = require('./library.cjs');
+const { atomicReplace } = require('./library.cjs');
 const { taskAction } = require('./tasks.cjs');
 const { saveReports, recordTaskChanges, moveProgress } = require('./progress.cjs');
 const { today, expired, finish, planAction } = require('./plan.cjs');
+
+const { setPlaylist, rewriteMusicRefs } = require('./music.cjs');
+const { protectFormat } = require('./library-format.cjs');
+const { validateStoredWork } = require('./work-format.cjs');
+const { workspaceContext } = require('../contracts/workspace.cjs');
+const { recoverMove, serialize } = require('./recovery.cjs');
+const { oathAction, advanceOath, moveOath } = require('./oath.cjs');
+const { roadmapAction, moveRoadmaps } = require('./project-planning.cjs');
+const { setPreferences } = require('./settings.cjs');
+const { workspaceAction, relinkDestination, rewriteWorkspaceRefs } = require('./workspaces.cjs');
+const { updateLayout } = require('./presets.cjs');
+const { captureAction, inboxAction, fileCapturesAsTasks } = require('./capture-state.cjs');
 
 function empty() {
   return { version: 1, tasks: [], inbox: [], plan: null, history: [], presets: [], lastLayout: null };
@@ -15,6 +26,15 @@ function rewriteRefs(state, from, to) {
     return to ? to + value.slice(from.length) : '';
   }
   moveProgress(state,from,to);
+  rewriteMusicRefs(state,from,to);
+  moveOath(state,from,to);
+  moveRoadmaps(state,from,to);
+  rewriteWorkspaceRefs(state,from,to);
+  for (const cover of Object.values(state.settings?.covers || {})) {
+    if (cover.path) cover.path = rewrite(cover.path);
+  }
+  if (state.workspaceLayouts) state.workspaceLayouts = Object.fromEntries(
+    Object.entries(state.workspaceLayouts).filter(([key])=>rewrite(key)).map(([key,value])=>[rewrite(key),value]));
   for(const [status,order] of Object.entries(state.projectOrder || {}))
     state.projectOrder[status]=order.map(rewrite).filter(Boolean);
   if (state.explorers) {
@@ -34,10 +54,12 @@ function rewriteRefs(state, from, to) {
     if (to) state.projectStatus[to] = status;
   }
   for (const task of state.tasks) {
+    if (task.owner && !rewrite(task.owner)) task.missingOwner = task.owner;
     task.owner = rewrite(task.owner);
     if (task.location && rewrite(task.location) !== task.location) {
+      if (!rewrite(task.location)) task.missingLocation = task.location;
       task.location = rewrite(task.location);
-      if (task.location) task.owner = task.location.split('/').slice(0, 2).join('/');
+      if (task.location) task.owner = workspaceContext(state,task.location,task.owner);
     }
   }
   for (const entry of state.plan?.entries || []) {
@@ -52,7 +74,8 @@ function rewriteRefs(state, from, to) {
     const ref = rewrite(entry.ref);
     if (ref) entry.ref = ref; else entry.missing = true;
   }
-  for (const layout of [state.lastLayout, ...state.presets.map(p => p.layout)].filter(Boolean)) {
+  for (const layout of new Set([state.lastLayout, ...Object.values(state.workspaceLayouts || {}), ...state.presets.map(p => p.layout)].filter(Boolean))) {
+    if (layout.workspace) layout.workspace = rewrite(layout.workspace);
     if (layout.explorer) {
       if(layout.explorer.order) layout.explorer.order=layout.explorer.order.map(rewrite).filter(Boolean);
       layout.explorer.folder = rewrite(layout.explorer.folder);
@@ -71,35 +94,17 @@ function rewriteRefs(state, from, to) {
   }
 }
 
-function updateLayout(state, action, {name, layout, next}) {
-  const index = state.presets.findIndex(p => p.name === name);
-  if (['rename','up','down','reorder'].includes(action)) {
-    if (index < 0) throw Error('Preset is unavailable.');
-    if (action === 'rename') {
-      validName(next);
-      if (state.presets.some(p => p.name === next && p.name !== name)) throw Error('Name already in use.');
-      state.presets[index].name = next;
-    } else {
-      const to = action==='reorder' ? state.presets.findIndex(p=>p.name===next) : index + (action === 'up' ? -1 : 1);
-      if (to >= 0 && to < state.presets.length) state.presets.splice(to,0,state.presets.splice(index,1)[0]);
-    }
-    return;
-  }
-  if (action === 'remove') {
-    state.presets = state.presets.filter(preset => preset.name !== name);
-    return;
-  }
-  const panes = layout?.panes;
-  if (!Array.isArray(panes) || panes.length < 1 ||
-      !Number.isInteger(layout.active) || !panes[layout.active] ||
-      panes.some(pane => !Array.isArray(pane.tabs) || pane.tabs.some(file => typeof file !== 'string') ||
-        (pane.file ? !pane.tabs.includes(pane.file) : pane.tabs.length))) throw Error('Invalid document layout.');
-  if (action === 'remember') state.lastLayout = layout;
-  else if (action === 'preset') {
-    validName(name);
-    if (index >= 0) state.presets[index].layout = layout;
-    else state.presets.push({name, layout});
-  } else throw Error('Unknown layout action.');
+// Coordinated task changes share one commit with dependent progress, Oath and capture records.
+async function applyTaskChange(state, action, data, library) {
+  const capture = action === 'save' && data.captureId;
+  if (capture && !state.inbox.some(item => item.id === capture && item.text)) throw Error('Capture already resolved.');
+  const before = structuredClone(state.tasks.find(task => task.id === data.id));
+  const saved = await taskAction(state, action, data, library);
+  const after = action === 'save' ? saved : state.tasks.find(task => task.id === data.id);
+  recordTaskChanges(state, before, after);
+  advanceOath(state);
+  if (data.quick) state.quickText = '';
+  if (capture) state.inbox = state.inbox.filter(item => item.id !== capture);
 }
 
 class LibraryWork {
@@ -107,6 +112,7 @@ class LibraryWork {
     this.library = library;
     this.file = path.join(library.root, 'itacan-work.json');
     this.queue = Promise.resolve();
+    this.firstRead = true;
   }
   async load() {
     if (await fs.realpath(this.library.root) !== this.library.root) throw Error('The library moved. Choose its folder again.');
@@ -114,29 +120,39 @@ class LibraryWork {
       if (!(await fs.lstat(this.file)).isFile()) throw Error('Invalid library work file.');
       const raw = await fs.readFile(this.file, 'utf8');
       const state = JSON.parse(raw);
-      if (state.version !== 1 || !Array.isArray(state.tasks) || !Array.isArray(state.inbox)) throw Error('Unknown library work format.');
+      validateStoredWork(state);
+      state.history ??= [];
+      state.presets ??= [];
       return { raw, state };
     } catch (error) { if (error.code === 'ENOENT') return { raw: null, state: empty() }; throw error; }
   }
   transaction(change) {
     const run = async () => {
+      await recoverMove(this.library);
       const { state, raw } = await this.load();
+      const oathChanged = advanceOath(state,{recover:this.firstRead});
       const expiredPreview = state.finishedPreview && state.history.find(p=>p.id===state.finishedPreview)?.day !== today();
       const rollover = !change && expired(state.plan);
       if (expiredPreview) state.finishedPreview=null;
-      if (!change && !rollover && !expiredPreview) return state;
+      if (!change && !rollover && !expiredPreview && !oathChanged) { this.firstRead = false; this.latest = state; return state; }
+      if (state.revision === Number.MAX_SAFE_INTEGER) throw Error('Library revision exhausted. Preserve the work file for recovery.');
       if (rollover) finish(state);
+      await protectFormat(this.library,raw,atomicReplace);
       let rollback;
       try {
-        rollback = await change?.(state);
-        const next = JSON.stringify(state, null, 2) + '\n';
+        rollback = await change?.(state,raw);
+        let next = serialize(state);
         if (next !== (raw ?? JSON.stringify(empty(), null, 2) + '\n')) {
+          state.revision = (state.revision || 0) + 1;
+          next = serialize(state);
           await atomicReplace(this.file, next, undefined, async () => {
             const current = await fs.readFile(this.file, 'utf8').catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
             if (raw !== current) throw Error('Library data changed on disk. Reopen this view and retry.');
           });
         }
       } catch (error) { if (typeof rollback === 'function') await rollback(); throw error; }
+      this.firstRead = false;
+      this.latest = state;
       return state;
     };
     const result = this.queue.then(run);
@@ -144,70 +160,35 @@ class LibraryWork {
     return result;
   }
   command(group, action, data = {}) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw Error('Invalid operation arguments.');
     return this.transaction(async state => {
-      if (group === 'progress' && action === 'save') {
-        await saveReports(state,data,this.library);
-      } else if (group === 'task') {
-        if (action==='captures') {
-          const owner=data.path.split('/').slice(0,2).join('/');
-          const ids=new Set(data.ids);
-          for (const id of ids) {
-            const item=state.inbox.find(i=>i.id===id && !i.name);
-            if (!item) throw Error('Capture is no longer available.');
-            const [title,...lines]=item.text.split('\n');
-            await taskAction(state,'save',{owner,location:owner===data.path?'':data.path,title,description:lines.join('\n')},this.library);
-          }
-          state.inbox=state.inbox.filter(i=>!ids.has(i.id));
+      switch (group) {
+        case 'workspace':
+          if (action === 'relink-document') {
+            const destination = await relinkDestination(this.library, data);
+            rewriteRefs(state, data.from, destination);
+          } else await workspaceAction(state, action, data, this.library);
           return;
-        }
-        const capture = action === 'save' && data.captureId;
-        if (capture && !state.inbox.some(item => item.id === capture && item.text)) throw Error('Capture already resolved.');
-        const before = structuredClone(state.tasks.find(t => t.id === data.id));
-        const saved = await taskAction(state, action, data, this.library);
-        const changed = action === 'save' ? saved : state.tasks.find(t => t.id === data.id);
-        recordTaskChanges(state,before,changed);
-        if (data.quick) state.quickText = '';
-        if (capture) state.inbox = state.inbox.filter(item => item.id !== capture);
-      } else if (group === 'workspace') {
-        await this.library.resolve(data.path);
-        if (action === 'visit') {
-          state.lastFolder = data.path;
-          const owner = data.path.split('/').slice(0,2).join('/');
-          const views = state.explorers ||= {};
-          (views[owner] ||= {expanded:[]}).folder = data.path;
-        }
-        else if (action === 'explorer') {
-          (state.explorers ||= {})[data.path] = {folder:data.folder,expanded:data.expanded,sort:data.sort,direction:data.direction,width:data.width,order:data.order};
-        } else if(action==='project-order' && ['Active','Future','Shelved'].includes(data.status) && Array.isArray(data.order)) {
-          (state.projectOrder ||= {})[data.status]=[...new Set(data.order.filter(p=>typeof p==='string' && /^Projects\/[^/]+$/.test(p)))];
-        } else if (action === 'status' && data.path.startsWith('Projects/') && ['Active','Future','Shelved'].includes(data.status)) {
-          (state.projectStatus ||= {})[data.path] = data.status;
-        } else throw Error('Unknown workspace action.');
-      } else if (group === 'plan') {
-        await planAction(state, action, data, this.library);
-      } else if (group === 'layout') {
-        updateLayout(state, action, data);
-      } else if (group === 'capture') {
-        if (action === 'draft') {
-          if (state.quickFiles?.length && data.text.trim()) throw Error('File capture is active.');
-          state.quickText = data.text;
-        } else if (action === 'send') {
-          if (state.quickFiles?.length) state.inbox.unshift(...state.quickFiles);
-          else if (data.text?.trim()) state.inbox.unshift({id:randomUUID(),text:data.text,created:new Date().toISOString()});
-          else throw Error('Enter text or choose files.');
-          state.quickFiles = []; state.quickText = '';
-        } else throw Error('Unknown capture action.');
-      } else if (group === 'inbox') {
-        if (action === 'edit') {
-          const item = state.inbox.find(i => i.id === data.id && !i.name);
-          if (!item || !data.text.trim()) throw Error('Capture text is required.');
-          item.text = data.text; return;
-        }
-        if (action === 'sort') { state.inboxSort = data.sort; return; }
-        if (action === 'add' && data.text?.trim()) state.inbox.unshift({ id: randomUUID(), text: data.text, created: new Date().toISOString() });
-        else if (action === 'remove') state.inbox = state.inbox.filter(item => item.id !== data.id);
-        else throw Error('Enter capture text.');
-      } else throw Error('Unknown library operation.');
+        case 'layout': return updateLayout(state, action, data);
+        case 'capture': return captureAction(state, action, data);
+        case 'inbox': return inboxAction(state, action, data);
+        case 'plan': return planAction(state, action, data, this.library);
+        case 'oath': return oathAction(state, action, data, this.library);
+        case 'roadmap': return roadmapAction(state, action, data, this.library);
+        case 'music':
+          if (action === 'setPlaylist') return setPlaylist(state,data,this.library);
+          break;
+        case 'settings':
+          if (action === 'save') return setPreferences(state, data, this.library);
+          break;
+        case 'progress':
+          if (action === 'save') return saveReports(state, data, this.library);
+          break;
+        case 'task':
+          if (action === 'captures') return fileCapturesAsTasks(state, data, this.library);
+          return applyTaskChange(state, action, data, this.library);
+      }
+      throw Error('Unknown library operation.');
     });
   }
 }

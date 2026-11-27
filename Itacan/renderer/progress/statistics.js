@@ -38,13 +38,13 @@ export async function statistics(ctx) {
   filters.append(scope);
   const grid=el('div','statistics-grid scroll-body');body.append(grid);filters.append(ranges);
   let range='All time',notes;
-  const activity=(ctx.state.activity || []).filter(e=>!e.reopened),reports=ctx.state.reports || [];
+  const activity=ctx.progress.activity().filter(e=>!e.reopened),reports=ctx.progress.reports(),oaths=ctx.oaths.history();
   const card=(title,wide=false)=>{const node=el('section',wide?'panel stat-card wide':'panel stat-card');node.append(el('h3','',title));grid.append(node);return node;};
   function render(){
     if(!notes)return;
     for(const b of ranges.children)b.setAttribute('aria-pressed',String(b.textContent===range));
     grid.replaceChildren();
-    const end=localDay(),start=startDate(range,[...reports,...activity,...notes].map(i=>i.day),new Date());
+    const end=localDay(),start=startDate(range,[...reports,...activity,...oaths].map(i=>i.day),new Date());
     const period=r=>r.day>=start && r.day<=end;
     const visible=r=>period(r) && (scope.value===all || r.owner===scope.value && !r.removedWorkspace);
     const points=new Map();
@@ -58,14 +58,19 @@ export async function statistics(ctx) {
     const events=activity.filter(visible),work=events.filter(e=>['created','edited','task','step'].includes(e.action));
     chart(card('Activity over time'),work.map(e=>({day:e.day,series:Number(e.owner.startsWith('Resources/'))})),start,end,['Projects','Resources']);
     chart(card('Tasks & steps completed',true),work.filter(e=>['task','step'].includes(e.action)).map(e=>({day:e.day,series:Number(e.action==='step')})),start,end,['Tasks','Steps']);
-    const noteCard=card('Notes',true),surviving=new Set(notes.map(n=>n.path)),created=notes.filter(visible);
+    const noteCard=card('Notes',true),inventory=notes.filter(n=>scope.value===all || n.owner===scope.value);
+    const surviving=new Set(inventory.map(n=>n.path)),created=events.filter(e=>e.action==='created' && /\.md$/i.test(e.path));
     const edited=new Set(events.filter(e=>e.action==='edited' && !e.removed && surviving.has(e.path)).map(e=>e.path));
     chart(noteCard,created.map(n=>({day:n.day,series:0})),start,end,['Notes created']);
-    noteCard.append(el('p','',new Set([...created.map(n=>n.path),...edited]).size+' total notes · '+edited.size+' edited'));
+    noteCard.append(el('p','',inventory.length+' notes currently in library scope · '+edited.size+' edited in period'));
+    const oathCard=card('Oaths'),sessions=oaths.filter(visible);
+    const totalTime=sessions.reduce((ms,o)=>ms+(o.activeMs || 0),0);
+    oathCard.append(el('p','',sessions.filter(o=>o.startedAt).length+' started · '+Math.round(totalTime/60000)+' min committed'),
+      el('p','', ['fulfilled','broken','interrupted','missed','cancelled'].map(s=>sessions.filter(o=>o.status===s).length+' '+s).join(' · ')));
     const projects=card('Projects');
     for(const w of ctx.library.projects){
       const last=activity.find(e=>!e.removedWorkspace && e.owner===w.path && ['created','edited','task','step'].includes(e.action));
-      projects.append(el('p','',w.name+' · '+(ctx.state.projectStatus?.[w.path] || 'Active')+' · '+(last?.day || 'No activity')));
+      projects.append(el('p','',w.name+' · '+ctx.workspaces.status(w.path)+' · '+(last?.day || 'No activity')));
     }
     const compare=card('Projects vs Resources');
     const totals=['Projects','Resources'].map(kind=>reports.filter(r=>period(r)&&r.owner.startsWith(kind+'/')).reduce((n,r)=>n+(r.score||0),0));

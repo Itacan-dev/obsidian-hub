@@ -5,6 +5,7 @@ import { mkdtemp, cp, appendFile, readFile, writeFile, mkdir, rm, realpath, stat
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {samplePdf} from './sample-pdf.mjs';
 
 const require = createRequire(import.meta.url);
 const tmp = await mkdtemp(path.join(tmpdir(), 'itacan-desktop-'));
@@ -12,15 +13,17 @@ const library = path.join(tmp, 'Field Library');
 const fresh = path.join(tmp, 'Fresh library');
 await cp('examples/Field Library', library, { recursive: true });
 await appendFile(path.join(library,'Projects/Forest survey/Field notes.md'),
-  '\n[[../../Resources/Research/Papers/Sampling protocol#Method|Wiki method]]\n' + '\nReading position fixture.\n'.repeat(55));
+  '\n[Linked method](<../../Resources/Research/Papers/Sampling protocol.md#Method>)\n' + '\nReading position fixture.\n'.repeat(55));
 await writeFile(path.join(library,'Projects/Forest survey/Companion.md'),'Second tab');
+await writeFile(path.join(library,'Projects/Forest survey/Sampling.pdf'),samplePdf());
+await writeFile(path.join(library,'Projects/Forest survey/Session.md'),'# Lab\n\nLocal equation $x^2 + y^2$.\n\n![Canopy](canopy.jpg)\n');
 const fieldNote = 'Projects/Forest survey/Field notes.md';
 const alternate = 'projects/FOREST SURVEY/field notes.md';
 const testAliases = process.platform === 'win32' &&
   await realpath(path.join(library, alternate)).catch(() => null) === await realpath(path.join(library, fieldNote));
 if (testAliases) {
   await writeFile(path.join(library, 'Projects/Forest survey/Links.md'),
-    '[[../../projects/FOREST SURVEY/field notes|Alternate spelling]]');
+    '[Alternate spelling](<../../projects/FOREST SURVEY/field notes.md>)');
   const layout = { active: 0, panes: [
     { tabs: [alternate, fieldNote], file: alternate, edit: false },
     { tabs: [alternate], file: alternate, edit: true }
@@ -33,8 +36,10 @@ if (testAliases) {
 await mkdir(fresh);
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
+const appCopy=path.join(tmp,'app');
+await cp('build/app',appCopy,{recursive:true});
 const options = { executablePath: require('electron'), env,
-  args: ['--user-data-dir=' + path.join(tmp, 'profile'), path.resolve('build/app')] };
+  args: ['--user-data-dir=' + path.join(tmp, 'profile'), appCopy] };
 let desktop;
 async function select(page, directory, control) {
   await desktop.evaluate(({ dialog }, selected) => {
@@ -50,7 +55,7 @@ try {
   async function testWindow() {
     const page = await desktop.firstWindow();
     page.setDefaultTimeout(8000);
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => { errors.push(error.message);console.error('Renderer exception:',error.message); });
     page.on('request', request => { if (/^https?:/.test(request.url())) remoteRequests.push(request.url()); });
     await page.context().setOffline(true);
     return page;
@@ -98,7 +103,7 @@ try {
     await page.waitForFunction(()=>document.querySelector('.capture-editor textarea')?.value==='');
   }
   await select(page, fresh, 'Choose a folder');
-  await btn('Research').waitFor();
+  await btn('Literature').waitFor();
   const fullscreen = () => desktop.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isFullScreen());
   assert.equal(await fullscreen(),false);
   assert.equal(await desktop.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isMaximized()),true);
@@ -301,12 +306,12 @@ try {
   const previousDay=new Date();previousDay.setDate(previousDay.getDate()-1);
   if(previousDay.getFullYear()!==new Date().getFullYear())await progress.getByRole('button',{name:'Previous year'}).click();
   const earlierCell=progress.locator('[data-day="'+previousDay.toLocaleDateString('sv-SE')+'"]');
-  await earlierCell.click();await db('Add workspace').click();await db('Research').click();
-  await dialog().getByRole('group',{name:'Rating for Resources/Research'}).getByRole('button',{name:'2',exact:true}).click();
-  await dialog().getByLabel('Reflection for Resources/Research').fill('Reviewed earlier notes');
+  await earlierCell.click();await db('Add workspace').click();await db('Literature').click();
+  await dialog().getByRole('group',{name:'Rating for Resources/Literature'}).getByRole('button',{name:'2',exact:true}).click();
+  await dialog().getByLabel('Reflection for Resources/Literature').fill('Reviewed earlier notes');
   await db('Save progress').click();await earlierCell.click();
   await dialog().getByText('Reviewed earlier notes').waitFor();await db('Edit progress').click();
-  await dialog().getByLabel('Reflection for Resources/Research').fill('Reviewed earlier field notes');await db('Save progress').click();
+  await dialog().getByLabel('Reflection for Resources/Literature').fill('Reviewed earlier field notes');await db('Save progress').click();
   await progress.getByText('Reviewed earlier field notes').waitFor();
   await progress.getByRole('button',{name:'Tasks',exact:true}).click();
   await progress.getByText('Review results',{exact:true}).waitFor();
@@ -333,19 +338,19 @@ try {
   await search.fill('Edited abstract'); await page.getByRole('option',{name:/Abstract.md/}).waitFor();
   await search.press('ArrowDown'); await search.press('Enter'); await title('Abstract').waitFor();
   await btn('Home').click(); await btn('Experiment').click(); await page.locator('.file-tree').getByRole('button',{name:'Experiment',exact:true}).click(); await context(row('Abstract.md'),'Move');
-  await db('Research').click(); await db('Choose').click(); await row('Abstract.md').waitFor({state:'hidden'});
-  const moved=path.join(fresh,'Resources/Research/Abstract.md');
+  await db('Literature').click(); await db('Choose').click(); await row('Abstract.md').waitFor({state:'hidden'});
+  const moved=path.join(fresh,'Resources/Literature/Abstract.md');
   await btn('Quick Add').click(); await capture('Follow-up A'); await capture('Follow-up B'); await db('Close dialog').click();
   await btn('Inbox').click(); await db('Follow-up A').click(); await db('Follow-up B').click({modifiers:['Shift']});
   await dialog().getByText('2 texts selected').waitFor(); await screenshot('inbox-selection'); await db('Add 2 texts to note…').click();
-  await db('Research').click(); await db('Abstract.md').click(); await db('Add to note').click();
+  await db('Literature').click(); await db('Abstract.md').click(); await db('Add to note').click();
   await dialog().getByText('No captures to show.').waitFor(); await db('Close').click();
   assert.equal(await readFile(moved,'utf8'),'Edited abstract\n\nFollow-up A\n\nFollow-up B');
   await btn('Quick Add').click(); await page.getByLabel('Capture text').fill('Opening line'); await db('Add to note…').click();
-  await db('Research').click(); await db('Abstract.md').click(); await dialog().getByLabel('Position').selectOption({label:'Start of note'});
+  await db('Literature').click(); await db('Abstract.md').click(); await dialog().getByLabel('Position').selectOption({label:'Start of note'});
   await db('Add to note').click(); await db('Close dialog').click();
   assert.match(await readFile(moved,'utf8'),/^Opening line\n\nEdited abstract/);
-  await btn('Home').click(); await btn('Research').click(); await context(row('Abstract.md'),'Delete');
+  await btn('Home').click(); await btn('Literature').click(); await context(row('Abstract.md'),'Delete');
   await db('Delete').click(); await row('Abstract.md').waitFor({state:'hidden'}); await assert.rejects(readFile(moved),{code:'ENOENT'});
   await btn('Home').click();await btn('New project').click();await nameDialog('Interaction lab','Create');
   const labCard=btn('Interaction lab');await labCard.waitFor();
@@ -373,6 +378,29 @@ try {
   await select(page, library, 'Fresh library');
   if (process.env.ITACAN_TEST_SCREENSHOT) await page.screenshot({ path: process.env.ITACAN_TEST_SCREENSHOT });
   await btn('Forest survey').click();
+  // Read two native document types and restore a PDF page from a mixed preset.
+  await row('Sampling.pdf').dblclick();
+  await page.locator('.pdf-text-layer').getByText('Sampling methods').waitFor();
+  await btn('Next page').click();
+  await page.waitForFunction(()=>document.querySelector('.media-page-number')?.value==='2');
+  await context(rail('canopy.jpg'),'Right split');
+  await page.waitForFunction(()=>document.querySelector('.media-image')?.naturalWidth>0);
+  await btn('Presets').click();await item('Save as new preset').click();await nameDialog('Mixed desk','Save');
+  await btn('Home').click();await btn('Presets').click();await item('Mixed desk').click();
+  await page.waitForFunction(()=>document.querySelector('.media-page-number')?.value==='2' && document.querySelector('.media-image')?.naturalWidth>0);
+  await context(page.locator('.tabs').getByRole('button',{name:'canopy.jpg',exact:true}),'Close pane');
+  await btn('Workspace').click();
+  await row('Session.md').dblclick();await btn('Live Preview').click();
+  await page.locator('.cm-content .katex').waitFor();
+  await page.waitForFunction(()=>document.querySelector('.live-image')?.naturalWidth>0);
+  await source().press('Control+End');await page.keyboard.insertText('Undo after remount');
+  await context(rail('Companion.md'),'New tab');
+  await page.locator('.tabs').getByRole('button',{name:'Session.md',exact:true}).click();
+  await source().press('Control+z');assert.doesNotMatch(await source().innerText(),/Undo after remount/);
+  await source().press('Control+Shift+z');assert.match(await source().innerText(),/Undo after remount/);
+  await page.getByText('Saved',{exact:true}).waitFor();
+  assert.match(await readFile(path.join(library,'Projects/Forest survey/Session.md'),'utf8'),/Undo after remount/);
+  await btn('Workspace').click();
   await measure('openDocument', async () => {
     await row('Field notes.md').dblclick();
     await page.locator('.katex-display').waitFor();
@@ -392,7 +420,7 @@ try {
   await readingTab.dragTo(surface,{targetPosition:{x:Math.floor(box.width/2),y:Math.floor(box.height)-8}});
   await page.waitForFunction(top=>document.querySelector('.split-group.stacked .pane:last-child .prose')?.scrollTop===top,readingOffset);
   await btn('Presets').click();await item('Reading position').click();
-  await page.getByRole('link', { name: 'Wiki method' }).click();
+  await page.getByRole('link', { name: 'Linked method' }).click();
   await page.locator('article #heading-method').waitFor();
   await btn('Home').click(); await btn('Forest survey').click(); await row('Field notes.md').dblclick();
   await page.getByRole('link', { name: 'sampling protocol' }).click();
@@ -430,12 +458,35 @@ try {
     await left.getByText('Saved', {exact:true}).waitFor();
     assert.equal(await readFile(path.join(library, fieldNote), 'utf8'), 'One shared Windows draft');
   }
+  if (!await btn('Home').isDisabled()) await btn('Home').click();
+  await btn('Settings').click();await db('Editing').click();
+  await dialog().getByLabel('Saving',{exact:true}).selectOption('manual');
+  await db('Save settings').click();
+  await btn('Forest survey').click();
+  await page.getByLabel('Search scope',{exact:true}).selectOption('folder');
+  await page.getByRole('combobox',{name:'Search current folder'}).fill('Undo after remount');
+  await page.getByRole('option',{name:/Session.md.*Undo after remount/}).click();
+  const selectedLine=await source().evaluate(()=>window.getSelection()?.toString());
+  assert.match(selectedLine,/Undo after remount/);
+  await source().fill('Recovered offline field observations');
+  const sessionFile='Projects/Forest survey/Session.md';
+  await page.waitForFunction(async file=>{
+    const {library}=await window.itacan.home();
+    return (await window.itacan.getDraft(library.session,file))?.text==='Recovered offline field observations';
+  },sessionFile);
+  assert.doesNotMatch(await readFile(path.join(library,sessionFile),'utf8'),/Recovered offline/);
+  await Promise.all([desktop.waitForEvent('close'),desktop.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].destroy())]);
+  desktop=await _electron.launch(options);page=await testWindow();
+  await btn('Forest survey').click();await row('Session.md').dblclick();
+  await page.getByText('Recovered draft',{exact:true}).waitFor();
+  await btn('Save').click();await page.getByText('Saved',{exact:true}).waitFor();
+  assert.equal(await readFile(path.join(library,sessionFile),'utf8'),'Recovered offline field observations');
   assert.deepEqual(remoteRequests, []);
   assert.deepEqual(errors, []);
   console.log('Passed offline Plan, Progress, Statistics, split editing, presets, files, tasks, capture and restart workflows.',timings);
 } catch (error) {
   const page = desktop?.windows().at(-1);
-  if (page) console.error(await page.locator('dialog[open], #message:not([hidden])').allTextContents().catch(() => []));
+  if (page) console.error(await page.locator('dialog[open], #message:not([hidden]), .media-area, .pane > .empty').allTextContents().catch(() => []));
   throw error;
 } finally {
   try {

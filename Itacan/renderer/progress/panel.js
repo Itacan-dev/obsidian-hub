@@ -16,7 +16,8 @@ export function progressPanel(ctx,owner) {
   if (!owner) heading.append(button('Statistics',async()=>{const {statistics}=await import('./statistics.js');return statistics(ctx);}));
   let year=new Date().getFullYear();
   const nav=el('div','actions progress-years'), label=el('strong');
-  const prev=button('‹',()=>{year--;calendar();}),next=button('›',()=>{year++;calendar();});
+  function changeYear(delta){year+=delta;calendar();if(tab==='Oaths')renderHistory();}
+  const prev=button('‹',()=>changeYear(-1)),next=button('›',()=>changeYear(1));
   prev.setAttribute('aria-label','Previous year');next.setAttribute('aria-label','Next year');nav.append(prev,label,next);
   const heat=el('div','heatmap'),months=el('div','heat-months'),days=el('div','heat-days');
   const weekdays=el('div','heat-weekdays');
@@ -31,7 +32,7 @@ export function progressPanel(ctx,owner) {
   const key=owner?'workspace-progress':'home-progress';
   let historyLimit=50;
   let tab=sessionStorage.getItem(key) || 'Reports';
-  for (const name of ['Reports','Activity','Tasks']) selectors.append(button(name,()=>{
+  for (const name of ['Reports','Activity','Tasks','Oaths']) selectors.append(button(name,()=>{
     if(tab===name)return;
     tab=name;historyLimit=50;sessionStorage.setItem(key,name);body.scrollTop=0;renderHistory();
   }));
@@ -39,7 +40,7 @@ export function progressPanel(ctx,owner) {
   const matches=e=>!owner || e.owner===owner && !e.removedWorkspace;
   function calendar(){
     const now=localDay(),scores=new Map();
-    for(const r of ctx.state.reports || []) if(matches(r)) {
+    for(const r of ctx.progress.reports()) if(matches(r)) {
       if(!scores.has(r.day))scores.set(r.day,[]);
       scores.get(r.day).push(r);
     }
@@ -90,17 +91,31 @@ export function progressPanel(ctx,owner) {
   function renderHistory(){
     for(const b of selectors.children)b.setAttribute('aria-pressed',String(b.textContent===tab));
     const fragment=document.createDocumentFragment();
-    const rows=tab==='Reports'?(ctx.state.reports || []).filter(r=>r.score>0).sort((a,b)=>b.day.localeCompare(a.day)||b.updated.localeCompare(a.updated)):
-      (ctx.state.activity || []).filter(e=>!e.reopened && (tab==='Tasks')===['task','step'].includes(e.action));
-    const visible=rows.filter(matches);
+    const rows=tab==='Oaths'?ctx.oaths.history():tab==='Reports'?[...ctx.progress.reports()].sort((a,b)=>b.day.localeCompare(a.day)||b.updated.localeCompare(a.updated)):
+      ctx.progress.activity().filter(e=>!e.reopened && (tab==='Tasks')===['task','step'].includes(e.action));
+    const visible=rows.filter(r=>matches(r) && (tab!=='Oaths' || r.day?.startsWith(year+'-')));
+    if(tab==='Oaths' && visible.length){
+      const sessions=visible.filter(r=>r.startedAt || ['fulfilled','broken','interrupted'].includes(r.status));
+      const minutes=Math.round(sessions.reduce((ms,r)=>ms+(r.activeMs || 0),0)/60000);
+      fragment.append(el('small','muted',year+' · '+sessions.length+' taken · '+sessions.filter(r=>r.status==='fulfilled').length+
+        ' fulfilled · '+sessions.filter(r=>r.status==='broken').length+' broken · '+minutes+' min recorded'));
+    }
     for(const r of visible.slice(0,historyLimit)){
       const row=el('div','progress-row');
+      if(tab==='Oaths'){
+        const details=el('details');
+        details.append(el('summary','','Oath '+r.status+' · '+r.day),el('p','muted',r.originalOwner || r.owner),
+          el('p','',r.condition==='duration'?'Fixed duration':r.condition==='manual'?'Until ended':'Until selected tasks are complete'),
+          el('p','',(r.selected || []).map(t=>t.title).join(' · ')),
+          el('small','muted',r.activeMs==null?'Active time unknown':Math.round(r.activeMs/60000)+' min committed'));
+        row.append(details);fragment.append(row);continue;
+      }
       const text=tab==='Reports'?r.summary || 'No reflection':eventLabel(r);
       const open=tab==='Reports'?()=>r.removed?dailyReport(ctx,r.day):progressEditor(ctx,r.day,r.owner):
-        r.taskId?()=>{const task=ctx.state.tasks.find(t=>t.id===r.taskId);return task && taskEditor(ctx,task);}:
+        r.taskId?()=>{const task=ctx.tasks.find(r.taskId);return task && taskEditor(ctx,task);}:
         ()=>r.action.startsWith('project-')?ctx.openFolder(r.owner):ctx.openNote(r.path);
-      const available=tab==='Reports' || (!r.removed && (r.taskId?ctx.state.tasks.some(t=>t.id===r.taskId):r.action.startsWith('project-') || /\.md$/i.test(r.path)));
-      row.append(available?button(text,open,{variant:'quiet'}):el('span','',text),el('small','muted',[r.owner,r.day,tab==='Reports'?r.score+'/4':new Date(r.at).toLocaleTimeString()].join(' · ')));
+      const available=tab==='Reports' || (!r.removed && (r.taskId?!!ctx.tasks.find(r.taskId):r.action.startsWith('project-') || /\.md$/i.test(r.path)));
+      row.append(available?button(text,open,{variant:'quiet'}):el('span','',text),el('small','muted',[r.owner,r.day,tab==='Reports'?(r.score==null?'Unrated':r.score+'/4'):new Date(r.at).toLocaleTimeString()].join(' · ')));
       fragment.append(row);
     }
     if(visible.length>historyLimit)fragment.append(button('Show more',()=>{
@@ -108,12 +123,12 @@ export function progressPanel(ctx,owner) {
       historyLimit+=50;renderHistory();body.scrollTop=top;
       body.children[historyLimit-50]?.querySelector('button')?.focus({preventScroll:true});
     }));
-    if(!fragment.childNodes.length)fragment.append(el('p','empty',{Reports:'No progress reports yet.',Activity:'No recent activity.',Tasks:'No task progress recorded.'}[tab]));
+    if(!fragment.childNodes.length)fragment.append(el('p','empty',{Reports:'No progress reports yet.',Activity:'No recent activity.',Tasks:'No task progress recorded.',Oaths:'No Oaths recorded yet.'}[tab]));
     body.replaceChildren(fragment);
   }
   function refresh(group){
     if (!group || group==='progress')calendar();
-    if (!group || group==='progress' && tab==='Reports' || group==='task' && tab==='Tasks' || group==='files' && tab==='Activity')renderHistory();
+    if (!group || group==='progress' && tab==='Reports' || group==='task' && ['Tasks','Oaths'].includes(tab) || group==='oath' && tab==='Oaths' || group==='files' && tab==='Activity')renderHistory();
   }
   refresh();return {root,refresh};
 }

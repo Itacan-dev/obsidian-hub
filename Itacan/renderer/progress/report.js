@@ -17,13 +17,13 @@ export function observeWorkspace(ctx,path) {
 }
 export function pendingWorkspaces(ctx,day) {
   const latest=new Map(visits.get(ctx.documents));
-  for (const event of ctx.state.activity || []) {
+  for (const event of ctx.progress.activity()) {
     if (event.day!==day || event.at<sessionStart || event.removedWorkspace) continue;
     if (!latest.has(event.owner) || latest.get(event.owner)<event.at) latest.set(event.owner,event.at);
   }
   const available=new Set(workspaces(ctx).map(w=>w.path));
   return [...latest].filter(([owner,at])=>available.has(owner) && localDay(new Date(at))===day &&
-    !ctx.state.reports?.some(r=>!r.removed && r.owner===owner && r.day===day && r.updated>=at))
+    !ctx.progress.reports().some(r=>!r.removed && r.owner===owner && r.day===day && r.updated>=at))
     .sort((a,b)=>b[1].localeCompare(a[1])).map(([owner])=>owner);
 }
 export function eventLabel(e) {
@@ -34,7 +34,7 @@ export function eventLabel(e) {
   return verb+(e.action.startsWith('project-')?' project':'')+' · '+(e.title || e.path.split('/').at(-1));
 }
 function evidence(ctx,day,owner,saved) {
-  const rows=saved || (ctx.state.activity || []).filter(e=>!e.reopened && !e.removedWorkspace && e.day===day && e.owner===owner);
+  const rows=saved || ctx.progress.activity().filter(e=>!e.reopened && !e.removedWorkspace && e.day===day && e.owner===owner);
   const box=el('details','report-evidence');
   box.append(el('summary','','Recorded work ('+rows.length+')'));
   const tasks=rows.filter(e=>e.taskId || ['task','step'].includes(e.action));
@@ -72,7 +72,7 @@ const ratingTitles={
 
 export async function progressEditor(ctx,day=localDay(),scope=null,options={}) {
   const body=el('div','report-body'),cards=el('div','report-cards'),rows=new Map();
-  const reports=(ctx.state.reports || []).filter(r=>r.day===day && !r.removed);
+  const reports=ctx.progress.reports().filter(r=>r.day===day && !r.removed);
   function changed(r){return r.reviewed || r.score!== (r.initial?.score ?? null) || r.note.value.trim()!==(r.initial?.summary || '');}
   function update(){
     const save=body.closest('dialog')?.querySelector('footer .primary');
@@ -107,7 +107,7 @@ export async function progressEditor(ctx,day=localDay(),scope=null,options={}) {
     rows.set(owner,row);note.oninput=update;rate(row.score);
   }
   const candidates=workspaces(ctx).map(w=>w.path);
-  const activeOwners=(ctx.state.activity || []).filter(e=>e.day===day && !e.removedWorkspace && !e.reopened).map(e=>e.owner);
+  const activeOwners=ctx.progress.activity().filter(e=>e.day===day && !e.removedWorkspace && !e.reopened).map(e=>e.owner);
   const suggested=options.pending || (scope?[scope]:[...new Set([options.current,...pendingWorkspaces(ctx,day),...reports.map(r=>r.owner),...activeOwners])]);
   for(const owner of suggested.filter(o=>candidates.includes(o))) add(owner,!rows.size);
   body.append(cards,button('Add workspace',async()=>{const owner=await chooseWorkspace(ctx);if(owner)add(owner);}),reportPlan(ctx,day));
@@ -115,14 +115,14 @@ export async function progressEditor(ctx,day=localDay(),scope=null,options={}) {
   actions.push({label:options.pending?'Save and close':'Save progress',primary:true,value:true,run:async()=>{
     const drafts=[...rows.values()].filter(changed);
     try {
-      await ctx.update('progress','save',{day,entries:drafts.map(r=>({
+      await ctx.progress.saveReport({day,entries:drafts.map(r=>({
         owner:r.owner,score:r.score,summary:r.note.value,expected:r.initial?.updated || null
       }))});
     } catch(error) {
       if (!error.message.includes('This report changed.')) throw error;
       await ctx.reloadWork();
       for (const row of drafts) {
-        const latest=ctx.state.reports?.find(r=>r.owner===row.owner && r.day===day && !r.removed);
+        const latest=ctx.progress.reports().find(r=>r.owner===row.owner && r.day===day && !r.removed);
         if (latest?.updated===row.initial?.updated) continue;
         const saved=el('div','multiline');
         saved.append(el('p','',latest?'Saved rating · '+(latest.score ?? 'Unrated'):'Report removed'),el('p','',latest?.summary || 'No saved reflection'));
@@ -143,7 +143,7 @@ export async function progressEditor(ctx,day=localDay(),scope=null,options={}) {
 }
 
 export async function dailyReport(ctx,day,scope=null) {
-  const reports=(ctx.state.reports || []).filter(r=>r.day===day && (!scope || r.owner===scope && !r.removed));
+  const reports=ctx.progress.reports().filter(r=>r.day===day && (!scope || r.owner===scope && !r.removed));
   if (!reports.length) return progressEditor(ctx,day,scope);
   const body=el('div','report-body');
   const {renderPreview}=await import('../document/preview.js');

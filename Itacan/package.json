@@ -1,7 +1,7 @@
 {
   "name": "itacan",
   "productName": "Itacan",
-  "version": "0.3.2",
+  "version": "0.4.0-internal.1",
   "private": true,
   "description": "A private local library for projects and research notes",
   "main": "main/app.cjs",
@@ -9,21 +9,25 @@
     "start": "electron . --itacan-dev",
     "build": "node scripts/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:desktop": "npm run build && node test/desktop.mjs"
+    "test:desktop": "npm run build && node test/desktop.mjs && node test/commitments.desktop.mjs && node test/navigation-desktop.mjs && node test/recovery.desktop.mjs && node test/manuscript.desktop.mjs"
   },
   "engines": {
     "node": ">=24"
   },
   "devDependencies": {
+    "@codemirror/commands": "6.11.1",
     "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
     "@fontsource/baskervville": "5.3.0",
     "@fontsource/instrument-sans": "5.3.0",
-    "codemirror": "6.0.2",
     "electron": "45.4.1",
     "esbuild": "0.28.2",
     "katex": "0.19.1",
     "markdown-it": "15.0.3",
     "markdown-it-texmath": "1.0.0",
+    "pdfjs-dist": "6.5.438",
     "playwright-core": "1.65.1"
   }
 }

@@ -12,16 +12,16 @@ export function inbox(ctx) {
   const detail = el('section','inbox-detail');
   detail.setAttribute('aria-label','Item details');
   const selected = new Set();
-  let filter = 'All', sort = ctx.state.inboxSort || 'Newest', anchor, edit, editedId, busy = false, emptySelection = false;
+  let filter = 'All', sort = ctx.inbox.sort(), anchor, edit, editedId, busy = false, emptySelection = false;
   function visible() {
-    const items = ctx.state.inbox.filter(i => filter==='All' || (filter==='Files')===!!i.name);
+    const items = ctx.inbox.list().filter(i => filter==='All' || (filter==='Files')===!!i.name);
     if (sort==='Type') items.sort((a,b) => Number(!!a.name)-Number(!!b.name));
     else items.sort((a,b) => (sort==='Oldest' ? 1 : -1)*a.created.localeCompare(b.created));
     return items;
   }
   async function flush() {
-    const item = ctx.state.inbox.find(i => i.id===editedId);
-    if (item && edit && item.text !== edit.value) await ctx.update('inbox','edit',{id:item.id,text:edit.value});
+    const item = ctx.inbox.list().find(i => i.id===editedId);
+    if (item && edit && item.text !== edit.value) await ctx.inbox.edit({id:item.id,text:edit.value});
   }
   async function act(fn) {
     if (busy) return;
@@ -32,7 +32,7 @@ export function inbox(ctx) {
     } finally { busy = false; body.inert = false; }
   }
   const sortButton = button('Sort by',() => menu(sortButton,['Newest','Oldest','Type'].map(label => ({
-    label:({Newest:'Newest first',Oldest:'Oldest first',Type:'Item type'})[label],run:() => act(async () => { await ctx.update('inbox','sort',{sort:label}); sort = label; })
+    label:({Newest:'Newest first',Oldest:'Oldest first',Type:'Item type'})[label],run:() => act(async () => { await ctx.inbox.setSort({sort:label}); sort = label; })
   }))));
   const filters = ['All','Texts','Files'].map(label => button(label,() => act(() => {
     filter = label; emptySelection = false; selected.clear(); anchor = null;
@@ -63,7 +63,7 @@ export function inbox(ctx) {
     list.replaceChildren(); detail.replaceChildren();
     filters.forEach((b,i) => b.setAttribute('aria-pressed',String(['All','Texts','Files'][i]===filter)));
     const items = visible();
-    const counts = [ctx.state.inbox.length,ctx.state.inbox.filter(i=>!i.name).length,ctx.state.inbox.filter(i=>i.name).length];
+    const counts = [ctx.inbox.list().length,ctx.inbox.list().filter(i=>!i.name).length,ctx.inbox.list().filter(i=>i.name).length];
     filters.forEach((b,i)=>{ const label=['All','Texts','Files'][i]; b.setAttribute('aria-label',label); b.textContent=label+' ('+counts[i]+')'; });
     for (const id of selected) if (!items.some(i => i.id===id)) selected.delete(id);
     if (!emptySelection && !selected.size && items.length) { selected.add(items[0].id); anchor=items[0].id; }
@@ -107,13 +107,13 @@ export function inbox(ctx) {
     if (first.name) actions.append(button(bulk?'Add files to…':'Add file to…',() => act(() => fileAttachments(ctx,picks,false))));
     else for(const [kind,label] of [['task','Create task…'],['note',bulk?'Create notes…':'Create note…'],['append','Add to note…']]){
       const text = bulk ? ({task:'Create '+picks.length+' tasks…',note:'Create '+picks.length+' notes…',append:'Add '+picks.length+' texts to note…'})[kind] : label;
-      actions.append(button(text,() => act(() => fileCapturedText(ctx,kind,picks.map(p=>ctx.state.inbox.find(i=>i.id===p.id))))));
+      actions.append(button(text,() => act(() => fileCapturedText(ctx,kind,picks.map(p=>ctx.inbox.list().find(i=>i.id===p.id))))));
     }
     const remove=button('Delete',() => act(async () => {
       if (!await confirmAction('Remove captures?',picks.map(i=>i.name || i.text).join('\n'),'Remove')) return;
       for(const p of picks) {
         if(p.name) await fileAttachments(ctx,[p],false,true);
-        else await ctx.update('inbox','remove',{id:p.id});
+        else await ctx.inbox.remove({id:p.id});
       }
     }));
     remove.classList.add('inbox-delete');

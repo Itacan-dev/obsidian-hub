@@ -7,17 +7,17 @@ export function quickAdd(ctx) {
   const body = el('div','capture-form');
   const editor = el('div','capture-editor');
   const input = el('textarea','text-input'); input.setAttribute('aria-label','Capture text');
-  input.value=ctx.state.quickText || ''; editor.append(input);
+  input.value=ctx.capture.text(); editor.append(input);
   input.placeholder = 'Start typing…';
   const actions = el('div','actions capture-destinations');
   const files = el('div','capture-files');
   const feedback = el('small','muted'); feedback.setAttribute('role','status');
   let busy = false;
-  const records = () => ctx.state.quickFiles || [];
+  const records = () => ctx.capture.files();
   let saveTimer;
   async function checkpoint() {
     clearTimeout(saveTimer);
-    if ((ctx.state.quickText || '')!==input.value) await ctx.update('capture','draft',{text:input.value});
+    if (ctx.capture.text()!==input.value) await ctx.capture.saveDraft({text:input.value});
   }
   async function run(operation) {
     if (busy) return;
@@ -31,11 +31,11 @@ export function quickAdd(ctx) {
   }));
   const clear = button('Clear',() => run(async () => {
     await fileAttachments(ctx,[...records()],true,true);
-    await ctx.update('capture','draft',{text:''}); input.value = '';
+    await ctx.capture.saveDraft({text:''}); input.value = '';
   }));
   const place = button('Add files to…',() => run(() => fileAttachments(ctx,[...records()],true)));
   const send = button('Send to Inbox',() => run(async () => {
-    await ctx.update('capture','send',{text:input.value});
+    await ctx.capture.send({text:input.value});
     input.value = ''; feedback.textContent = 'Sent to Inbox.';
   }),{variant:'primary'});
   for (const [kind,label] of [['task','Create task…'],['note','Create note…'],['append','Add to note…']]) {

@@ -2,6 +2,8 @@ import { el, button, report } from '../ui/elements.js';
 import { splitLayout, splitPane, mountSplits } from './splits.js';
 import { resizeDivider } from './divider.js';
 import { onContext } from '../ui/menu.js';
+import { pickPath } from '../ui/forms.js';
+import { mediaView } from '../document/media.js';
 import { documentView } from '../document/document.js';
 import {fileDrag,fileDragType} from './file-drag.js';
 import {paneDrop} from './pane-drop.js';
@@ -49,7 +51,7 @@ export async function deskView(ctx, anchor) {
     }
     return structuredClone(layout);
   }
-  const remember = () => ctx.update('layout','remember',{layout:snapshot()});
+  const remember = () => ctx.presets.remember({layout:snapshot()});
   const current = () => layout.panes[layout.active];
   const railDrag=fileDrag(async (paths,parent)=>{
     await remember();
@@ -60,27 +62,28 @@ export async function deskView(ctx, anchor) {
     await explorer.refresh();
   });
   function showContext() {
-    const folder = current().file.split('/').slice(0, 2).join('/');
-    if (!layout.folder?.startsWith(folder+'/') && layout.folder !== folder) layout.folder = ctx.state.explorers?.[folder]?.folder || folder;
+    const folder = ctx.workspaces.contextFor(current().file,layout.workspace);
+    layout.workspace=folder;
+    if (!layout.folder?.startsWith(folder+'/') && layout.folder !== folder) layout.folder = ctx.workspaces.explorer(folder)?.folder || folder;
     if (folder !== workspace) {
       workspace = folder;
       if (!layout.expanded) {
         const parts=current().file.split('/');
         layout.expanded=parts.slice(2,-1).map((_,i)=>parts.slice(0,i+3).join('/'));
       }
-      const order=[...(ctx.state.explorers?.[folder]?.order || [])];
-      const reorderFolders=()=>ctx.update('workspace','explorer',{
-        expanded:[],folder,...ctx.state.explorers?.[folder],path:folder,order
+      const order=[...(ctx.workspaces.explorer(folder)?.order || [])];
+      const reorderFolders=()=>ctx.workspaces.saveExplorer({
+        expanded:[],folder,...ctx.workspaces.explorer(folder),path:folder,order
       });
       explorer=fileTree(ctx,folder,{expanded:layout.expanded,fileDrag:railDrag,folderOrder:order,reorderFolders,
         activeFile:()=>current().file,changed:remember});
       tree = explorer.root;
-      tasks = taskPanel(ctx,folder);
+      tasks = taskPanel(ctx,folder,()=>current().file);
       railHeading.replaceChildren(explorer.header);
       panels.replaceChildren(tree,tasks.root);
     }
     for (const [pane, part] of hosts) part.host.classList.toggle('selected-pane', pane === current());
-    for (const btn of tree.querySelectorAll('[data-path]')) {
+    for (const btn of tree?.querySelectorAll('[data-path]') || []) {
       if (btn.dataset.path===current().file) btn.setAttribute('aria-current','page'); else btn.removeAttribute('aria-current');
     }
     ctx.noteBreadcrumb(current().file);
@@ -170,7 +173,7 @@ export async function deskView(ctx, anchor) {
     function dragged(event) {
       const types=event.dataTransfer.types;
       if(types.includes(tabType))return drag;
-      if(types.includes(fileDragType) && railDrag.paths.length===1 && /\.md$/i.test(railDrag.paths[0]))
+      if(types.includes(fileDragType) && railDrag.paths.length===1 && /\.(?:md|pdf|png|jpe?g|webp|gif|avif)$/i.test(railDrag.paths[0]))
         return {path:railDrag.paths[0]};
     }
     const clearDrop=paneDrop(host,pane,dragged,(source,to,index,edge)=>{
@@ -222,13 +225,26 @@ export async function deskView(ctx, anchor) {
         const buffer = await documents.get(pane.file);
         const position = part.positions.get(pane.file) || {...pane.views?.[pane.file],read:pane.views?.[pane.file]?.read || 0};
         part.positions.set(pane.file,position);
-        next = documentView(buffer, pane, {
-          openNote: ctx.openNote, anchor: pane === current() ? anchor : '', position,
+        next = buffer.kind ? mediaView(buffer,position) : documentView(buffer, pane, {
+          openNote:ctx.openNote, pickCopyFolder:()=>pickPath(ctx,'Choose a folder for the recovered copy','folder'), anchor: pane === current() ? anchor : '', position,
           changedMode: () => void remember().catch(report)
         });
         content = next.root;
       } catch (error) {
-        content = el('p', 'empty', 'Document unavailable · ' + pane.file + ' · ' + error.message);
+        content = el('section','empty');
+        const path=pane.file;
+        content.append(el('p','','Document unavailable · '+path+' · '+error.message),button('Relink document',async()=>{
+          const selected=await pickPath(ctx,'Relink document','document','');
+          if (!selected)return;
+          const file=(await documents.get(selected)).path;
+          await ctx.relinkDocument(path,file);
+          for(const other of layout.panes) {
+            other.tabs=[...new Set(other.tabs.map(tab=>tab===path?file:tab))];
+            if(other.file===path)other.file=file;
+            if(other.views?.[path]){other.views[file]=other.views[path];delete other.views[path];}
+          }
+          activate(pane,file);await remember();await ctx.showDesk();
+        }));
       }
       if (part.view && pane.tabs.includes(part.file)) (pane.views ||= {})[part.file]=part.view.snapshot();
       part.view?.dispose();
@@ -304,7 +320,7 @@ export async function deskView(ctx, anchor) {
       activate(pane,pane.tabs[(pane.tabs.indexOf(pane.file)+step+count)%count]);
       await remember();await ctx.showDesk();
     },
-    refresh(group,action,id) {if (!group || group === 'task') tasks?.refresh(id);}, save: () => documents.open.get(current().file)?.save().catch(report),
+    refresh(group,action,id) {if (!group || group === 'task' || group === 'oath') tasks?.refresh(id);}, save: () => documents.open.get(current().file)?.save().catch(report),
     mounted: () => { for (const [pane,part] of hosts) part.view?.mounted(pane === current()); },
     dispose: () => { for (const part of hosts.values()) part.view?.dispose(); }
   };

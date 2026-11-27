@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
+const {workspaceIncludes,taskInWorkspace} = require('../contracts/workspace.cjs');
 
 function date(value) {
   if (!value) return '';
@@ -17,23 +18,29 @@ async function saveTask(state, values, library) {
   if (typeof owner !== 'string' || owner.split('/').length !== 2 || !(await fs.stat(await library.resolve(owner))).isDirectory()) throw Error('Choose a workspace.');
   const location = values.location || '';
   if (location) {
-    if (!location.startsWith(owner + '/')) throw Error('Choose a location in the task workspace.');
+    if (!workspaceIncludes(state,owner,location)) throw Error('Choose a location in the task workspace.');
     await library.resolve(location, 3);
   }
   const title = values.title.trim();
   if (!title) throw Error('Give the task a title.');
   const start = date(values.start), due = date(values.due);
+  const until = date(values.until), planned = date(values.planned);
+  const untilTime = time(values.untilTime,until), plannedTime = time(values.plannedTime,planned);
   const startTime = time(values.startTime, start), dueTime = time(values.dueTime, due);
   if (start && due && start + (startTime || '00:00') > due + (dueTime || '23:59')) throw Error('Start must precede the due date.');
+  if (start && until && start + (startTime || '00:00') > until + (untilTime || '23:59')) throw Error('The work window must end after its start.');
   const repeat = values.repeat || '';
   const interval = Number(values.interval || 1);
   if (!['', 'daily', 'weekly'].includes(repeat) || repeat && (!(start || due) || startTime || dueTime ||
     !Number.isInteger(interval) || interval < 1 || interval > 366)) throw Error('Repeating tasks need a date, a whole interval from 1 to 366, and no time.');
   if (!['', 'Should do', 'Must do'].includes(values.importance || '')) throw Error('Unknown importance.');
   const old = values.id ? findTask(state, values.id) : null;
+  if (old && state.oath?.taskIds.includes(old.id) && !taskInWorkspace(state,state.oath.owner,{owner,location})) {
+    throw Error('Keep this task in the Oath workspace until the commitment ends.');
+  }
   const task = {
     id: old?.id || randomUUID(), title, owner, location, description: String(values.description || ''),
-    start, due, startTime, dueTime, importance: values.importance || '', repeat, interval,
+    start, due, startTime, dueTime, until, untilTime, planned, plannedTime, importance: values.importance || '', repeat, interval,
     steps: (values.steps || []).map((step, index) => {
       const existing=old?.steps?.find(s=>s.id && s.id===step.id);
       const legacy=old?.steps?.[index];
@@ -42,9 +49,13 @@ async function saveTask(state, values, library) {
     }).filter(step => step.text),
     done: old?.done || false, successor: old?.successor || null
   };
-  if (old) Object.assign(old, task);
+  if (old) {
+    Object.assign(old, task);
+    if (old.missingOwner && owner) delete old.missingOwner;
+    if (old.missingLocation && location) delete old.missingLocation;
+  }
   else state.tasks.push(task);
-  if (typeof values.done==='boolean' && task.done!==values.done) toggleTask(state,task.id);
+  if (typeof values.done==='boolean') setCompleted(state,task.id,values.done);
   return old || task;
 }
 function findTask(state, id) {
@@ -52,16 +63,18 @@ function findTask(state, id) {
   if (!task) throw Error('Task is unavailable.');
   return task;
 }
-function toggleTask(state, id) {
+function setCompleted(state, id, done) {
   const task = findTask(state, id);
-  task.done = !task.done;
+  if (typeof done !== 'boolean') throw Error('Choose a completion state.');
+  if (task.done === done) return;
+  task.done = done;
   if (!task.done || !task.repeat || task.successor) return;
   const next = structuredClone(task);
   next.id = randomUUID();
   next.done = false;
   for (const step of next.steps) step.done = false;
   const offset = task.interval * (task.repeat === 'weekly' ? 7 : 1);
-  for (const field of ['start', 'due']) {
+  for (const field of ['start', 'due','until','planned']) {
     if (!next[field]) continue;
     const day = new Date(next[field] + 'T00:00:00Z');
     day.setUTCDate(day.getUTCDate() + offset);
@@ -71,17 +84,34 @@ function toggleTask(state, id) {
   state.tasks.push(next);
 }
 async function taskAction(state, action, data, library) {
+  const current = data.id && findTask(state,data.id);
+  const oath = state.oath;
+  if (oath?.status==='active') {
+    if (current && !taskInWorkspace(state,oath.owner,current) ||
+        ['attach','save'].includes(action) && !taskInWorkspace(state,oath.owner,data)) {
+      throw Error('Choose a task in the active Oath workspace.');
+    }
+  }
+  if (action==='attach') {
+    if (!current) throw Error('Choose an existing task.');
+    await saveTask(state,{...current,owner:data.owner,location:data.location || ''},library);
+    delete current.missingLocation;
+    return;
+  }
   if (action === 'save') return saveTask(state, data, library);
   if (action === 'step') {
-    const step = findTask(state,data.id).steps[data.index];
+    const steps = findTask(state,data.id).steps;
+    const step = data.stepId ? steps.find(s => s.id === data.stepId) : steps[data.index];
     if (!step) throw Error('Task step is unavailable.');
     step.id ||= randomUUID();
     step.done = !!data.done;
     return;
   }
-  if (action === 'toggle') return toggleTask(state, data.id);
+  if (action === 'complete') return setCompleted(state,data.id,data.done);
+  if (action === 'toggle') return setCompleted(state,data.id,!findTask(state,data.id).done);
   if (action !== 'delete') throw Error('Unknown task action.');
   const task = findTask(state, data.id);
+  if (state.oath?.taskIds.includes(task.id)) throw Error('This task is selected for an Oath. End that commitment before deleting it.');
   for (const entry of state.plan?.entries || []) {
     if (entry.kind === 'task' && entry.ref === task.id) {
       entry.missing = true;

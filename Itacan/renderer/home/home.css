@@ -1,4 +1,6 @@
-.home-cover { background:linear-gradient(85deg,#0d221cbb,#13291a08 85%),url('/assets/horizon.jpg') center 47% / cover; }
+.home-cover { background:linear-gradient(85deg,#0d221cbb,#13291a08 85%),var(--home-cover,url('/assets/horizon.jpg')) center var(--cover-position,47%) / cover; }
+.home-commands {display:flex;gap:var(--s2);align-items:center;}
+.home-commands .context-search {flex:1;min-width:0;}
 .home-section, .welcome { margin-top:var(--s6); }
 .home-section.panel, .welcome { padding:var(--s5); }
 .welcome { display:grid; justify-items:start; gap:var(--s4); padding:var(--s6); }

@@ -1,3 +1,4 @@
+import {workOperations} from './work-operations.js';
 import { progressEditor,localDay,observeWorkspace,pendingWorkspaces } from './progress/report.js';
 import { homeView } from './home/home.js';
 import { workspaceView } from './workspace/workspace.js';
@@ -15,6 +16,12 @@ import './capture/capture.css';
 import './plan/plan.css';
 import './progress/progress.css';
 
+import { recoveryView } from './workspace/recovery.js';
+import preferences from '../contracts/preferences.cjs';
+import { settingsDialog, applyPreferences, matchCommand } from './settings/settings.js';
+import { musicButton } from './music/music.js';
+import { oathControl, confirmBreak } from './oath/oath.js';
+
 const api = window.itacan;
 const frame = document.querySelector('#application');
 const view = document.querySelector('#view');
@@ -29,19 +36,36 @@ function captureCount() {
 }
 let library, state, documents, layout, screen;
 let navigating = false;
+let recovering = false;
 
 const ctx = {
   get library() { return library; },
-  get state() { return state; },
   get documents() { return documents; },
   get layout() { return layout || state?.lastLayout; },
   report,
-  observeWorkspace: path=>observeWorkspace(ctx,path),
+  observeWorkspace: path=>observeWorkspace(ctx,ctx.workspaces.contextFor(path,screen?.owner || ctx.layout?.workspace)),
   noteBreadcrumb: () => navigation('desk'),
-  install(next, group, action, id) { state = next; screen?.refresh?.(group, action, id); captureCount(); },
-  async reloadWork() { ctx.install(await api.work(library.session)); },
-  async update(group, action, data) {
-    const next = await api.update(library.session, group, action, data);
+  install(next, group, action, id) {
+    if ((next.revision || 0) < (state?.revision || 0)) return;
+    const wasActive = state?.oath?.status === 'active';
+    state = next;
+    if (group === 'settings' || !group) applyPreferences(state.settings,library.session);
+    screen?.refresh?.(group, action, id);
+    captureCount(); oathButton.refresh(); music.refresh();
+    if (!wasActive && state.oath?.status === 'active') {
+      layout = null;
+      setTimeout(()=>ctx.openFolder(state.oath?.owner || state.lastFolder),0);
+    }
+  },
+  async reloadWork() {
+    const session = library.session;
+    const next = await api.work(session);
+    if (session === library?.session && !recovering) ctx.install(next);
+  },
+  ...workOperations(async (group, action, data) => {
+    const session = library.session;
+    const next = await api[group](session,action,data);
+    if (session !== library?.session || (next.revision || 0) < (state?.revision || 0)) return state;
     if (group === 'task') {
       const owner=data.owner || data.path || state.tasks.find(t=>t.id===data.id)?.owner;
       ctx.observeWorkspace(owner);
@@ -49,30 +73,33 @@ const ctx = {
     if (group === 'layout') state = next;
     else ctx.install(next, group, action, data.id);
     return next;
-  },
+  }, () => state),
   openFolder: (path, options = {}) => navigate({ kind: 'folder', path, ...options }),
-  openNote: (path, editing = false, anchor = '', placement = 'replace') => navigate({ kind: 'note', path, editing, anchor, placement }),
+  openNote: (path, editing, anchor = '', placement = 'replace', workspace) => navigate({ kind: 'note', path, editing, anchor, placement, workspace }),
   snapshot: () => screen?.snapshot?.() || ctx.layout,
   chooseLibrary: () => navigate({ kind: 'choose' }),
+  chooseSample: () => navigate({ kind: 'choose', sample:true }),
   refresh: () => navigate({ kind: 'home' }),
   showDesk: () => navigate({ kind: 'desk' }),
   restore: async preset => {
     const restored = await api.resolveLayout(library.session, preset.layout);
+    if ((restored.workspace && !allowed(restored.workspace)) || restored.panes.some(p=>p.tabs.some(file=>!allowed(file)))) throw Error('This preset includes content outside the active Oath.');
     const retained = new Set(restored.panes.flatMap(p => p.tabs));
     const closing = [...documents.open.values()].filter(b => !retained.has(b.path));
     if (!await documents.allowClose(closing)) return;
-    if (JSON.stringify(restored) !== JSON.stringify(preset.layout)) {
-      await ctx.update('layout', 'preset', { name: preset.name, layout: restored });
-    }
     const explorer = restored.explorer;
-    if (explorer && restored.folder) await ctx.update('workspace','explorer',{...explorer,path:restored.folder.split('/').slice(0,2).join('/')});
+    if (explorer && restored.folder) await ctx.workspaces.saveExplorer({...explorer,path:restored.workspace || restored.folder.split('/').slice(0,2).join('/')});
     delete restored.explorer;
     layout = restored;
     if (screen?.syncDesk) { screen.dispose(); screen = null; }
-    if (layout.folder) await ctx.update('workspace','visit',{path:layout.folder});
-    await ctx.update('layout', 'remember', { layout });
+    if (layout.folder) await ctx.workspaces.visit({path:layout.folder,workspace:layout.workspace}).catch(()=>{layout.folder='';});
+    await ctx.presets.remember({ layout });
     for (const buffer of closing) documents.open.delete(buffer.path);
     await ctx.showDesk();
+  },
+  async relinkDocument(from,to) {
+    if (!allowed(to)) throw Error('This document is outside the active Oath.');
+    await ctx.workspaces.relinkDocument({from,to});
   },
   async changeFile(from, parent, name, trash = false) {
     const affected = [...documents.open.values()].filter(b => b.path === from || b.path.startsWith(from + '/'));
@@ -86,18 +113,34 @@ const ctx = {
     return true;
   }
 };
-tools.append(button('Log progress',async()=>{
+const oathButton = oathControl(ctx);
+const music = musicButton(ctx);
+const settingsButton = button('Settings',()=>settingsDialog(ctx));
+api.onNotice(report);
+api.onWorkChanged(id=>{ if (library?.session===id) ctx.reloadWork().catch(report); });
+function allowed(path) {
+  const oath = state?.oath;
+  return oath?.status !== 'active' || ctx.workspaces.contextFor(path,oath.owner) === oath.owner;
+}
+tools.append(oathButton.root,button('Log progress',async()=>{
   await ctx.reloadWork();
-  return progressEditor(ctx,localDay(),null,{current:mode==='home'?null:ctx.state.lastFolder?.split('/').slice(0,2).join('/')});
-}),button('Quick Add', () => quickAdd(ctx)), inboxButton);
+  return progressEditor(ctx,localDay(),null,{current:mode==='home'?null:screen?.owner || ctx.layout?.workspace || ctx.workspaces.lastWorkspace()});
+}),button('Quick Add', () => quickAdd(ctx)), inboxButton,music.root,settingsButton);
 let mode;
 const homeButton = button('Home', ctx.refresh);
 const workspaceButton = button('Workspace', () => {
   const desk = ctx.layout;
   const folder = mode === 'desk' ? desk?.folder : state?.lastFolder;
-  return folder ? ctx.openFolder(folder) : report('Open a Project or Resource first.');
+  return folder ? ctx.openFolder(folder,{workspace:mode==='desk'?desk?.workspace:state.lastWorkspace}) : report('Open a Project or Resource first.');
 });
-const fileButton = button('Last File', ctx.showDesk);
+function lastDesk() {
+  if (mode === 'folder') return state?.workspaceLayouts?.[screen?.owner];
+  return ctx.layout;
+}
+const fileButton = button('Last File',async ()=>{
+  if (mode === 'folder' && lastDesk()) layout=structuredClone(lastDesk());
+  await ctx.showDesk();
+});
 const presets = button('Presets', () => presetMenu(ctx, presets, mode === 'desk'));
 bar.querySelector('#routes').append(homeButton, workspaceButton, fileButton, presets);
 function navigation(kind) {
@@ -106,15 +149,16 @@ function navigation(kind) {
   for (const [control, current, available] of [
     [homeButton, kind === 'home', true],
     [workspaceButton, kind === 'folder', library],
-    [fileButton, kind === 'desk', desk?.panes[desk.active]?.file]
+    [fileButton, kind === 'desk', lastDesk()?.panes[lastDesk().active]?.file]
   ]) {
     control.disabled = current || !available;
     if (current) control.setAttribute('aria-current', 'page');
     else control.removeAttribute('aria-current');
   }
   presets.disabled = !library;
-  tools.hidden = !library;
-  captureCount();
+  tools.hidden = !library || recovering;
+  if (recovering) { homeButton.disabled=true; workspaceButton.disabled=true; fileButton.disabled=true; presets.disabled=true; }
+  captureCount(); oathButton.refresh(); music.refresh();
   libraryButton.textContent = library?.name || 'Choose library';
   libraryButton.title = 'Choose library folder';
 }
@@ -125,16 +169,21 @@ async function navigate(route) {
   frame.inert = true;
   try {
     document.querySelector('#message').hidden = true;
+    if (state?.oath?.status === 'active' && (route.kind === 'home' || route.path && !allowed(route.path))) {
+      report('Your active Oath is scoped to '+state.oath.owner+'.');
+      route = {kind:'folder',path:state.oath.owner,workspace:state.oath.owner};
+    }
     let next;
     if(screen?.snapshot && ['home','folder','choose'].includes(route.kind)) {
       const captured=screen.snapshot();
-      if (JSON.stringify(captured)!==JSON.stringify(state.lastLayout)) await ctx.update('layout','remember',{layout:captured});
+      if (JSON.stringify(captured)!==JSON.stringify(state.lastLayout)) await ctx.presets.remember({layout:captured});
     }
     if (route.kind === 'choose' || route.kind === 'home' || route.kind === 'desk' && !ctx.layout?.panes.some(p => p.file)) {
       let selected;
       if (route.kind === 'choose') {
+        if (['active','rest'].includes(state?.oath?.status) && !await confirmBreak(ctx)) return;
         if (documents && !await documents.allowClose()) return;
-        selected = await api.chooseLibrary();
+        selected = await api.chooseLibrary(route.sample ? 'sample' : undefined);
         if (!selected) return;
       } else {
         const result = await api.home();
@@ -144,17 +193,31 @@ async function navigate(route) {
       const changed = selected?.session !== library?.session;
       library = selected;
       if (library) {
-        state = await api.work(library.session);
-        if (changed) {
+        try {
+          state = await api.work(library.session);
+          recovering = false;
+        } catch(error) {
+          recovering = true;
+          if (changed) {state = null; documents = null; layout = null;}
+          screen?.dispose?.();
+          screen = recoveryView(library,error,ctx.chooseLibrary);
+          screen.navigationHost.append(bar);
+          view.replaceChildren(screen.root);
+          navigation('recovery');
+          return true;
+        }
+        applyPreferences(state.settings,library.session);
+        if (changed || !documents) {
           ctx.fileClipboard = null;
-          documents = new Documents(library.session);
+          documents = new Documents(library.session,()=>state?.settings?.saveMode !== 'manual');
           layout = null;
         }
       }
       route = { kind: 'home' };
       next = homeView(library, ctx);
     } else if (route.kind === 'folder') {
-      const owner = route.path.split('/').slice(0,2).join('/');
+      const owner = ctx.workspaces.contextFor(route.path,route.workspace);
+      route.workspace = owner;
       if (screen?.owner === owner) {
         if (route.refreshTree) state=await api.work(library.session);
         await screen.openFolder(route.path, route);
@@ -170,11 +233,19 @@ async function navigate(route) {
         layout = state.lastLayout ? await api.resolveLayout(library.session, state.lastLayout) :
           { active: 0, panes: [{ tabs: [], file: '', edit: false }] };
         if (state.lastLayout && JSON.stringify(layout) !== JSON.stringify(state.lastLayout)) {
-          await ctx.update('layout', 'remember', { layout });
+          await ctx.presets.remember({ layout });
         }
+      }
+      if (state.oath?.status === 'active' && layout.panes.some(p=>p.tabs.some(path=>!allowed(path)))) {
+        layout = {active:0,panes:[{file:'',tabs:[],edit:false}],workspace:state.oath.owner,folder:state.oath.owner};
+        if (screen?.syncDesk) {screen.dispose();screen=null;}
       }
       if (route.kind === 'note') {
         const buffer = await documents.get(route.path);
+        const owner = ctx.workspaces.contextFor(buffer.path,route.workspace || screen?.owner || layout.workspace);
+        layout.workspace = owner;
+        const preferred = state.settings?.editorMode || preferences.defaults.editorMode;
+        route.editing ??= preferred === 'source' ? true : preferred === 'live' ? 'live' : false;
         const pane = layout.panes[layout.active];
         const previous = pane.file;
         const replaces = route.placement === 'replace' && previous && !pane.tabs.includes(buffer.path)
@@ -182,11 +253,10 @@ async function navigate(route) {
         const closing = replaces && documents.open.get(previous);
         if (closing && !await documents.allowClose([closing])) return false;
         if (addTab(layout, buffer.path, route.editing, route.placement)) {
-          const owner = buffer.path.split('/').slice(0,2).join('/');
           const previousFolder=state.lastFolder===owner || state.lastFolder?.startsWith(owner+'/') ? state.lastFolder : owner;
           layout.folder = state.explorers?.[owner]?.folder || previousFolder;
-          if (layout.folder !== state.lastFolder) await ctx.update('workspace','visit',{path:layout.folder});
-          await ctx.update('layout', 'remember', { layout });
+          if (layout.folder !== state.lastFolder) await ctx.workspaces.visit({path:layout.folder,workspace:owner});
+          await ctx.presets.remember({ layout });
           if (closing) documents.open.delete(previous);
         }
       }
@@ -222,21 +292,18 @@ async function navigate(route) {
 }
 libraryButton.onclick = ctx.chooseLibrary;
 
-document.addEventListener('keydown', event => {
-  if(!navigating && library && (event.metaKey || event.ctrlKey) && event.shiftKey && event.code==='Space' && !document.querySelector('dialog[open]')) {
-    event.preventDefault();if(!event.repeat)quickAdd(ctx).catch(report);return;
-  }
-  if(!navigating && screen?.syncDesk && !document.querySelector('dialog[open]')) {
-    if((event.ctrlKey || event.metaKey) && event.key.toLowerCase()==='w' && !event.shiftKey) {
-      event.preventDefault();screen.closeTab().catch(report);return;
-    }
-    if(event.ctrlKey && event.key==='Tab') {
-      event.preventDefault();screen.cycleTab(event.shiftKey?-1:1).catch(report);return;
-    }
-  }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+document.addEventListener('keydown',event=>{
+  if (navigating || !library || recovering || document.querySelector('dialog[open]')) return;
+  const command = matchCommand(event,state?.settings);
+  if (!command) return;
+  const handlers = {
+    settings:()=>settingsDialog(ctx),quickAdd:()=>quickAdd(ctx),
+    save:()=>screen?.save?.(),closeTab:()=>screen?.closeTab?.(),
+    nextTab:()=>screen?.cycleTab?.(1),previousTab:()=>screen?.cycleTab?.(-1)
+  };
+  if (handlers[command]) {
     event.preventDefault();
-    if (!navigating && !document.querySelector('dialog[open]')) void screen?.save?.();
+    if (!event.repeat) Promise.resolve(handlers[command]()).catch(report);
   }
 });
 api.onRequestClose(async () => {
@@ -244,12 +311,13 @@ api.onRequestClose(async () => {
   navigating = true;
   frame.inert = true;
   try {
+    if (['active','rest'].includes(state?.oath?.status) && !await confirmBreak(ctx)) return api.answerClose(false);
     if (documents && !await documents.allowClose()) return api.answerClose(false);
     if (screen?.snapshot) {
       const captured=screen.snapshot();
-      if(JSON.stringify(captured)!==JSON.stringify(state.lastLayout))await ctx.update('layout','remember',{layout:captured});
+      if(JSON.stringify(captured)!==JSON.stringify(state.lastLayout))await ctx.presets.remember({layout:captured});
     }
-    if (library) {
+    if (library && !recovering) {
       state=await api.work(library.session);
       const day=localDay();
       const pending=pendingWorkspaces(ctx,day);
@@ -263,7 +331,7 @@ api.onRequestClose(async () => {
 let shownDay=localDay();
 async function checkDay() {
   const ended=state?.plan?.endsAt && Date.parse(state.plan.endsAt)<=Date.now();
-  if (!library || navigating || (!ended && localDay()===shownDay) || document.querySelector('dialog[open]')) return;
+  if (!library || navigating || recovering || (!ended && localDay()===shownDay) || document.querySelector('dialog[open]')) return;
   await ctx.reloadWork(); shownDay=localDay();
 }
 function scheduleDay(){
@@ -271,6 +339,6 @@ function scheduleDay(){
   setTimeout(()=>{checkDay().catch(report);scheduleDay();},next-Date.now()+100);
 }
 scheduleDay();
-window.addEventListener('focus',()=>checkDay().catch(report));
+window.addEventListener('focus',()=>{ checkDay().catch(report); documents?.revalidate().catch(report); });
 document.addEventListener('close',()=>checkDay().catch(report),true);
 void ctx.refresh();

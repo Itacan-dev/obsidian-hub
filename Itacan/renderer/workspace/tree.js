@@ -1,9 +1,10 @@
 import { el, button, report } from '../ui/elements.js';
 import { inSavedOrder,reorderRows,reorderHandle } from '../ui/reorder.js';
 import { onContext } from '../ui/menu.js';
+import { workspaceName } from './context.js';
 
-export function placements(ctx, entry) {
-  const open = placement => ctx.openNote(entry.path,false,'',placement);
+export function placements(ctx, entry, workspace) {
+  const open = placement => ctx.openNote(entry.path,undefined,'',placement,workspace);
   return [{label:'Open',run:()=>open('replace')},{label:'Open in…',items:[
     {label:'New tab',run:()=>open('tab')},{label:'Right split',run:()=>open('split')},{label:'Split below',run:()=>open('below')}
   ]}];
@@ -13,7 +14,7 @@ export function fileTree(ctx, workspace, {foldersOnly=false, expanded=[], select
   const filter = el('input','text-input');
   filter.type = 'search'; filter.placeholder = 'Search files…'; filter.setAttribute('aria-label','Search workspace files');
   const tree = el('div','tree-rows');
-  const header = button(workspace.split('/').at(-1), () => ctx.openFolder(workspace), {symbol:'folder'});
+  const header = button(workspaceName(ctx.library,workspace), () => ctx.openFolder(workspace,{workspace}), {symbol:'folder'});
   header.dataset.folder = workspace;
   fileDrag?.target(header,workspace);
   rail.append(header);
@@ -50,6 +51,12 @@ export function fileTree(ctx, workspace, {foldersOnly=false, expanded=[], select
   if (!foldersOnly) rail.append(button('New folder',()=>createAt('folder',workspace)),editor);
   async function populate(parent, path, query, ticket) {
     const entries = await window.itacan.entries(ctx.library.session,path);
+    if (path === workspace) {
+      for (const target of ctx.workspaces.attachments(workspace)) {
+        const resource = workspaceName(ctx.library,target.split('/').slice(0,2).join('/'));
+        entries.push({name:resource+' / '+target.split('/').slice(2).join('/'), path:target, kind:'folder', shared:true});
+      }
+    }
     if (ticket !== generation) return;
     for (const entry of path===workspace && folderOrder ? inSavedOrder(entries,folderOrder) : entries) {
       if (entry.kind === 'folder') {
@@ -67,28 +74,30 @@ export function fileTree(ctx, workspace, {foldersOnly=false, expanded=[], select
         toggle.setAttribute('aria-expanded',String(open));
         const folder = button(entry.name,() => select ? select(entry.path) : toggle.click(),{symbol:'folder'});
         bindFolder(folder,entry.path); fileDrag?.target(folder,entry.path);
-        fileDrag?.source(folder,()=>[entry.path]);
+        if (!entry.shared) fileDrag?.source(folder,()=>[entry.path]);
         folder.dataset.folder = entry.path;
         line.append(toggle,folder);
-        if(path===workspace && reorderFolders && !query) {
+        if(path===workspace && reorderFolders && !query && !entry.shared) {
           line.dataset.root=entry.path;
           line.append(reorderHandle('Reorder '+entry.name));
         }
         group.append(line,nested); parent.append(group);
         if (open) {
-          await populate(nested,entry.path,query && !entry.name.toLowerCase().includes(query) ? query : '',ticket);
+          try {
+            await populate(nested,entry.path,query && !entry.name.toLowerCase().includes(query) ? query : '',ticket);
+          } catch (error) {
+            if (!entry.shared) throw error;
+            nested.append(el('p','empty','Resource folder unavailable. Reconnect its files or detach it from this Project.'));
+          }
           if (query && !nested.children.length && !entry.name.toLowerCase().includes(query)) group.remove();
         }
       } else if (!foldersOnly && entry.name.toLowerCase().includes(query) && (entry.kind === 'note' || entry.openable)) {
-        const b = button(entry.name,entry.kind === 'note' ? () => ctx.openNote(entry.path) :
-          () => window.itacan.openAttachment(ctx.library.session,entry.path),{symbol:entry.kind});
+        const b = button(entry.name,() => ctx.openNote(entry.path,undefined,'','replace',workspace),{symbol:entry.kind});
         b.dataset.path = entry.path;
         if (entry.path===activeFile?.()) b.setAttribute('aria-current','page');
         fileDrag?.source(b,()=>[entry.path]);
-        if (entry.kind === 'note') {
-          b.onauxclick=e=>{if(e.button===1){e.preventDefault();ctx.openNote(entry.path,false,'','split').catch(report);}};
-          onContext(b,() => placements(ctx,entry));
-        }
+        b.onauxclick=e=>{if(e.button===1){e.preventDefault();ctx.openNote(entry.path,undefined,'','split',workspace).catch(report);}};
+        onContext(b,() => placements(ctx,entry,workspace));
         parent.append(b);
       }
     }

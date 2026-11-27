@@ -1,11 +1,12 @@
 import { el, button, report } from './elements.js';
 import { taskEditor } from '../tasks/tasks.js';
+import { workspaceName } from '../workspace/context.js';
 
-export function contextSearch(ctx, scope) {
+export function contextSearch(ctx, scope, currentFolder) {
   const region = el('div','context-search');
   const input = el('input','text-input');
   const results = el('div','search-results panel');
-  const label = !scope ? 'Search Itacan' : scope.startsWith('Projects/') ? 'Search this project' : 'Search '+scope.split('/')[1];
+  const label = !scope ? 'Search Itacan' : scope.startsWith('Projects/') ? 'Search this project' : 'Search '+workspaceName(ctx.library,scope);
   input.type = 'search';
   input.placeholder = label+'…';
   input.setAttribute('aria-label',label);
@@ -14,15 +15,34 @@ export function contextSearch(ctx, scope) {
   results.setAttribute('role','listbox');
   input.setAttribute('aria-controls',results.id);
   region.append(input,results);
-  let generation = 0, timer, index;
+  let folderOnly = false;
+  if (currentFolder) {
+    const chooser=el('select','search-scope');
+    chooser.setAttribute('aria-label','Search scope');
+    chooser.add(new Option('Workspace','workspace'));
+    chooser.add(new Option('Current folder','folder'));
+    chooser.onchange=()=>{
+      folderOnly=chooser.value==='folder';
+      const prompt=folderOnly?'Search current folder':label;
+      input.placeholder=prompt+'…';input.setAttribute('aria-label',prompt);
+      input.focus();schedule();
+    };
+    region.classList.add('scoped-search');
+    region.prepend(chooser);
+  }
+  let generation = 0, timer, index, token;
+  function cancel() {
+    if (token) window.itacan.cancelSearch(ctx.library.session,token).catch(()=>{});
+    token=null;
+  }
   function close() {
-    clearTimeout(timer); generation++; index = -1;
+    cancel(); clearTimeout(timer); generation++; index = -1;
     results.hidden = true;results.inert=false;
     input.setAttribute('aria-expanded','false');
     input.removeAttribute('aria-activedescendant');
   }
   function schedule() {
-    clearTimeout(timer);generation++;index=-1;
+    cancel(); clearTimeout(timer);generation++;index=-1;
     const query = input.value.trim().toLowerCase();
     if (!query) return close();
     results.inert=true;
@@ -33,48 +53,69 @@ export function contextSearch(ctx, scope) {
   }
   async function search(query,ticket) {
     const stale = () => ticket !== generation || !region.isConnected;
-    const groups = new Map();
+    const key=crypto.randomUUID(), session=ctx.library.session;
+    token=key;
+    const oath=ctx.oaths.current();
+    const allowed=oath?.status==='active' ? [oath.owner,...ctx.workspaces.attachments(oath.owner)] : null;
+    const roots=folderOnly ? [currentFolder()] : scope ? [scope,...ctx.workspaces.attachments(scope)] : allowed;
+    const inside=(path,folders)=>!folders || folders.some(folder=>path===folder || path?.startsWith(folder+'/'));
+    const visible=path=>inside(path,roots) && inside(path,allowed);
+    const request=phase=>window.itacan.search(session,{scope,query,token:key,phase,folders:roots,stream:phase==='content'});
+    const names=await request('names');
+    if(stale())return;
+    results.replaceChildren();
+    const groups=new Map();
     function match(group,label,detail,open) {
-      if (!groups.has(group)) groups.set(group,[]);
-      groups.get(group).push({label,detail,open});
-    }
-    async function visit(folder) {
-      if (stale()) return;
-      for (const item of await window.itacan.entries(ctx.library.session,folder)) {
-        if (stale()) return;
-        const {name,path,kind} = item;
-        const open = () => kind==='folder' ? ctx.openFolder(path) : kind==='note' ? ctx.openNote(path) : window.itacan.openAttachment(ctx.library.session,path);
-        if (name.toLowerCase().includes(query) && (kind!=='file' || item.openable)) match(kind==='folder'?'Folders':'Files',name,path,open);
-        if (kind==='folder') await visit(path);
-        else if (kind==='note') {
-          const note = ctx.documents.open.get(path) || await window.itacan.readNote(ctx.library.session,path).catch(() => null);
-          const line = note?.text.split('\n').find(line => line.toLowerCase().includes(query));
-          if (line) match('Note matches',name,line.slice(0,180),open);
-        }
+      let list=groups.get(group);
+      if(!list){
+        list=el('div','match-list');
+        results.append(el('strong','',group),list);groups.set(group,list);
       }
+      const option=button(label,async()=>{close();await open();});
+      option.append(el('small','muted',detail));option.setAttribute('role','option');
+      option.tabIndex=-1;option.id='match-'+crypto.randomUUID();
+      option.onpointerdown=e=>e.preventDefault();list.append(option);
     }
-    for (const workspace of [...ctx.library.projects,...ctx.library.resources]) {
-      if (scope && workspace.path!==scope) continue;
-      if (workspace.name.toLowerCase().includes(query)) match(workspace.path.split('/')[0],workspace.name,workspace.path,()=>ctx.openFolder(workspace.path));
-      await visit(workspace.path);
+    for(const workspace of [...ctx.library.projects,...ctx.library.resources,...(ctx.library.extraResources || [])])
+      if(visible(workspace.path) && workspace.name.toLowerCase().includes(query))
+        match(workspace.path.split('/')[0],workspace.name,workspace.path,()=>ctx.openFolder(workspace.path));
+    for(const item of names) {
+      if(!visible(item.path))continue;
+      match(item.kind==='folder'?'Folders':'Files',item.name,item.path,
+        ()=>item.kind==='folder'?ctx.openFolder(item.path,{workspace:scope}):ctx.openNote(item.path,undefined,'','replace',scope));
     }
-    if (stale()) return;
-    for (const task of ctx.state.tasks) {
-      if ((!scope || task.owner===scope) && [task.title,task.description].some(s=>s?.toLowerCase().includes(query)))
+    for(const task of ctx.tasks.list()) {
+      if(scope && !ctx.tasks.inWorkspace(scope,task)) continue;
+      if(allowed && !ctx.tasks.inWorkspace(oath.owner,task)) continue;
+      if(folderOnly && !inside(task.location || task.owner,roots)) continue;
+      if([task.title,task.description].some(s=>s?.toLowerCase().includes(query)))
         match('Tasks',task.title,task.owner,()=>taskEditor(ctx,task));
     }
-    results.replaceChildren();
-    for (const [group,items] of groups) {
-      results.append(el('strong','',group));
-      for (const item of items) {
-        const option = button(item.label,async()=>{ close(); await item.open(); });
-        option.append(el('small','muted',item.detail));
-        option.setAttribute('role','option'); option.tabIndex=-1; option.id='match-'+crypto.randomUUID();
-        option.onpointerdown=e=>e.preventDefault(); results.append(option);
-      }
+    function reveal() {
+      results.hidden=false;results.inert=false;input.setAttribute('aria-expanded','true');
     }
-    if (!groups.size) results.append(el('p','empty','No matches in this scope.'));
-    results.inert=false;results.hidden=false; input.setAttribute('aria-expanded','true');
+    const overlay=new Set();
+    function noteHit(item) {
+      match('Note matches',item.name,item.snippet,()=>ctx.openNote(item.path,true,{line:item.line},'replace',scope));
+    }
+    for(const buffer of ctx.documents.open.values()) {
+      if(!buffer.dirty || !visible(buffer.path))continue;
+      overlay.add(buffer.path);
+      const lines=buffer.text.split('\n');
+      const line=lines.findIndex(text=>text.toLowerCase().includes(query));
+      if(line>=0)noteHit({path:buffer.path,name:buffer.path.split('/').at(-1),line:line+1,snippet:lines[line].slice(0,180)});
+    }
+    if(groups.size)reveal();
+    const unsubscribe=window.itacan.onSearchMatches(session,key,items=>{
+      if(stale())return;
+      for(const item of items)if(!overlay.has(item.path) && visible(item.path))noteHit(item);
+      if(groups.size)reveal();
+    });
+    try { await request('content'); } finally { unsubscribe(); }
+    if(stale())return;
+    if(!groups.size)results.append(el('p','empty','No matches in this scope.'));
+    reveal();
+    if(token===key)token=null;
   }
   input.oninput=input.onfocus=schedule; input.onblur=close;
   input.onkeydown=e=>{

@@ -38,10 +38,21 @@ function propertyControl(parent, label, symbol, render, display) {
   return group;
 }
 
+async function chooseSource(ctx,task,title) {
+  const currentOwner=[...ctx.library.projects,...ctx.library.resources].some(w=>w.path===task.owner)?task.owner:'';
+  let source;
+  const path=await pickPath(ctx,title,'location',currentOwner,{commit(path,workspace) {
+    const candidate=workspace?.startsWith('Projects/') ? workspace : currentOwner;
+    const owner=ctx.workspaces.contextFor(path,candidate);
+    source={owner,location:path===owner?'':path};
+  }});
+  return path && source;
+}
+
 export async function taskEditor(ctx, original = {}, captureId) {
   const body = el('div','task-form');
   const task = structuredClone(original);
-  task.owner ||= ctx.state.lastFolder?.split('/').slice(0,2).join('/') || [...ctx.library.projects,...ctx.library.resources][0]?.path;
+  if(!task.id) task.owner ||= ctx.oaths.current()?.owner || ctx.workspaces.lastWorkspace() || ctx.workspaces.lastFolder()?.split('/').slice(0,2).join('/') || [...ctx.library.projects,...ctx.library.resources][0]?.path;
   const card = el('section','task-preview panel');
   const title = el('input','text-input'); title.setAttribute('aria-label','Title'); title.value = task.title || '';
   const done = el('input'); done.type='checkbox'; done.checked=!!task.done;
@@ -49,12 +60,11 @@ export async function taskEditor(ctx, original = {}, captureId) {
   const titleRow = el('div','task-title'); card.prepend(titleRow); titleRow.append(done,title);
   title.autofocus = true;
   title.required = true; title.placeholder = 'What needs doing?';
-  const location = button(task.location || task.owner,async () => {
-    const path = await pickPath(ctx,'Task location','location',task.owner);
-    if (!path) return;
-    task.owner = path.split('/').slice(0,2).join('/');
-    task.location = task.owner === path ? '' : path;
-    location.textContent = path;
+  const location = button(task.location || task.owner || 'Choose workspace',async () => {
+    const source=await chooseSource(ctx,task,'Task location');
+    if (!source) return;
+    Object.assign(task,source);
+    location.textContent = task.location || task.owner;
   },{variant:'quiet',symbol:'folder'});
   card.append(location);
   const checklist = el('details','task-checklist'); checklist.open = !!task.steps?.length;
@@ -80,8 +90,7 @@ export async function taskEditor(ctx, original = {}, captureId) {
   (task.steps || []).forEach(addStep); updateCount();
   checklist.append(summary,steps,button('Add step',() => addStep().focus())); card.append(checklist);
   const props = el('div','task-properties');
-  for (const key of ['start','due']) {
-    const label = key === 'start' ? 'Start date' : 'Due date';
+  for (const [key,label] of [['start','Start date'],['due','Due date'],['until','Until date'],['planned','Planned date']]) {
     propertyControl(props,label,'calendar',(pop,close) => {
       const fields=el('div','task-dates'); pop.append(fields);
       const date = field(fields,label,'date',task[key]);
@@ -114,9 +123,9 @@ export async function taskEditor(ctx, original = {}, captureId) {
   const actions = [{label:'Cancel',value:false}];
   if (task.id) actions.unshift({label:'Delete task',value:true,run:async () => {
     if (!await confirmAction('Delete task?',task.title,'Delete')) return false;
-    await ctx.update('task','delete',{id:task.id});
+    await ctx.tasks.remove({id:task.id});
   }});
-  actions.push({label:task.id ? 'Save' : 'Add task',primary:true,value:true,run:() => ctx.update('task','save',{
+  actions.push({label:task.id ? 'Save' : 'Add task',primary:true,value:true,run:() => ctx.tasks.save({
     ...task,captureId,done:done.checked,title:title.value,steps:[...steps.children].map(row => {
       const [check,input] = row.querySelectorAll('input'); return {id:row.dataset.step,text:input.value,done:check.checked};
     })
@@ -133,16 +142,47 @@ export function taskRow(ctx,task,afterChange = () => {}) {
   check.onclick = event => { if (toggling) event.preventDefault(); };
   check.onchange = async () => {
     toggling = true;
-    try { await ctx.update('task','toggle',{id:task.id}); afterChange(); }
+    try { await ctx.tasks.setCompleted({id:task.id,done:check.checked}); afterChange(); }
     catch (e) { check.checked = task.done; report(e); } finally { toggling = false; }
   };
   row.append(check,button(task.title,async () => { await taskEditor(ctx,task); afterChange(); },{variant:'quiet'}));
-  row.append(el('small','muted',[task.owner?.split('/').at(-1),task.importance,task.due].filter(Boolean).join(' · ')));
-  if (task.location) row.append(button('Location',() => /\.md$/i.test(task.location) ? ctx.openNote(task.location) : ctx.openFolder(task.location)));
+  const schedule = [['start','From'],['until','Until'],['planned','Planned'],['due','Due']]
+    .filter(([key])=>task[key]).map(([key,label])=>[label,task[key],task[key+'Time']].filter(Boolean).join(' '));
+  row.append(el('small','muted',[task.owner?.split('/').at(-1),task.importance,...schedule].filter(Boolean).join(' · ')));
+  async function relink() {
+    const source=await chooseSource(ctx,task,'Relink task source');
+    if(!source)return;
+    await ctx.tasks.attach({id:task.id,...source});
+    afterChange();
+  }
+  if (task.location) row.append(button('Location',async() => {
+    const path=task.location;
+    const workspace=ctx.workspaces.contextFor(path,task.owner?.startsWith('Projects/') ? task.owner : ctx.workspaces.lastWorkspace());
+    let source;
+    try {
+      if(ctx.workspaces.attachments(workspace).includes(path)) {
+        await window.itacan.entries(ctx.library.session,path);
+        source={kind:'folder'};
+      } else {
+        const parent=path.slice(0,path.lastIndexOf('/'));
+        source=(await window.itacan.entries(ctx.library.session,parent)).find(item=>item.path===path);
+      }
+    } catch(error) {
+      if(!/ENOENT|ENOTDIR/.test(error.message)) throw error;
+    }
+    if(!source)return relink();
+    if(source.kind==='folder') return ctx.openFolder(path,{workspace});
+    if(source.kind==='note' || source.openable) return ctx.openNote(path,undefined,'','replace',workspace);
+    return relink();
+  }));
+  if (task.missingLocation || task.missingOwner) {
+    row.append(el('small','muted','Missing source · '+(task.missingLocation || task.missingOwner)),button('Relink',relink));
+  }
   onContext(row,()=>[
-    {label:'Add to plan',run:()=>ctx.update('plan','add',{kind:'task',ref:task.id})},
+    {label:'Add to plan',run:()=>ctx.plans.add({kind:'task',ref:task.id})},
+    {label:'Relink source',run:relink},
     {label:'Edit',run:async()=>{await taskEditor(ctx,task);afterChange();}},
-    {label:'Delete',run:async()=>{if(await confirmAction('Delete task?',task.title,'Delete')) {await ctx.update('task','delete',{id:task.id});afterChange();}}}
+    {label:'Delete',run:async()=>{if(await confirmAction('Delete task?',task.title,'Delete')) {await ctx.tasks.remove({id:task.id});afterChange();}}}
   ]);
   if (task.description) {
     const description=el('details'); description.append(el('summary','','Description'),el('p','multiline',task.description)); row.append(description);
@@ -154,7 +194,7 @@ export function taskRow(ctx,task,afterChange = () => {}) {
       const label = el('label');
       const box = el('input'); box.type='checkbox'; box.checked=step.done;
       box.onchange=async()=>{
-        try { await ctx.update('task','step',{id:task.id,index,done:box.checked}); afterChange(); }
+        try { await ctx.tasks.setStepCompleted({id:task.id,index,stepId:step.id,done:box.checked}); afterChange(); }
         catch(error){ box.checked=step.done; report(error); }
       };
       label.append(box,step.text); steps.append(label);
@@ -176,15 +216,19 @@ export function replaceTaskRow(ctx,task,previous,active = document.activeElement
   previous.replaceWith(row);
   return {row, focus:row.querySelectorAll(controls)[index]};
 }
-export function taskPanel(ctx,owner) {
+export function taskPanel(ctx,owner,source) {
   const root = el('section','panel work-panel bounded-panel');
   const header = el('header','section-heading');
-  header.append(el('h2','','Tasks'),button('Add task',() => taskEditor(ctx,{owner}),{symbol:'plus'}));
+  header.append(el('h2','','Tasks'),button('Add task',() => {
+    const path=typeof source==='function' ? source() : source;
+    return taskEditor(ctx,path ? {owner:ctx.workspaces.contextFor(path,owner),location:path} : {owner});
+  },{symbol:'plus'}));
   const list = el('div','task-list scroll-body'); root.append(header,list);
   const groups = new Map();
-  for (const label of ['Open','Future','Completed']) {
-    const section = el(label === 'Open' ? 'div' : 'details');
-    if (label !== 'Open') section.append(el('summary'));
+  for (const label of ['Oath','Open','Future','Window ended','Completed']) {
+    const section = el(['Open','Oath'].includes(label) ? 'div' : 'details');
+    if (label === 'Oath') section.append(el('strong','',label));
+    else if (label !== 'Open') section.append(el('summary'));
     const rows = el('div');
     section.append(rows); list.append(section);
     groups.set(label,{section,rows});
@@ -192,15 +236,31 @@ export function taskPanel(ctx,owner) {
   const empty = el('p','empty','No tasks to do.');
   list.append(empty);
   function refresh(changedId) {
-    const today = new Date().toLocaleDateString('sv-SE');
-    const all = ctx.state.tasks.filter(t => owner ? t.owner === owner : (!ctx.state.projectStatus?.[t.owner] || ctx.state.projectStatus[t.owner]==='Active'))
-      .sort((a,b) => (a.due || '9999').localeCompare(b.due || '9999'));
+    const now = new Date();
+    const clock = now.toLocaleDateString('sv-SE')+' '+now.toTimeString().slice(0,5);
+    const oath = ctx.oaths.current();
+    const pinned = new Set(oath && oath.status!=='scheduled' ? oath.taskIds : []);
+    const inScope=(t,scope) => ctx.tasks.inWorkspace(scope,t);
+    const due=t => (t.due || '9999')+' '+(t.dueTime || '23:59');
+    const rank={'Must do':0,'Should do':1,'':2};
+    const all = ctx.tasks.list().filter(t => (!owner || inScope(t,owner)) &&
+        (oath?.status!=='active' || inScope(t,oath.owner)) &&
+        (owner || pinned.has(t.id) || ctx.workspaces.status(t.owner)==='Active'))
+      .sort((a,b) => due(a).localeCompare(due(b)) || (rank[a.importance] ?? 2)-(rank[b.importance] ?? 2));
+    function group(t) {
+      if (pinned.has(t.id)) return 'Oath';
+      if (t.done) return 'Completed';
+      if (t.start && t.start+' '+(t.startTime || '00:00') > clock) return 'Future';
+      if (t.until && t.until+' '+(t.untilTime || '23:59') < clock) return 'Window ended';
+      return 'Open';
+    }
     const existing = new Map([...list.querySelectorAll('.task-row')].map(row => [row.dataset.id,row]));
     empty.hidden = !!all.length;
     const active = document.activeElement;
     let nextFocus;
     for (const [label,{section,rows}] of groups) {
-      const tasks = all.filter(t => (t.done ? 'Completed' : t.start > today ? 'Future' : 'Open') === label);
+      const tasks = all.filter(t => group(t) === label);
+      if (label==='Oath') section.firstElementChild.textContent=oath?.condition==='tasks'?'Required for this Oath':'Pinned for this Oath';
       const summary = section.querySelector(':scope > summary');
       if (summary) summary.textContent = label+' ('+tasks.length+')';
       section.hidden = !tasks.length;

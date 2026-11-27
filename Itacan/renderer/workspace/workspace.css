@@ -56,3 +56,6 @@
 .tree-rows {flex:1; min-height:0; overflow:auto; scrollbar-gutter:stable;}
 .file-tree .button { display:flex; max-width:100%; justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; border:0; }
 .tree-children { padding-left:var(--s2); border-left:1px solid var(--line); }
+.workspace-shortcuts .scoped-search {display:flex;align-items:stretch;min-width:0;}
+.scoped-search .search-scope {min-width:0;max-width:40%;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--control-radius);}
+.scoped-search .search-results {top:100%;left:0;right:0;}

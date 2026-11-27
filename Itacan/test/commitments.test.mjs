@@ -1,0 +1,100 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {openLibrary} from '../main/library.cjs';
+import {oathAction,advanceOath,oathAllows,moveOath} from '../main/oath.cjs';
+import {roadmapAction,moveRoadmaps} from '../main/project-planning.cjs';
+import {taskAction} from '../main/tasks.cjs';
+import {planAction} from '../main/plan.cjs';
+
+const start=Date.parse('2026-09-07T08:00:00Z'),minute=60000;
+async function setup(t) {
+  const root=await mkdtemp(path.join(tmpdir(),'itacan-commitment-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const library=await openLibrary(root,true);
+  const owner=await library.create('Projects','Measurements','folder');
+  const source=await library.create('Resources/Knowledge','Protocol','folder');
+  const state={tasks:[],history:[],sharedFolders:{[owner]:[source]}};
+  const task=await taskAction(state,'save',{owner,title:'Calibrate',steps:[{text:'Check level'}]},library);
+  const apply=(action,data,at=start)=>oathAction(state,action,{id:state.oath?.id,...data},library,at);
+  const take=(condition,extra={})=>apply('start',{owner,condition,taskIds:[task.id],...extra});
+  return {state,task,library,owner,source,apply,take};
+}
+
+test('task-based Oath binds real tasks; retry, step completion and reopening preserve outcomes',async t=>{
+  const {state,task,owner,source,library,take}=await setup(t);
+  await take('tasks');
+  assert.equal(oathAllows(state,owner),true);
+  assert.equal(oathAllows(state,source+'/Protocol.md'),true);
+  assert.equal(oathAllows(state,source+'s/Protocol.md'),false);
+  await taskAction(state,'step',{id:task.id,stepId:task.steps[0].id,done:true},library);
+  assert.equal(advanceOath(state,{now:start}),false);
+  await assert.rejects(taskAction(state,'delete',{id:task.id},library),/Oath/);
+  await assert.rejects(taskAction(state,'save',{owner:'Resources/Explorations',title:'Other'},library),/active Oath workspace/);
+  await taskAction(state,'complete',{id:task.id,done:true},library);
+  assert.equal(advanceOath(state,{now:start+minute}),true);
+  assert.equal(state.oathHistory[0].activeMs,minute);
+  await taskAction(state,'complete',{id:task.id,done:true},library);
+  await taskAction(state,'complete',{id:task.id,done:false},library);
+  assert.equal(advanceOath(state,{now:start+2*minute}),false);
+  assert.deepEqual(state.oathHistory.map(o=>o.status),['fulfilled']);
+});
+test('timed Oath fulfils only by time; ending manual Oath supports deliberate Break and rest',async t=>{
+  const {state,task,apply,take}=await setup(t);
+  await take('duration',{minutes:3});task.done=true;
+  assert.equal(advanceOath(state,{now:start+minute}),false);
+  advanceOath(state,{now:start+4*minute});
+  assert.equal(state.oathHistory[0].endedAt,new Date(start+3*minute).toISOString());
+  task.done=false;
+  await take('manual');
+  await apply('rest',{minutes:3},start+minute);
+  assert.equal(oathAllows(state,'Projects/Elsewhere'),true);
+  advanceOath(state,{now:start+5*minute});
+  assert.equal(state.oath.status,'active');
+  await apply('end',{fulfilled:true},start+5*minute);
+  assert.equal(state.oathHistory[0].activeMs,2*minute);
+  await take('tasks');
+  await apply('break',{},start+minute);
+  assert.equal(state.oathHistory[0].status,'broken');
+});
+test('scheduled and interrupted sessions recover once without imposing restrictions',async t=>{
+  const {state,task,apply,take}=await setup(t);
+  await assert.rejects(take('tasks',{mode:'strict'}),/Only Regular/);
+  assert.equal(state.oath,undefined);
+  const startsAt=new Date(start+minute).toISOString();
+  await take('manual',{startsAt});
+  await assert.rejects(apply('cancel',{}),/Break Oath/);
+  advanceOath(state,{recover:true,now:start+minute});
+  assert.equal(state.oathHistory[0].status,'missed');
+  await take('tasks',{startsAt});task.done=true;
+  advanceOath(state,{now:start+minute});
+  assert.equal(state.oathHistory[0].status,'fulfilled');
+  task.done=false;await take('manual');
+  advanceOath(state,{recover:true,now:start+minute});
+  assert.equal(state.oathHistory[0].activeMs,null);
+  assert.equal(advanceOath(state,{recover:true,now:start+minute}),false);
+  assert.deepEqual(state.oathHistory.map(o=>o.status),['interrupted','fulfilled','missed']);
+});
+test('Project roadmaps follow a rename independently of the daily Plan',async t=>{
+  const {state,library,owner,task,take}=await setup(t);
+  await roadmapAction(state,'save',{owner,kind:'phase',title:'Fieldwork',start:'2026-09-07',end:'2026-09-14',taskIds:[task.id]},library);
+  await roadmapAction(state,'save',{owner,kind:'milestone',title:'Data release',start:'2026-09-18',achieved:true},library);
+  await planAction(state,'note',{note:'Review the calibration'},library);
+  await planAction(state,'abandon',{},library);
+  assert.equal(state.plan.note,'Review the calibration');
+  await take('manual');
+  moveOath(state,owner,'Projects/Survey');moveRoadmaps(state,owner,'Projects/Survey');
+  assert.equal(state.oath.owner,'Projects/Survey');
+  assert.equal(state.roadmaps['Projects/Survey'][0].taskIds[0],task.id);
+  assert.equal(state.roadmaps['Projects/Survey'][1].achieved,true);
+});
+test('desired completion creates one successor and preserves scheduling date offsets',async t=>{
+  const {state,library,owner}=await setup(t);
+  const task=await taskAction(state,'save',{owner,title:'Observe',start:'2026-11-03',due:'2026-11-07',until:'2026-11-05',planned:'2026-11-04',repeat:'weekly'},library);
+  for(let i=0;i<2;i++)await taskAction(state,'complete',{id:task.id,done:true},library);
+  const next=state.tasks.find(t=>t.id===task.successor);
+  assert.equal(next.until,'2026-11-12');assert.equal(next.planned,'2026-11-11');
+  assert.equal(state.tasks.filter(t=>t.title==='Observe').length,2);
+});

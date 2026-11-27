@@ -3,6 +3,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { validName } = require('./library.cjs');
 const { recordActivity } = require('./progress.cjs');
+const { prepareMove, prepareFiling, digest, identity } = require('./recovery.cjs');
 const { rewriteRefs } = require('./work.cjs');
 
 async function privateFolder(library, name) {
@@ -14,7 +15,7 @@ async function privateFolder(library, name) {
 async function moveItem(work, from, parent, name, trash) {
   const { library } = work;
   let removed;
-  const state = await work.transaction(async data => {
+  await work.transaction(async (data, raw) => {
     const source = await library.resolve(from);
     const parts = from.split('/');
     if (parts.length === 2 && (parts[0] !== 'Projects' || parent !== 'Projects' && !trash)) throw Error('Keep workspaces in their collection.');
@@ -38,9 +39,17 @@ async function moveItem(work, from, parent, name, trash) {
     rewriteRefs(data, from, relative);
     if (/\.md$/i.test(from)) recordActivity(data,trash?'deleted':parent===parts.slice(0,-1).join('/')?'renamed':'moved',relative || from,{previous:from,removed:!!trash});
     if (parts.length===2) recordActivity(data,trash?'project-deleted':'project-renamed',relative || from,{removed:!!trash,removedWorkspace:!!trash});
+    const destination = library.relativePath(target);
+    const original = await prepareMove(library,raw,{...data,revision:(data.revision || 0)+1},from,destination);
+    const [sourceNow,targetNow] = await Promise.all([identity(library,from),identity(library,destination)]);
+    if (sourceNow !== original || targetNow !== null) throw Error('The source or destination changed before the move. Both paths have been preserved.');
     await fs.rename(source, target);
-    return () => fs.rename(target, source);
+    return async () => {
+      const [atSource,atDestination] = await Promise.all([identity(library,from),identity(library,destination)]);
+      if (atSource === null && atDestination === original) await fs.rename(target,source);
+    };
   });
+  const state = await work.transaction();
   return { state, removed };
 }
 async function copyItem(work, from, parent) {
@@ -129,21 +138,26 @@ async function captureFiles(work, paths, text = '', stage = false) {
 }
 async function resolveAttachment(work, id, parent, staged = false) {
   let source;
-  const state = await work.transaction(async data => {
+  await work.transaction(async (data,raw) => {
     const records = staged ? data.quickFiles || [] : data.inbox;
     const item = records.find(i => i.id === id);
     if (!item?.name) throw Error('Attachment unavailable.');
     const folder = await privateFolder(work.library, 'Inbox attachments');
     source = path.join(folder, validName(item.id) + '-' + validName(item.name));
     if (!(await fs.lstat(source)).isFile()) throw Error('Invalid attachment.');
+    records.splice(records.indexOf(item),1);
     let dest;
     if (parent) {
       dest = path.join(await work.library.resolve(parent), item.name);
+      const written = digest(await fs.readFile(source));
+      await prepareFiling(work.library,raw,data,parent+'/'+item.name,null,written);
       await fs.copyFile(source, dest, fs.constants.COPYFILE_EXCL);
     }
-    records.splice(records.indexOf(item),1);
-    if (dest) return () => fs.unlink(dest);
+    if (dest) return async () => {
+      if (digest(await fs.readFile(dest)) === digest(await fs.readFile(source))) await fs.unlink(dest);
+    };
   });
+  const state = await work.transaction();
   await fs.unlink(source).catch(() => { }); // A leftover staging copy is harmless.
   return state;
 }
@@ -152,7 +166,7 @@ async function resolveAttachment(work, id, parent, staged = false) {
 async function fileText(work, { id, ids = id ? [id] : [], quick, text, folder, name, path: note, draft, revision, offset = draft?.length, marker }) {
   let saved;
   const library = work.library;
-  const state = await work.transaction(async data => {
+  await work.transaction(async (data,raw) => {
     if (ids.length) {
       text = ids.map(key => {
         const item = data.inbox.find(i => i.id === key);
@@ -161,6 +175,8 @@ async function fileText(work, { id, ids = id ? [id] : [], quick, text, folder, n
       }).join('\n\n');
     }
     if (typeof text !== 'string' || !text.trim()) throw Error('Enter capture text.');
+    if (ids.length) data.inbox = data.inbox.filter(i => !ids.includes(i.id));
+    if (quick) data.quickText = '';
     let rollback;
     if (note) {
       const before = await library.readNote(note);
@@ -172,21 +188,23 @@ async function fileText(work, { id, ids = id ? [id] : [], quick, text, folder, n
       const right = afterText ? gap.slice(Math.min(gap.length,afterText.match(/^\n*/)[0].length)) : '';
       const inserted = marker ? marker+' '+text.replace(/\n/g,'\n  ') : text;
       const content = beforeText+left+inserted+right+afterText;
-      saved = { text: content, revision: await library.saveNote(note, content, revision) };
       recordActivity(data,'edited',before.path);
+      const bytes = (before.bom ? '\ufeff' : '') + content.replace(/\r\n|\r|\n/g,before.newline);
+      await prepareFiling(library,raw,data,note,revision,digest(bytes));
+      saved = { text: content, revision: await library.saveNote(note, content, revision) };
       rollback = () => library.saveNote(note, before.text, saved.revision);
     } else {
+      const target = folder+'/'+validName(/\.md$/i.test(name) ? name : name+'.md');
+      recordActivity(data,'created',target);
+      await prepareFiling(library,raw,data,target,null,digest(text));
       const created = await library.create(folder, name, 'note', text);
-      recordActivity(data,'created',created);
       rollback = async () => {
         if ((await library.readNote(created)).text === text) await fs.unlink(await library.notePath(created));
       };
     }
-    if (ids.length) data.inbox = data.inbox.filter(i => !ids.includes(i.id));
-    if (quick) data.quickText = '';
     return rollback;
   });
-  return { state, saved };
+  return { state:await work.transaction(), saved };
 }
 async function createItem(work,parent,name,kind,text) {
   const project=parent==='Projects' && kind==='folder';
@@ -202,14 +220,13 @@ async function createItem(work,parent,name,kind,text) {
   });
   return created;
 }
-async function saveDocument(work,file,text,revision) {
-  let saved;
-  await work.transaction(async state => {
-    const previous = await work.library.readNote(file);
-    saved = await work.library.saveNote(previous.path,text,revision);
-    recordActivity(state,'edited',previous.path);
-    return () => work.library.saveNote(previous.path,previous.text,saved);
-  });
+async function saveDocument(work,file,text,revision,onActivityError = () => {}) {
+  const saved = await work.library.saveNote(file,text,revision);
+  try {
+    await work.transaction(state => { recordActivity(state,'edited',file); });
+  } catch (error) {
+    onActivityError(error);
+  }
   return saved;
 }
 module.exports = { createItem, saveDocument, copyItem, moveItem, importFiles, captureFiles, resolveAttachment, fileText };

@@ -8,8 +8,8 @@ export async function fileCapturedText(ctx,kind,items,quick = false) {
   if (!text.trim()) throw Error('Enter capture text.');
   if (kind==='task' && items.length>1) {
     const confirm='Create '+items.length+' tasks';
-    const path=await pickPath(ctx,confirm,'location','',{confirm,commit:path=>
-      ctx.update('task','captures',{ids,path})});
+    const path=await pickPath(ctx,confirm,'location',ctx.workspaces.lastWorkspace() || '',{confirm,commit:(path,owner)=>
+      ctx.tasks.fileCaptures({ids,path,owner})});
     return !!path;
   }
   if (kind === 'task') {

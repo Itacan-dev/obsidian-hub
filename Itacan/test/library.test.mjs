@@ -26,11 +26,11 @@ test('fresh library, real workspace folders, exclusive creation and reopen', asy
 
 test('document paths preserve the identity provided by the filesystem', async t => {
   const library = await openLibrary(await folder(t), true);
-  const upper = await library.create('Resources/Research', 'Paper', 'note', 'first');
-  const lower = 'Resources/Research/paper.md';
+  const upper = await library.create('Resources/Literature', 'Paper', 'note', 'first');
+  const lower = 'Resources/Literature/paper.md';
   assert.equal((await library.readNote(upper)).path, upper);
   try {
-    await library.create('Resources/Research', 'paper', 'note', 'second');
+    await library.create('Resources/Literature', 'paper', 'note', 'second');
   } catch (error) {
     assert.match(error.message, /already/);
     if (process.platform === 'win32') assert.equal((await library.readNote(lower)).path, upper);
@@ -43,7 +43,7 @@ test('document paths preserve the identity provided by the filesystem', async t 
 
 test('stale saves preserve external edits and overlapping revisions commit once', async t => {
   const library = await openLibrary(await folder(t), true);
-  const file = await library.create('Resources/Research', 'Paper', 'note', '\ufeff# Paper\r\nText\r\n');
+  const file = await library.create('Resources/Literature', 'Paper', 'note', '\ufeff# Paper\r\nText\r\n');
   const original = await library.readNote(file);
   assert.equal(original.bom, true);
   const results = await Promise.allSettled(['First\n', 'Second\n'].map(text => library.saveNote(file, text, original.revision)));
@@ -64,15 +64,15 @@ test('unrelated folders, invalid names and paths are protected', async t => {
   assert.deepEqual(await fs.readdir(root), ['my-file']);
   const library = await openLibrary(await folder(t), true);
   for (const name of ['../escape', 'a:b', 'a\\b', 'nul.md', '.hidden', 'a.']) {
-    await assert.rejects(library.create('Resources/Research', name, 'note'));
+    await assert.rejects(library.create('Resources/Literature', name, 'note'));
   }
   await assert.rejects(library.entries('Resources/../Projects'));
   await fs.symlink(root, path.join(library.root, 'Projects', 'Link'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(library.entries('Projects/Link'), /Symbolic/);
   assert.equal((await library.home()).projects.length, 0);
-  const paper = 'Resources/Research/Paper.pdf';
+  const paper = 'Resources/Literature/Paper.pdf';
   await fs.writeFile(path.join(library.root, paper), '%PDF-');
   assert.equal(await library.attachmentPath(paper), path.join(library.root, paper));
-  await fs.writeFile(path.join(library.root, 'Resources/Research/Script.cmd'), 'test');
-  await assert.rejects(library.attachmentPath('Resources/Research/Script.cmd'), /image or PDF/);
+  await fs.writeFile(path.join(library.root, 'Resources/Literature/Script.cmd'), 'test');
+  await assert.rejects(library.attachmentPath('Resources/Literature/Script.cmd'), /image or PDF/);
 });

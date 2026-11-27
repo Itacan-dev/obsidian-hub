@@ -40,7 +40,10 @@ async function planAction(state, action, data, library) {
   if (action === 'finish') return finish(state,true);
   const plan = active(state);
   if (action === 'start') return;
-  if (action === 'abandon' && !plan.entries.length) { state.plan = null; return; }
+  if (action === 'abandon') {
+    if (!plan.entries.length && !plan.note.trim()) state.plan = null;
+    return;
+  }
   if (action === 'note') { plan.note = String(data.note); return; }
   if (action === 'addMany') {
     for (const item of data.items) await planAction(state,'add',{...item,planId:plan.id},library);

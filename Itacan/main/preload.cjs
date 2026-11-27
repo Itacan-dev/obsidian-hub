@@ -12,7 +12,26 @@ function droppedFiles(files) {
 contextBridge.exposeInMainWorld('itacan', {
   statisticsNotes: id => call('statistics-notes',id),
   work: id => call('work-read', id),
-  update: (id, group, action, data) => call('work-update', id, group, action, data),
+  ...Object.fromEntries(['task','workspace','oath','roadmap','music','settings','progress','layout','plan','capture','inbox'].map(
+    group=>[group,(id,action,data)=>call(group+'-operation',id,action,data)])),
+  search:(id,request)=>call('search',id,request),
+  onSearchMatches:(id,token,handler)=>{
+    const listener=(_event,session,query,matches)=>{if(id===session && token===query) handler(matches);};
+    ipcRenderer.on('search-matches',listener);
+    return ()=>ipcRenderer.removeListener('search-matches',listener);
+  },
+  cancelSearch:(id,token)=>call('cancel-search',id,token),
+  documentPath:(id,file)=>call('document-path',id,file),
+  getDraft:(id,file)=>call('get-draft',id,file),
+  putDraft:(id,file,draft)=>call('put-draft',id,file,draft),
+  readDevicePreferences:()=>call('read-device-preferences'),
+  saveDevicePreferences:settings=>call('save-device-preferences',settings),
+  listDeviceApps:()=>call('device-apps'),
+  chooseDeviceApp:()=>call('choose-device-app'),
+  removeDeviceApp:id=>call('remove-device-app',id),
+  launchDeviceApp:id=>call('launch-device-app',id),
+  onWorkChanged:handler=>ipcRenderer.on('work-changed',(_event,id)=>handler(id)),
+  onNotice:handler=>ipcRenderer.on('library-notice',(_event,message)=>handler(message)),
   copyItem: (id,path,parent) => call('copy-item',id,path,parent),
   copyPaths: (id,paths) => call('copy-paths',id,paths),
   revealItem: (id,path) => call('reveal-item',id,path),
@@ -23,7 +42,7 @@ contextBridge.exposeInMainWorld('itacan', {
   importFiles: async (id,parent,files)=>call('import-files',id,parent,await droppedFiles(files)),
   resolveAttachment: (id, capture, parent, staged) => call('resolve-attachment', id, capture, parent, staged),
   home: () => call('home'),
-  chooseLibrary: () => call('choose-library'),
+  chooseLibrary: mode => call('choose-library',mode),
   entries: (id, folder, times) => call('entries', id, folder, times),
   create: (id, parent, name, kind, text) => call('create', id, parent, name, kind, text),
   readNote: (id, file) => call('read-note', id, file),

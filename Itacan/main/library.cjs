@@ -3,7 +3,7 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 
 const collections = ['Projects', 'Resources'];
-const resourceNames = ['Knowledge', 'Research', 'Explorations', 'Inspiration'];
+const resourceNames = ['Knowledge', 'Literature', 'Explorations', 'Inspiration'];
 const marker = 'itacan-library.json';
 const imageTypes = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif' };
 const canOpenAttachment = name => !!imageTypes[path.extname(name).toLowerCase()] || /\.pdf$/i.test(name);
@@ -54,18 +54,26 @@ async function openLibrary(directory, initialize = false) {
     if (entries.some(name => !['.DS_Store', 'desktop.ini', 'Thumbs.db'].includes(name))) {
       throw Error('Choose an empty folder for a new library, or a folder with an Itacan library marker.');
     }
-    contents = JSON.stringify({ format: 'itacan-library', version: 1 }, null, 2) + '\n';
+    contents = JSON.stringify({ format: 'itacan-library', version: 2 }, null, 2) + '\n';
     await writableFile(manifest, contents);
   }
   const info = JSON.parse(contents);
-  if (info?.format !== 'itacan-library' || info.version !== 1) throw Error('Unrecognized Itacan library format.');
+  if (info?.format !== 'itacan-library' || ![1,2].includes(info.version)) throw Error('Unrecognized Itacan library format.');
   // Repeatable initialization also completes a first open interrupted between mkdir calls.
-  for (const relative of [...collections, ...resourceNames.map(name => 'Resources/' + name)]) {
+  async function ensureDirectory(relative) {
     const file = path.join(root, relative);
     try { await fs.mkdir(file); } catch (error) { if (error.code !== 'EEXIST') throw error; }
     if (!(await fs.lstat(file)).isDirectory()) throw Error('Expected a local directory at ' + relative);
   }
-  return new Library(root);
+  for (const collection of collections) await ensureDirectory(collection);
+  const existing = await fs.readdir(path.join(root, 'Resources'));
+  for (const name of resourceNames) {
+    const useLegacy = name === 'Literature' && existing.includes('Research') && !existing.includes('Literature');
+    await ensureDirectory('Resources/' + (useLegacy ? 'Research' : name));
+  }
+  const library = new Library(root);
+  library.formatVersion = info.version;
+  return library;
 }
 
 class Library {
@@ -112,11 +120,16 @@ class Library {
 
   async home() {
     const [projects, resources] = await Promise.all(collections.map(name => this.entries(name, 1)));
+    const folders = resources.filter(entry => entry.kind === 'folder');
+    const fixed = resourceNames.map(name => {
+      const source = folders.find(entry => entry.name === name) ||
+        (name === 'Literature' && folders.find(entry => entry.name === 'Research'));
+      return source && { ...source, name };
+    }).filter(Boolean);
+    const fixedPaths = new Set(fixed.map(entry => entry.path));
     return { name: path.basename(this.root), session: this.session,
-      projects: projects.filter(e => e.kind === 'folder'), resources: resources.filter(e => e.kind === 'folder').sort((a,b) => {
-        const rank = item => resourceNames.includes(item.name) ? resourceNames.indexOf(item.name) : resourceNames.length;
-        return rank(a) - rank(b);
-      }) };
+      projects: projects.filter(e => e.kind === 'folder'), resources: fixed,
+      extraResources: folders.filter(entry => !fixedPaths.has(entry.path)) };
   }
 
   async create(parent, name, kind, text = '') {
@@ -145,12 +158,18 @@ class Library {
     return process.platform === 'win32' ? fs.realpath(file) : file;
   }
 
+  async documentPath(relative) {
+    if (/\.md$/i.test(relative)) return this.notePath(relative);
+    const file=await this.attachmentPath(relative);
+    return fs.realpath(file);
+  }
+
   async resolveLayout(layout) {
     if (process.platform !== 'win32') return layout;
     // Older layouts can contain the spelling from a hand-written link.
     const paths = new Map();
     for (const file of new Set(layout.panes.flatMap(pane => pane.tabs))) {
-      try { paths.set(file, this.relativePath(await this.notePath(file))); }
+      try { paths.set(file, this.relativePath(await this.documentPath(file))); }
       catch { paths.set(file, file); } // Unavailable documents keep their closable tabs.
     }
     for (const pane of layout.panes) {

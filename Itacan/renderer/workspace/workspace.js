@@ -8,19 +8,26 @@ import { contextSearch } from '../ui/context-search.js';
 import { fileTree, placements } from './tree.js';
 import { fileDrag } from './file-drag.js';
 import { resizeDivider } from './divider.js';
+import { workspaceName } from './context.js';
+import { attachFolder } from './shared-folders.js';
+import { launchShortcuts } from '../settings/settings.js';
+import { roadmapDialog, workspacePlan } from '../plan/project.js';
 
 export async function workspaceView(library, folder, ctx, route = {}) {
-  const owner = folder.split('/').slice(0,2).join('/');
+  const owner = ctx.workspaces.contextFor(folder,route.workspace);
+  const go = (path,options={}) => ctx.openFolder(path,{workspace:owner,...options});
   const root = el('section','workspace view-width');
   const isProject = owner.startsWith('Projects/');
   const cover = el('div','dashboard-cover workspace-cover');
   const title = el('header','dashboard-heading');
   const titleBox = el('div');
-  titleBox.append(el('h1','',owner.split('/')[1]),el('p','context-label',isProject ? 'Project' : 'Resource'));
+  titleBox.append(el('h1','',workspaceName(library,owner)),el('p','context-label',isProject ? 'Project' : 'Resource'));
   title.append(titleBox,dashboardDate());
   const shortcuts = el('div','workspace-shortcuts');
   if (isProject) shortcuts.append(el('strong','context-label','Work'));
-  shortcuts.append(contextSearch(ctx,owner));
+  shortcuts.append(contextSearch(ctx,owner,()=>folder));
+  if (isProject) shortcuts.append(button('Roadmap', () => roadmapDialog(ctx,owner)),button('Today’s plan', () => workspacePlan(ctx,owner)));
+  shortcuts.append(launchShortcuts(ctx));
   root.append(cover,title);
   const work = el('div','workspace-work');
   const files = el('section','files panel');
@@ -37,11 +44,11 @@ export async function workspaceView(library, folder, ctx, route = {}) {
   let anchor = null;
 
   let entries = [];
-  const stored = ctx.state.explorers?.[owner] || {};
+  const stored = ctx.workspaces.explorer(owner) || {};
   const order=[...(stored.order || [])];
   const expanded = [...(stored.expanded || [])];
   let sort = stored.sort || 'name', direction = stored.direction || 1, width = stored.width;
-  const saveView = () => ctx.update('workspace','explorer',{path:owner, expanded,sort,direction,width,folder,order});
+  const saveView = () => ctx.workspaces.saveExplorer({path:owner, expanded,sort,direction,width,folder,order});
   const drag=fileDrag(async (paths,parent)=>{
     let next=folder;
     if(paths.length>1) {
@@ -56,13 +63,13 @@ export async function workspaceView(library, folder, ctx, route = {}) {
         await ctx.changeFile(path,parent,name);
         if(path===folder || folder.startsWith(path+'/'))next=parent+'/'+name+folder.slice(path.length);
       }
-    } finally {await ctx.openFolder(next,{refreshTree:true,retainSelection:true});}
+    } finally {await go(next,{refreshTree:true,retainSelection:true});}
   },async (files,parent)=>{
     ctx.install(await window.itacan.importFiles(library.session,parent,files),'files');
-    await ctx.openFolder(folder,{refreshTree:true,retainSelection:true});
+    await go(folder,{refreshTree:true,retainSelection:true});
   },parent=>parent!==owner);
   drag.target(list,()=>folder);
-  const tree = fileTree(ctx,owner,{foldersOnly:true,expanded,selected:folder,changed:saveView,folderMenu,fileDrag:drag,folderOrder:order,reorderFolders:saveView});
+  const tree = fileTree(ctx,owner,{foldersOnly:true,expanded,selected:folder,select:go,changed:saveView,folderMenu,fileDrag:drag,folderOrder:order,reorderFolders:saveView});
   const divider = resizeDivider('Folder navigation width',() => tree.root.getBoundingClientRect().width,
     next => {
       const available=browser.clientWidth;
@@ -85,7 +92,7 @@ export async function workspaceView(library, folder, ctx, route = {}) {
     let name = base, counter = 1;
     while (names.has(name+(kind==='note'?'.md':''))) name = base+' ('+(++counter)+')';
     const path = await window.itacan.create(library.session,parent,name,kind);
-    await ctx.openFolder(parent,{rename:path,selected:path,refreshTree:true});
+    await go(parent,{rename:path,selected:path,refreshTree:true});
   }
   function rename(path) {
     const row = [...list.children].find(row=>row.dataset.path===path);
@@ -105,7 +112,7 @@ export async function workspaceView(library, folder, ctx, route = {}) {
       if (!cancel && next && next!==name) {
         try {
           await ctx.changeFile(path,parent,next);
-          await ctx.openFolder(parent,{selected:parent+'/'+next,refreshTree:true});
+          await go(parent,{selected:parent+'/'+next,refreshTree:true});
           return;
         } catch (error) { finished=false; report(error); input.focus(); return; }
       }
@@ -124,7 +131,7 @@ export async function workspaceView(library, folder, ctx, route = {}) {
     let name = first.split('/').at(-1);
     if (action === 'Rename') {
       if (entries.some(e=>e.path===first)) return rename(first);
-      if (first!==owner) return ctx.openFolder(parent,{rename:first,selected:first});
+      if (first!==owner) return go(parent,{rename:first,selected:first});
       name = await askName('Rename workspace',name,'Rename');
     }
     if (!name || action === 'Delete' && !await confirmAction('Delete selection?',paths.join('\n'),'Delete')) return;
@@ -134,7 +141,7 @@ export async function workspaceView(library, folder, ctx, route = {}) {
       }
     } finally {
       if (paths.includes(owner)) await ctx.refresh();
-      else await ctx.openFolder(paths.includes(folder) ? parent : folder,{refreshTree:true});
+      else await go(paths.includes(folder) ? parent : folder,{refreshTree:true});
     }
   }
   const manageOptions = paths => ['Rename','Move','Delete'].filter(a => a !== 'Rename' || paths.length === 1)
@@ -152,25 +159,29 @@ export async function workspaceView(library, folder, ctx, route = {}) {
           clip.paths.splice(clip.paths.indexOf(path),1);
         } else await window.itacan.copyItem(library.session,path,parent);
       }
-    } finally { await ctx.openFolder(folder,{refreshTree:true}); }
+    } finally { await go(folder,{refreshTree:true}); }
   }
   function folderMenu(path) {
+    const attached = ctx.workspaces.attachments(owner)?.includes(path);
     return [
       {label:'New note',disabled:path===owner,run:()=>create('note',path)},
       {label:'New folder',run:()=>create('folder',path)},
       {label:'Paste',disabled:!ctx.fileClipboard?.paths.length,run:()=>paste(path)},
       {label:'Show in system explorer',run:()=>window.itacan.revealItem(library.session,path)},
-      ...(path!==owner ? manageOptions([path]) : [])
+      ...(attached ? [{label:'Detach from Project',run:async()=>{
+        await ctx.workspaces.detachFolder({project:owner,folder:path});
+        await go(owner,{refreshTree:true});
+      }}] : path!==owner ? manageOptions([path]) : [])
     ];
   }
   function fileOptions(entry) {
     const paths=[...selected];
     const files=entries.filter(e=>selected.has(e.path) && (e.kind==='note' || e.openable));
-    const items = [{label:'Add selected files to plan',disabled:!files.length,run:()=>ctx.update('plan','addMany',{
+    const items = [{label:'Add selected files to plan',disabled:!files.length,run:()=>ctx.plans.addMany({
       items:files.map(e=>({kind:e.kind,ref:e.path}))
     })}];
     if (paths.length===1) {
-      if (entry.kind==='note') items.push(...placements(ctx,entry));
+      if (entry.kind==='note' || entry.openable) items.push(...placements(ctx,entry,owner));
       else items.push({label:'Open',run:()=>open(entry),disabled:entry.kind==='file' && !entry.openable});
       if (entry.kind==='folder') items.push(...folderMenu(entry.path).slice(0,3));
       items.push({label:'Show in system explorer',run:()=>window.itacan.revealItem(library.session,entry.path)});
@@ -179,8 +190,8 @@ export async function workspaceView(library, folder, ctx, route = {}) {
       {label:'Cut',run:()=>clip(paths,true)},{label:'Copy',run:()=>clip(paths,false)},
       {label:paths.length===1?'Copy path':'Copy paths',run:()=>window.itacan.copyPaths(library.session,paths)}];
   }
-  const open = entry => entry.kind === 'folder' ? ctx.openFolder(entry.path) : entry.kind === 'note' ?
-    ctx.openNote(entry.path) : entry.openable && window.itacan.openAttachment(library.session,entry.path);
+  const open = entry => entry.kind === 'folder' ? go(entry.path) :
+    (entry.kind === 'note' || entry.openable) && ctx.openNote(entry.path,undefined,'','replace',owner);
   function sync() { for (const row of list.children) row.setAttribute('aria-selected',String(selected.has(row.dataset.path))); }
   function render() {
     list.replaceChildren();
@@ -196,8 +207,8 @@ export async function workspaceView(library, folder, ctx, route = {}) {
         return [...selected];
       });
       if(entry.kind==='folder') drag.target(row,entry.path);
-      if(entry.kind==='note') row.onauxclick=e=>{
-        if(e.button===1){e.preventDefault();ctx.openNote(entry.path,false,'','split').catch(report);}
+      if(entry.kind==='note' || entry.openable) row.onauxclick=e=>{
+        if(e.button===1){e.preventDefault();ctx.openNote(entry.path,undefined,'','split',owner).catch(report);}
       };
       row.onclick = e => {
         if (e.shiftKey && anchor !== null) {
@@ -274,6 +285,9 @@ export async function workspaceView(library, folder, ctx, route = {}) {
     control.replaceChildren(icon(['notePlus','folderPlus','sort'][i]));
   }
   tree.root.prepend(tools);
+  if (isProject) heading.append(button('Attach Resource folder',async()=>{
+    if (await attachFolder(ctx,owner)) await tree.refresh();
+  },{variant:'quiet',symbol:'plus'}));
   content.append(location,columns,list);
   browser.append(tree.root,divider,content); files.append(heading,browser);
   const tasks = taskPanel(ctx,owner);
@@ -282,7 +296,7 @@ export async function workspaceView(library, folder, ctx, route = {}) {
   work.append(files,side); root.append(shortcuts,work);
   async function openFolder(path, options) {
     const rows = await window.itacan.entries(library.session,path,true);
-    if (ctx.state.lastFolder !== path) await ctx.update('workspace','visit',{path});
+    if (ctx.workspaces.lastFolder() !== path || ctx.workspaces.lastWorkspace() !== owner) await ctx.workspaces.visit({path,workspace:owner});
     const changed = path !== folder;
     folder = path;
     entries = rows;
@@ -292,13 +306,15 @@ export async function workspaceView(library, folder, ctx, route = {}) {
     anchor = null;
     if (changed || !location.childElementCount) {
       const parts = folder.split('/');
-      location.replaceChildren(...parts.slice(1).map((name,index) =>
-        button(name, () => ctx.openFolder(parts.slice(0,index+2).join('/')),{variant:'quiet'})));
+      location.replaceChildren(...parts.slice(1).map((name,index) => {
+        const target = parts.slice(0,index+2).join('/');
+        return button(index ? name : workspaceName(library,target), () => go(target),{variant:'quiet'});
+      }));
     }
     newNote.disabled = folder === owner;
     newNote.title = newNote.disabled ? 'Create notes inside a workspace folder' : 'New note';
     if (options.refreshTree) {
-      const saved=ctx.state.explorers?.[owner];
+      const saved=ctx.workspaces.explorer(owner);
       if(saved?.order)order.splice(0,order.length,...saved.order);
       if(saved?.expanded)expanded.splice(0,expanded.length,...saved.expanded);
       await tree.refresh();progress.refresh('files');
@@ -311,7 +327,7 @@ export async function workspaceView(library, folder, ctx, route = {}) {
   await openFolder(folder,route);
   return {root,owner,openFolder,refresh(group, action, id) {
     progress.refresh(group);
-    if (!group || group === 'task') tasks.refresh(id);
+    if (!group || group === 'task' || group === 'oath' || group === 'workspace' && ['attach','detach'].includes(action)) tasks.refresh(id);
   },mounted(options, lostFocus) {
     if (options.rename) rename(options.rename);
     else if (options.selected) [...list.children].find(row=>row.dataset.path===options.selected)?.focus();

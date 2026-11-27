@@ -8,6 +8,10 @@ const { name, productName, version, main, description } = JSON.parse(await readF
 await writeFile(out + '/package.json', JSON.stringify({ name, productName, version, main, description }, null, 2));
 await Promise.all([
   cp('main', out + '/main', { recursive: true }),
+  cp('contracts', out + '/contracts', { recursive:true }),
+  cp('examples/Field Library', out + '/examples/Field Library', { recursive:true }),
+  cp('node_modules/pdfjs-dist/build/pdf.worker.min.mjs',out+'/public/pdf/pdf.worker.min.js'),
+  ...['cmaps','standard_fonts','wasm','iccs'].map(folder=>cp('node_modules/pdfjs-dist/'+folder,out+'/public/pdf/'+folder,{recursive:true})),
   cp('assets', out + '/public/assets', { recursive: true }),
   cp('renderer/index.html', out + '/public/index.html')
 ]);

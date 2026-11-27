@@ -6,7 +6,7 @@ Itacan opens on Home. Workspaces own folders and notes. The document desk shows 
 | --- | --- |
 | `renderer/app.js` and `index.html` | Library session, navigation, document desk, app bar and quit guard. After a task or capture write, only the current feature panels refresh. |
 | `renderer/workspace/` | Folder management, contextual tree, tabs, split views and layout controls. The tree reads one expanded directory at a time. Tab switches preserve the other pane's editor. |
-| `renderer/document/` | One in-memory buffer per open Markdown path. Editors and previews subscribe to that buffer. Explicit saves, conflict copies, relative links and research math all use the same document implementation. |
+| `renderer/document/` | Markdown source, Live Preview and Read share one text buffer and undo history per open path. Selections and scroll offsets belong to the pane. Local PDF and image tabs use the same desk and store page, zoom or pan in the layout. |
 | `renderer/home/` | Dashboard greeting, offline task agenda, project status selectors, resource cards and panels from Tasks, Plan and Progress. |
 | `renderer/tasks/`, `renderer/capture/`, `renderer/plan/` | Task editor and lists, Quick Add and Inbox destinations, and the ordered daily Plan and history. Each directory owns its window composition and layout. |
 | `renderer/progress/panel.js` | Scoped Home/workspace calendar, multi-workspace daily intensity and paged history. Opens reports, live sources and Statistics. |
@@ -17,12 +17,18 @@ Itacan opens on Home. Workspaces own folders and notes. The document desk shows 
 | `main/library.cjs`, `main/files.cjs` | Validated paths, UTF-8 Markdown, atomic saves, ordinary folder operations, move reference updates, staged captures and filing. |
 | `main/tasks.cjs`, `main/plan.cjs` | Task dates, steps and recurrence, and Plan entry validation, ordering and history snapshots. |
 | `main/progress.cjs` | Stores reports by local day and workspace, records file activity and task/step transitions, and reads surviving note metadata for Statistics. File operations and the shared task command call these functions. |
-| `main/work.cjs` | Per-library JSON reads and serialized updates, reference repair and saved layouts. Each update reads the current file and checks for intervening external changes before replacing it. |
+| `renderer/work-operations.js`, `contracts/work-commands.d.ts` | Named feature operations and their input contracts. The renderer calls the relevant domain when changing tasks, Plans, Oaths, workspaces, presets, progress or settings. |
+| `main/work.cjs`, `main/work-format.cjs` | Validate persisted records and serialize changes for one library. A task completion, Oath outcome and progress evidence can share one commit. Each replacement checks for intervening changes. |
+| `main/workspaces.cjs`, `main/presets.cjs`, `main/capture-state.cjs` | Workspace context and Resource attachments, mixed layouts and Last File, and the Quick Add and Inbox lifecycle. |
+| `main/oath.cjs`, `main/project-planning.cjs` | Regular Oath scheduling, rest, terminal outcomes, scope and history, plus Project phases and milestones. |
+| `main/recovery.cjs`, `main/library-format.cjs`, `main/drafts.cjs` | Recover interrupted moves and filing, protect old metadata during an upgrade, and store unsaved drafts in the device profile. |
+| `main/search.cjs`, `renderer/ui/context-search.js` | Search filenames and Markdown within the selected scope, stream matching lines from bounded reads, overlay dirty buffers, and cancel superseded queries. |
+| `main/settings.cjs`, `main/music.cjs` | Portable preferences and playlist order, device-specific shortcuts and window bounds, and local audio paths. |
 | `scripts/`, `test/` | Source bundling, filesystem tests and the offline desktop workflow. |
 
 ## Dependencies
 
-Electron supplies the shell, native dialogs, local protocol and sandboxed preload. CodeMirror 6 and its Markdown language package provide the editor. Markdown-it, markdown-it-texmath and KaTeX render previews. Fontsource supplies local fonts. esbuild bundles the renderer, Playwright drives the desktop test and Node's test runner exercises the filesystem and domain operations. Dashboard and dialog sizing use CSS Grid, Flexbox and container queries. The offline agenda reads task dates from the current library.
+Electron supplies the shell, native dialogs, local protocol and sandboxed preload. CodeMirror 6 and its Markdown language package provide the editor. Markdown-it, markdown-it-texmath and KaTeX render previews. The build bundles PDF.js, its worker and fonts for offline papers. Fontsource supplies local interface fonts. esbuild bundles the renderer, Playwright drives the desktop tests and Node's test runner exercises the filesystem and domain operations. Dashboard and dialog sizing use CSS Grid, Flexbox and container queries. The offline agenda reads task dates from the current library.
 
 ## Storage decisions
 
@@ -30,7 +36,9 @@ Documents keep their file identity. Structured records use library-relative path
 
 Project display order is saved per status in `projectOrder`. Each workspace can save its top-level folder order in `explorers[path].order`. Both use library-relative paths and share the existing managed move updates. The file listing keeps its own sort order.
 
-The library work file uses ordinary JSON and the same atomic replacement helper as note saves. A capture stays in Inbox until the destination write succeeds. File operations that also update JSON can undo their file change if the JSON write fails. One active writer per library is the intended operating model. The [library guide](../README.md) describes the on-disk layout.
+The library work file uses ordinary JSON and the same atomic replacement helper as note saves. Managed moves and Inbox filing record the pending change before touching the destination. On reopening, matching file identity or content allows the operation to finish. Divergent copies remain available for recovery. If a note save succeeds but activity logging fails, the note stays saved and the editor reports the logging issue. One active writer per library is the intended operating model. The [library guide](../README.md) describes the on-disk layout.
+
+New libraries have a version 2 marker. Before the first structured change to a version 1 library, Itacan saves its original marker and work file together under `.itacan-recovery/`. The work file retains its version 1 record format and gains optional domain fields. A separate device profile keeps recovery drafts, window geometry, local application bindings and audio volume. A closed library can move independently of that profile.
 
 
 ## Fields introduced in 0.3.0
@@ -43,4 +51,4 @@ The library work file uses ordinary JSON and the same atomic replacement helper 
 | `plan.endsAt`, `timeZone` and historical entry routes | The intended local day boundary and readable historical references. Task entries in an active plan still refer to the live task by ID. |
 | `lastLayout` and `presets[].layout` | Each pane has an ID, ordered tabs and per-file reading/editing positions. Internal split nodes hold a direction, two children and a fraction. Existing flat layouts open side by side. Document text stays in Markdown and live drafts stay in the shared buffer. |
 
-Visits and reading interactions keep one timestamp per workspace in memory for the close prompt. They contribute no activity rows or Statistics counts. The format stays at version 1. The renderer uses the existing preload operations and requests a metadata listing for Statistics on demand. The package uses the pinned 0.2.0 dependencies.
+Visits and reading interactions keep one timestamp per workspace in memory for the close prompt. Statistics requests a metadata listing on demand.

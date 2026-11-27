@@ -1,6 +1,23 @@
 # Itacan verification
 
-## Development checkout ? 27 November 2026
+## 0.4.0-internal.1 on Windows x64 · 27 November 2026
+
+The internal build runs from the standalone Electron checkout. The Windows checks use disposable libraries and profiles, with network access disabled in the desktop workflows and test-supplied native picker results.
+
+| Workflow | Observed result |
+| --- | --- |
+| One portable workday | Created a Project task from capture, attached it to a Literature note, used Should and Must, finished a daily Plan, fulfilled a task-based Regular Oath, broke a timed Oath and recorded a rated reflection. Renaming the note through Itacan repaired its live routes. After moving the closed library to another parent, a new session recovered the task UUID and owner, Plan snapshots, Oath history, report evidence, mixed preset, preferences and original Markdown, PDF and image bytes. |
+| Writing and finding work | Two Live Preview panes shared edits and undo while keeping independent scroll positions. Native checks covered PDF text selection, image and PDF view restoration, dirty search matches, opening a result at its line, a missing-file relink and recovery of an unsaved manual-mode draft after relaunch. |
+| File integrity | Terminated a separate writer process after a managed rename reached the filesystem and before the metadata commit. Reopening recovered the original task reference at its new path. Filing tests covered interrupted writes, collisions and externally changed bytes. With damaged metadata the desktop could still browse and read Markdown while preserving the damaged file. A version 1 upgrade retained the original marker and work file in its backup. |
+| Navigation and preferences | Opened a bundled Field Library copy from first use, verified keyboard focus returned to the Library guide, and exercised one-column and three-column Home layouts. A moved library restored its attached Resource context, preset, Last File, Home cover and library shortcut in a fresh profile. Returning to the original profile restored its device binding, audio volume and window bounds. A local WAV played after closing the player dialog. |
+
+All 31 filesystem and domain tests and all five offline Electron workflows passed. Run `npm test` and `npm run test:desktop` from `Itacan/` to repeat them.
+
+In the integrated run, a 1,000-note Project showed the unique body match in 858 ms and a filename match in 213 ms, including input and debounce. Repeating the queries took 323 ms and 206 ms respectively. The 897,196-byte manuscript with 3,000 sections and 75 display equations opened through Live Preview in 418 ms. One edit appeared in both mounted panes in 19 ms. Undo from the second pane reverted both views, and scrolling it to the end left the first pane at the top. These are observations from one Windows machine with uncontrolled filesystem caching.
+
+Physical input-method composition, screen-reader use, sleep/wake and multi-display behavior still require device testing. A designer's review and sustained daily use are pending. The Windows Strict Oath reference passed 51 simulated checks. Standalone Strict remains unavailable pending independent physical recovery verification. macOS, Linux and signed installer upgrades have separate release gates. [Strict Oath verification](strict-oath-verification.md)
+
+## Restored 0.3.2 development checkout · 27 November 2026
 
 The restored source passed all 12 filesystem and domain tests and the native desktop workflow. All 98 runtime files matched the previously verified 0.3.2 application after accounting for text line endings and JSON formatting. The renderer bundles matched byte for byte. The entries below record historical release checks. Current development uses the source launchers.
 

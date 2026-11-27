@@ -6,6 +6,7 @@ import os from 'node:os';
 import storage from '../main/library.cjs';
 import work from '../main/work.cjs';
 import files from '../main/files.cjs';
+import {taskInWorkspace} from '../contracts/workspace.cjs';
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'itacan-work-'));
@@ -14,11 +15,102 @@ async function fixture(t) {
   return { root, library, store: new work.LibraryWork(library) };
 }
 
+test('valid older Plans and layouts open, damaged nested records remain byte-for-byte intact', async t => {
+  const {store,library} = await fixture(t);
+  const entry = {id:'entry',kind:'workspace',ref:'Resources/Literature',label:'Literature'};
+  const plan = {id:'plan',day:new Date().toLocaleDateString('sv-SE'),note:'Morning',entries:[entry]};
+  const layout = {active:0,panes:[{file:'',tabs:[],edit:false}]};
+  const old = {version:1,tasks:[],inbox:[],lastLayout:layout,plan,history:[{...plan,id:'older',finished:new Date().toISOString()}]};
+  const write = state => fs.writeFile(store.file,JSON.stringify(state));
+  await write(old);
+  assert.deepEqual((await store.transaction()).history,old.history);
+  assert.equal(await fs.readFile(store.file,'utf8'),JSON.stringify(old));
+  for (const [field,value,expected] of [
+    ['lastLayout',{active:0,panes:[{file:'Notes.md',tabs:'Notes.md'}]},/layout/],
+    ['workspaceLayouts',{'Projects/Survey':{active:1,panes:layout.panes}},/workspaceLayouts/],
+    ['history',[{...old.history[0],entries:[null]}],/history/],
+    ['plan',{...plan,note:[]},/Plan/], ['plan',{...plan,day:'2025-02-30'},/Plan/],
+    ['oath',{id:'damaged',status:'active',rests:[]},/Oath/],
+    ['revision',-1,/revision/], ['revision','9',/revision/], ['revision',2**53,/revision/]
+  ]) {
+    const damaged = {...old,[field]:value};
+    await write(damaged);
+    await assert.rejects(new work.LibraryWork(library).transaction(),expected);
+    await assert.rejects(store.command('inbox','add',{text:'Later'}),expected);
+    assert.equal(await fs.readFile(store.file,'utf8'),JSON.stringify(damaged));
+  }
+  await write({...old,revision:Number.MAX_SAFE_INTEGER});
+  assert.equal((await store.transaction()).revision,Number.MAX_SAFE_INTEGER);
+  let called=false;
+  await assert.rejects(store.transaction(()=>{called=true;}),/revision exhausted/);
+  assert.equal(called,false);
+});
+
+test('detached tasks retain their original workspace and document through another move', async t => {
+  const {store,library}=await fixture(t);
+  const owner=await library.create('Projects','Survey','folder');
+  const note=await library.create(owner,'Field notes','note');
+  await store.command('task','save',{owner,location:note,title:'Review'});
+  const other=await library.create('Resources/Knowledge','Other','note');
+  await files.moveItem(store,owner,null,null,true);
+  await files.moveItem(store,other,'Resources/Knowledge','Renamed.md');
+  const [task]=(await new work.LibraryWork(library).transaction()).tasks;
+  assert.equal(task.owner,'');
+  assert.equal(task.location,'');
+  assert.equal(task.missingOwner,owner);
+  assert.equal(task.missingLocation,note);
+});
+
+test('a captured Project task retains its owner through changes inside its attached Resource', async t => {
+  const {store,library}=await fixture(t);
+  const owner=await library.create('Projects','Survey','folder');
+  const other=await library.create('Projects','Other','folder');
+  const resource='Resources/Literature';
+  const folder=await library.create(resource,'Shared papers','folder');
+  const note=await library.create(folder,'Methods','note');
+  for (const project of [owner,other]) await store.command('workspace','attach',{project,folder});
+  const [capture]=(await store.command('inbox','add',{text:'Check methods'})).inbox;
+  let state=await store.command('task','save',{title:capture.text,captureId:capture.id,owner,location:note});
+  const [task]=state.tasks;
+  assert.equal(state.inbox.length,0);
+  assert.ok(taskInWorkspace(state,owner,task));
+  assert.equal(taskInWorkspace(state,other,task),false);
+  assert.equal(taskInWorkspace(state,resource,task),false);
+  const take=(workspace,id)=>store.command('oath','start',{owner:workspace,taskIds:[id],condition:'tasks'});
+  await assert.rejects(take(other,task.id),/selected workspace/);
+  await take(owner,task.id);
+  const moved=await files.moveItem(store,note,folder,'Methodology.md');
+  const renamed=folder+'/Methodology.md';
+  assert.equal(moved.state.tasks[0].owner,owner);
+  assert.equal(moved.state.tasks[0].location,renamed);
+  await assert.rejects(files.moveItem(store,renamed,other,'Revised.md'),/Oath workspace/);
+  await store.command('task','complete',{id:task.id,done:true});
+  assert.equal((await store.transaction()).oathHistory[0].owner,owner);
+  const bulk=(await store.command('inbox','add',{text:'Second review'})).inbox;
+  state=await store.command('task','captures',{ids:bulk.map(i=>i.id),path:renamed,owner});
+  assert.equal(state.tasks[1].owner,owner);
+  state=await store.command('task','save',{title:'Resource review',owner:resource,location:renamed});
+  const physical=state.tasks[2];
+  assert.ok(taskInWorkspace(state,other,physical));
+  await take(owner,physical.id);
+  await assert.rejects(store.command('workspace','detach',{project:owner,folder}),/selected tasks/);
+  await store.command('task','complete',{id:physical.id,done:true});
+  state=await store.command('workspace','detach',{project:owner,folder});
+  assert.equal(state.tasks[0].missingLocation,renamed);
+  assert.equal(state.tasks[0].owner,owner);
+  assert.equal(state.tasks[2].location,renamed);
+  await store.command('workspace','attach',{project:owner,folder});
+  await store.command('task','attach',{id:task.id,owner,location:renamed});
+  state=(await files.moveItem(store,renamed,other,'Revised.md')).state;
+  assert.equal(state.tasks[0].owner,other);
+  assert.equal(state.tasks[0].location,other+'/Revised.md');
+});
+
 test('recurring capture task has one successor and finished Plan labels survive later edits', async t => {
   const { store, library } = await fixture(t);
   const capture = (await store.command('inbox', 'add', { text: 'Survey' })).inbox[0];
   const data = {
-    captureId: capture.id, title: capture.text, owner: 'Resources/Research', due: '2026-03-29',
+    captureId: capture.id, title: capture.text, owner: 'Resources/Literature', due: '2026-03-29',
     interval: 2, repeat: 'weekly', steps: [{ text: 'Read', done: true }]
   };
   const state = await store.command('task', 'save', data);
@@ -38,7 +130,7 @@ test('recurring capture task has one successor and finished Plan labels survive 
 
 test('folder moves repair nested task, Plan and named layout references', async t => {
   const { library, store } = await fixture(t);
-  const owner = 'Resources/Research';
+  const owner = 'Resources/Literature';
   const folder = await library.create(owner, 'Papers', 'folder');
   const file = await library.create(folder, 'Methods', 'note');
   await store.command('task', 'save', { title: 'Review', owner, location: file });
@@ -62,7 +154,7 @@ test('folder moves repair nested task, Plan and named layout references', async 
 
 test('filing collisions retain Inbox originals, successful filing persists', async t => {
   const { library, store, root } = await fixture(t);
-  const owner = 'Resources/Research';
+  const owner = 'Resources/Literature';
   const note = await library.create(owner, 'Reading', 'note', 'first');
   const { revision } = await library.readNote(note);
   const capture = (await store.command('inbox', 'add', { text: 'second' })).inbox[0];
@@ -96,8 +188,8 @@ test('a failed first write removes only the partially created note', async t => 
     }
     return handle;
   });
-  await assert.rejects(library.create('Resources/Research', 'Partial', 'note', 'draft'), /interrupted/);
-  assert.deepEqual(await library.entries('Resources/Research'), []);
+  await assert.rejects(library.create('Resources/Literature', 'Partial', 'note', 'draft'), /interrupted/);
+  assert.deepEqual(await library.entries('Resources/Literature'), []);
 });
 
 
@@ -116,7 +208,7 @@ test('a plan open at midnight can save its notes before the next day opens', asy
 
 test('daily ratings, reflections and report evidence survive later task and file changes', async t => {
   const { store, library } = await fixture(t);
-  const owner='Resources/Research', day=new Date().toLocaleDateString('sv-SE');
+  const owner='Resources/Literature', day=new Date().toLocaleDateString('sv-SE');
   const file=await files.createItem(store,owner,'Evidence','note','First');
   let {revision}=await library.readNote(file);
   revision=await files.saveDocument(store,file,'Second',revision);
@@ -155,7 +247,7 @@ test('daily ratings, reflections and report evidence survive later task and file
 
 test('previous days can be reported independently and a failed multi-workspace save is atomic', async t => {
   const {store}=await fixture(t);
-  const entry={owner:'Resources/Research',score:2,summary:'Field observations',expected:null};
+  const entry={owner:'Resources/Literature',score:2,summary:'Field observations',expected:null};
   const save=entries=>store.command('progress','save',{day:'2020-02-29',entries});
   await assert.rejects(save([entry,{...entry,owner:'Resources/Missing'}]));
   assert.equal((await store.transaction()).reports,undefined);
@@ -168,7 +260,7 @@ test('previous days can be reported independently and a failed multi-workspace s
 
 test('dropped files preserve colliding originals and roll back an incomplete import', async t=>{
   const {root,store}=await fixture(t);
-  const parent='Resources/Research', folder=path.join(root,parent);
+  const parent='Resources/Literature', folder=path.join(root,parent);
   const copy={name:'Observation.md',bytes:Buffer.from('external')};
   await fs.writeFile(path.join(folder,copy.name),'original');
   const state=await files.importFiles(store,parent,[copy]);

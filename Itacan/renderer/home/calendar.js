@@ -70,9 +70,9 @@ export function calendarPanel(ctx) {
     const first = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
     first.setDate(first.getDate() - (first.getDay() + 6) % 7);
     schedule.clear();
-    for (const task of ctx.state.tasks) {
+    for (const task of ctx.tasks.list()) {
       if (task.done) continue;
-      for (const [day, time, label] of [[task.start, task.startTime, 'Start'], [task.due, task.dueTime, 'Due']]) {
+      for (const [day, time, label] of [[task.start, task.startTime, 'Start'], [task.planned, task.plannedTime, 'Planned'], [task.until, task.untilTime, 'Until'], [task.due, task.dueTime, 'Due']]) {
         if (!day) continue;
         if (!schedule.has(day)) schedule.set(day, []);
         schedule.get(day).push({task, time, label});

@@ -113,8 +113,8 @@ export async function planPicker(ctx, plan, relink) {
     for (const tab of tabs.children) tab.setAttribute('aria-pressed', String(tab.textContent === category));
     scope.hidden = category === 'Workspaces';
     if (category === 'Tasks') {
-      for (const task of ctx.state.tasks) {
-        if (!task.done && (scope.value === all || task.owner === scope.value) && matches(task.title))
+      for (const task of ctx.tasks.list()) {
+        if (!task.done && (scope.value === all || ctx.tasks.inWorkspace(scope.value,task)) && matches(task.title))
           option('task', task.id, task.title, task.owner);
       }
     } else if (category === 'Files' && query) {
@@ -149,7 +149,7 @@ export async function planPicker(ctx, plan, relink) {
       category = name;
       search.value = '';
       if (name === 'Files' && !folder && scope.value === all)
-        scope.value = ctx.state.lastFolder?.split('/').slice(0, 2).join('/') || workspaces.find(w => w.name === 'Explorations')?.path || names[0];
+        scope.value = ctx.workspaces.lastFolder()?.split('/').slice(0, 2).join('/') || workspaces.find(w => w.name === 'Explorations')?.path || names[0];
       return render();
     });
     tab.disabled = !!relink && name !== 'Files';
@@ -173,8 +173,8 @@ export async function planPicker(ctx, plan, relink) {
       {label:'Cancel', value:false}, {label:'Add selected', value:true, primary:true, run:async () => {
         const items = [...selection.values()];
         if (!items.length) throw Error('Select an item.');
-        if (relink) await ctx.update('plan', 'relink', {planId:plan.id, id:relink.id, ref:items[0].ref});
-        else await ctx.update('plan', 'addMany', {planId:plan.id, items});
+        if (relink) await ctx.plans.relink({planId:plan.id, id:relink.id, ref:items[0].ref});
+        else await ctx.plans.addMany({planId:plan.id, items});
       }}
     ]
   });
