@@ -4,3 +4,27 @@
 .task-row small {margin-left:auto}
 .work-panel > .field {max-width:12rem;margin-block:var(--s3)}
 .task-steps input:not([type=checkbox]) {flex:1}
+.task-preview {display:grid;padding:8px 15px;gap:0;}
+.task-properties {display:grid;gap:0;}
+.task-row small {overflow-wrap:anywhere;}
+.task-checklist summary,.task-list summary {cursor:pointer;padding:var(--s2);}
+
+.task-row-steps {flex-basis:100%;}
+.task-row-steps label {display:block;}
+.task-title {display:flex;align-items:center;gap:var(--s2);}
+
+.dialog:has(.task-form) {--dialog-width:560px;}
+.dialog:has(.task-form) form {gap:10px;}
+.task-form {gap:8px;align-content:start;}
+.task-title .text-input {padding:2px 6px;}
+.task-preview > .button {justify-self:start;min-height:22px;padding:2px 6px;margin-left:25px;}
+.task-preview summary {padding:2px;}
+.task-property > .button {display:grid;grid-template-columns:18px minmax(0,1fr) 16px;text-align:left;width:100%;min-height:34px;padding:3px 22px;}
+.task-property > .button span {overflow:hidden;text-overflow:ellipsis;}
+.task-form {padding-top:16px;border-top:1px solid var(--line);}
+.task-property > .button[aria-expanded=true] {background:var(--tint);}
+.task-property-fields {padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;}
+.task-property-fields > :is(.field,.task-dates) {flex:1 0 100%;}
+
+.dialog:has(.task-location-picker) {--dialog-width:680px;}
+.task-location-picker .picker-list {flex:0 1 272px;min-height:64px;padding:4px;border:1px solid var(--line);border-radius:var(--control-radius);}

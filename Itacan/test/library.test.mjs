@@ -24,6 +24,23 @@ test('fresh library, real workspace folders, exclusive creation and reopen', asy
   assert.equal((await (await openLibrary(root)).readNote(note)).text, '# Observation');
 });
 
+test('document paths preserve the identity provided by the filesystem', async t => {
+  const library = await openLibrary(await folder(t), true);
+  const upper = await library.create('Resources/Research', 'Paper', 'note', 'first');
+  const lower = 'Resources/Research/paper.md';
+  assert.equal((await library.readNote(upper)).path, upper);
+  try {
+    await library.create('Resources/Research', 'paper', 'note', 'second');
+  } catch (error) {
+    assert.match(error.message, /already/);
+    if (process.platform === 'win32') assert.equal((await library.readNote(lower)).path, upper);
+    return;
+  }
+  const separate = await library.readNote(lower);
+  assert.equal(separate.path, lower);
+  assert.equal(separate.text, 'second');
+});
+
 test('stale saves preserve external edits and overlapping revisions commit once', async t => {
   const library = await openLibrary(await folder(t), true);
   const file = await library.create('Resources/Research', 'Paper', 'note', '\ufeff# Paper\r\nText\r\n');

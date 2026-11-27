@@ -8,6 +8,7 @@ export class Documents {
   async get(path) {
     if (!this.open.has(path)) {
       const record = await window.itacan.readNote(this.session, path);
+      path = record.path;
       if (!this.open.has(path)) this.open.set(path, new Buffer(this.session, path, record));
     }
     return this.open.get(path);

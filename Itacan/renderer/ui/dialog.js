@@ -1,7 +1,7 @@
 import { el, button, icon } from './elements.js';
 
 // Native dialog supplies focus trapping, Escape and focus return. Each caller owns its fields.
-export function showDialog({ title, description, content, actions, wide = false, beforeClose }) {
+export function showDialog({ title, description, content, actions, footerControls = [], headerControls, wide = false, beforeClose }) {
   const dialog = el('dialog', wide ? 'dialog wide' : 'dialog');
   const heading = el('h2', '', title);
   heading.id = 'dialog-' + crypto.randomUUID();
@@ -11,11 +11,19 @@ export function showDialog({ title, description, content, actions, wide = false,
   const close = button('', () => submit({ value: null }), { variant: 'icon-button' });
   close.append(icon('close'));
   close.setAttribute('aria-label', 'Close dialog');
-  header.append(heading, close);
+  const titles = el('div','dialog-titles');
+  titles.append(heading);
+  if (description) titles.append(el('p', 'dialog-description muted', description));
+  header.append(titles);
+  if (headerControls) header.append(headerControls);
+  header.append(close);
   form.append(header);
-  if (description) form.append(el('p', 'muted', description));
-  if (content) form.append(content);
+  if (content) {
+    content.classList.add('dialog-body');
+    form.append(content);
+  }
   const footer = el('footer', 'dialog-actions');
+  footer.append(...footerControls);
   form.append(footer);
   dialog.append(form);
   document.body.append(dialog);
@@ -38,7 +46,7 @@ export function showDialog({ title, description, content, actions, wide = false,
     form.inert = true;
     try {
       await beforeClose?.();
-      await action.run?.();
+      if(await action.run?.()===false)return;
       busy = false;
       finish(action.value);
     } catch (problem) { error.textContent = problem.message; }
@@ -52,7 +60,11 @@ export function showDialog({ title, description, content, actions, wide = false,
   dialog.addEventListener('cancel', event => { event.preventDefault(); void submit({ value: null }); });
   dialog.addEventListener('close', () => { dialog.remove(); resolve(null); }, { once: true });
   dialog.showModal();
-  (content?.querySelector('input, textarea, select') || footer.lastElementChild).focus();
+  const first = [...(content?.querySelectorAll('input:enabled, textarea:enabled, select:enabled') || [])].find(control => control.getClientRects().length);
+  // A destructive confirmation opens on its cancellation action.
+  const cancel=actions.findIndex(a=>a.value===false);
+  const safeDefault=cancel>=0 && !content ? footer.children[footerControls.length+cancel] : null;
+  (content?.querySelector('[autofocus]') || first || safeDefault || footer.lastElementChild || close).focus({preventScroll:true});
   return answer;
 }
 
@@ -63,8 +75,9 @@ export async function askName(title, initial = '', submitLabel = initial ? 'Save
   input.maxLength = 180;
   input.value = initial;
   label.append(input);
-  const answer = await showDialog({ title, content: label, actions: [
+  const answer = showDialog({ title, content: label, actions: [
     { label: 'Cancel', value: null }, { label: submitLabel, value: true, primary: true }
   ] });
-  return answer ? input.value.trim() : null;
+  input.select();
+  return await answer ? input.value.trim() : null;
 }

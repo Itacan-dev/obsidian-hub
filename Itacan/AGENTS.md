@@ -2,6 +2,7 @@
 
 Itacan is a private, offline desktop application for everyday personal work. Use Obsidian Hub as the functional and visual reference when refining a workflow. Keep the standalone implementation, assets and runtime dependencies inside `Itacan/`.
 
+- During development, run and verify the source with the development launchers. Keep release archives out of the repository.
 - Preserve Hub’s user-facing composition, placement, contextual controls and workflow outcomes. Apply simplification to the implementation and identify intentional product differences explicitly.
 - Preserve Hub’s spatial proportions, relative panel sizes, responsive layout rules and distribution of working space. Let shared components provide consistent behavior while each feature determines its dimensions. Identify and justify intentional departures.
 - Prefer simple, conventional code. Keep features easy to find by name and give each module a clear responsibility. Read the implementation for the workflow you are changing.

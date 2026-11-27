@@ -1,19 +1,50 @@
-.home-cover { display: flex; flex-direction: column; justify-content: end; gap: var(--s2); min-height: clamp(185px, 21vw, 265px); padding: var(--s6); border-radius: var(--panel-radius); color: white; background: linear-gradient(85deg, #0d221cbb, #13291a08 85%), url('/assets/horizon.jpg') center 47% / cover; }
-.home-cover h1 { letter-spacing: -.035em; }
-.home-section, .welcome { margin-top: var(--s6); }
-.welcome { padding: var(--s6); display: grid; justify-items: start; gap: var(--s4); }
-.project-grid, .resource-grid { display: grid; gap: var(--s4); margin-top: var(--s4); }
-.project-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.project-grid .empty { grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: var(--panel-radius); }
-.resource-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
-.collection-card { padding: 0; text-align: left; overflow: hidden; border-radius: var(--panel-radius); border: 1px solid var(--line); background: var(--surface); }
-.collection-card:hover { border-color: var(--accent); }
-.collection-card:hover .card-caption { color: var(--accent); }
-.collection-card img { display: block; width: 100%; height: 92px; object-fit: cover; }
-.project-grid img { height: 106px; }
-.card-caption { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s3) var(--s4); font-weight: 600; overflow-wrap: anywhere; }
-.card-caption .icon { color: var(--muted); }
-@media (max-width: 850px) { .resource-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+.home-cover { background:linear-gradient(85deg,#0d221cbb,#13291a08 85%),url('/assets/horizon.jpg') center 47% / cover; }
+.home-section, .welcome { margin-top:var(--s6); }
+.home-section.panel, .welcome { padding:var(--s5); }
+.welcome { display:grid; justify-items:start; gap:var(--s4); padding:var(--s6); }
 
-.home-desk { flex-wrap:wrap; margin:var(--s4) 0; }
-.home-desk:empty { display:none; }
+/* Calendar, Plan and Tasks share the upper row. Collections span two units. */
+.home-panels {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--panel-gap);}
+.home-panels > section {height:var(--top-row);min-width:0;margin:0;padding:14px;}
+.home-panels > .home-section {grid-column:span 2;overflow:auto;}
+.home-panels > :is(.home-section,.progress-panel) {height:var(--bottom-row);}
+@container dashboard (max-width:1000px) {
+  .home-panels {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@container dashboard (max-width:700px) {
+  .home-panels {grid-template-columns:minmax(0,1fr);}
+  .home-panels > .home-section {grid-column:auto;}
+}
+
+.project-grid, .resource-grid { block-size:144px; overflow:auto; gap:var(--s4); margin-top:var(--s2); }
+.project-grid { display:flex; align-items:start; }
+.project-grid .collection-card { flex:0 0 clamp(150px,18vw,215px); }
+.project-grid .empty { flex:1; align-self:stretch; border:1px dashed var(--line); border-radius:var(--panel-radius); }
+.resource-grid {
+  block-size:112px;display:grid;
+  grid-template-columns:repeat(4,minmax(120px,1fr));
+  grid-auto-rows:max-content;
+  align-content:start;
+  scrollbar-gutter:stable;
+}
+.collection-card { min-width:0; padding:0; text-align:left; overflow:hidden; border-radius:var(--panel-radius); border:1px solid var(--line); background:var(--surface); }
+.collection-card:hover { border-color:var(--accent); }
+.collection-card:hover .card-caption { color:var(--accent); }
+.collection-card img { display:block; width:100%; height:92px; object-fit:cover; }
+.project-grid img { height:84px; }
+.resource-grid img {width:40%;height:100%;object-fit:cover;}
+.resource-grid .collection-card {display:flex;align-items:center;height:104px;}
+.resource-grid .card-caption {min-width:0;flex:1;}
+.home-section > .home-section {margin-top:12px;}
+.card-caption { display:flex; align-items:center; justify-content:space-between; gap:var(--s2); padding:var(--s3) var(--s4); font-weight:600; }
+.card-caption > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.card-caption .icon { color:var(--muted); }
+
+
+.calendar-panel {gap:8px;}
+.calendar-agenda > .section-heading {margin:8px 0;}
+.agenda-day {display:grid;gap:2px;border-top:1px solid var(--line);padding:6px 0;}
+.agenda-day [aria-current=date] {color:var(--accent);}
+.agenda-day button {justify-self:start;white-space:normal;text-align:left;}
+
+.home > .dashboard-heading {margin-block:4px;}

@@ -149,3 +149,6 @@
 !/.itacan-native/v3/*/objects/*.json
 !/.itacan-native/v3/*/heads/
 !/.itacan-native/v3/*/heads/*.json
+
+# Development uses the source launchers. Keep ZIP archives out of Git.
+*.[zZ][iI][pP]

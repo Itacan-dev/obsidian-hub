@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, clipboard, Menu, protocol, session, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { openLibrary, atomicReplace, imageTypes } = require('./library.cjs');
@@ -13,8 +13,9 @@ const fromSource = !app.isPackaged && app.commandLine.hasSwitch('itacan-dev');
 const publicDir = fromSource ? path.join(app.getAppPath(), 'build/app/public') : path.join(__dirname, '../public');
 const types = { ...imageTypes, '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
 const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' itacan://image; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'";
+const { statisticsNotes } = require('./progress.cjs');
 const { LibraryWork } = require('./work.cjs');
-const { moveItem, captureFiles, resolveAttachment, fileText } = require('./files.cjs');
+const { createItem, saveDocument, copyItem, moveItem, importFiles, captureFiles, resolveAttachment, fileText } = require('./files.cjs');
 let library;
 let work;
 let win;
@@ -94,6 +95,7 @@ async function start() {
     if (work?.library !== selected) work = new LibraryWork(selected);
     return work;
   }
+  handle('statistics-notes',id=>statisticsNotes(current(id)));
   handle('work-read', id => currentWork(id).transaction());
   handle('work-update', (id, group, action, data) => currentWork(id).command(group, action, data));
   handle('move-item', async (id, from, parent, name, trash) => {
@@ -101,21 +103,31 @@ async function start() {
     if (removed) await shell.trashItem(removed).catch(() => {}); // Library Trash retains the item if the OS cannot accept it.
     return state;
   });
-  handle('capture-files', async (id,text) => {
+  handle('copy-item',(id,source,parent)=>copyItem(currentWork(id),source,parent));
+  handle('copy-paths',async (id,paths)=>{
+    const library = current(id);
+    for (const path of paths) await library.resolve(path);
+    clipboard.writeText(paths.join('\n'));
+  });
+  handle('reveal-item',async(id,path)=>shell.showItemInFolder(await current(id).resolve(path)));
+  handle('capture-files', async (id) => {
     const selected = await dialog.showOpenDialog(win, {title:'Capture files', properties:['openFile','multiSelections']});
     const store = currentWork(id);
-    return selected.canceled ? null : captureFiles(store, selected.filePaths, text);
+    return selected.canceled ? null : captureFiles(store, selected.filePaths, '', true);
   });
+  handle('import-files',(id,parent,files)=>importFiles(currentWork(id),parent,files));
+  handle('stage-files', (id, files) => captureFiles(currentWork(id), files, '', true));
   handle('file-text', (id, data) => fileText(currentWork(id), data));
-  handle('resolve-attachment', (id, capture, parent) => resolveAttachment(currentWork(id), capture, parent));
-  handle('entries', (id, folder) => current(id).entries(folder));
-  handle('create', (id, parent, name, kind, text) => current(id).create(parent, name, kind, text));
+  handle('resolve-attachment', (id, capture, parent, staged) => resolveAttachment(currentWork(id), capture, parent, staged));
+  handle('entries', (id, folder, times) => current(id).entries(folder,2,times));
+  handle('create', (id, parent, name, kind, text) => createItem(currentWork(id), parent, name, kind, text));
   handle('read-note', (id, file) => current(id).readNote(file));
+  handle('resolve-layout', (id, layout) => current(id).resolveLayout(layout));
   handle('open-attachment', async (id, file) => {
     const problem = await shell.openPath(await current(id).attachmentPath(file));
     if (problem) throw Error(problem);
   });
-  handle('save-note', (id, file, text, revision) => current(id).saveNote(file, text, revision));
+  handle('save-note', (id, file, text, revision) => saveDocument(currentWork(id), file, text, revision));
   handle('web-link', async value => {
     const url = new URL(value);
     if (!['https:', 'http:'].includes(url.protocol)) throw Error('Unsupported link type.');
@@ -141,10 +153,11 @@ async function start() {
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
-    { label: 'File', submenu: [{ role: 'close' }] },
-    { role: 'editMenu' }
+    { label: 'File', submenu: [{ role: 'close', accelerator:process.platform==='darwin'?'Shift+Command+W':'Alt+F4' }] },
+    { role: 'editMenu' },
+    { label: 'View', submenu: [{ role: 'togglefullscreen', accelerator: process.platform === 'darwin' ? 'Control+Command+F' : 'F11' }] }
   ]));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { win.maximize(); win.show(); });
   await win.loadURL(appURL);
 }
 if (app.requestSingleInstanceLock()) {

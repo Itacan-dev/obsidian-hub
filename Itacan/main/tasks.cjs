@@ -34,12 +34,18 @@ async function saveTask(state, values, library) {
   const task = {
     id: old?.id || randomUUID(), title, owner, location, description: String(values.description || ''),
     start, due, startTime, dueTime, importance: values.importance || '', repeat, interval,
-    steps: (values.steps || []).map(step => ({ text: step.text.trim(), done: !!step.done })).filter(s => s.text),
+    steps: (values.steps || []).map((step, index) => {
+      const existing=old?.steps?.find(s=>s.id && s.id===step.id);
+      const legacy=old?.steps?.[index];
+      const id=existing?.id || (legacy?.text===step.text && legacy.id) || randomUUID();
+      return {id, text:step.text.trim(), done:!!step.done};
+    }).filter(step => step.text),
     done: old?.done || false, successor: old?.successor || null
   };
   if (old) Object.assign(old, task);
   else state.tasks.push(task);
-  return task;
+  if (typeof values.done==='boolean' && task.done!==values.done) toggleTask(state,task.id);
+  return old || task;
 }
 function findTask(state, id) {
   const task = state.tasks.find(item => item.id === id);
@@ -66,6 +72,13 @@ function toggleTask(state, id) {
 }
 async function taskAction(state, action, data, library) {
   if (action === 'save') return saveTask(state, data, library);
+  if (action === 'step') {
+    const step = findTask(state,data.id).steps[data.index];
+    if (!step) throw Error('Task step is unavailable.');
+    step.id ||= randomUUID();
+    step.done = !!data.done;
+    return;
+  }
   if (action === 'toggle') return toggleTask(state, data.id);
   if (action !== 'delete') throw Error('Unknown task action.');
   const task = findTask(state, data.id);

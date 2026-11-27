@@ -30,7 +30,7 @@ function localURL(value, note) {
   if (!value || /^[a-z][a-z\d+.-]*:|^[\\/]/i.test(value) || value.includes('\\')) return null;
   const base = 'itacan://image/' + note.split('/').map(encodeURIComponent).join('/');
   const url = new URL(value, base);
-  return /^\/(Projects|Resources)\//.test(url.pathname) ? url : null;
+  return /^\/(Projects|Resources)\//i.test(url.pathname) ? url : null;
 }
 
 md.renderer.rules.image = (tokens, index, options, env, renderer) => {

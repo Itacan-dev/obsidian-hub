@@ -8,12 +8,11 @@
 </head>
 <body>
   <div id="application">
-    <header class="app-bar">
-      <button id="brand" class="wordmark" aria-label="Itacan Home"><span class="brand-mark" aria-hidden="true">ι</span> Itacan</button>
-      <nav id="breadcrumbs" aria-label="Breadcrumb"></nav>
-      <button id="library-button" class="button quiet"></button>
-    </header>
+    <nav id="navigation" class="app-bar" aria-label="Main navigation">
+      <div id="routes" class="actions"></div><button id="library-button" class="button quiet"></button>
+    </nav>
     <main id="view" tabindex="-1"></main>
+    <footer id="capture-bar" class="actions"></footer>
   </div>
   <p id="message" role="alert" hidden></p>
   <script type="module" src="/app.js"></script>

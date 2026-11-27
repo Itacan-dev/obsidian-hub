@@ -79,6 +79,10 @@ class Library {
     if (await fs.realpath(this.root) !== this.root) throw Error('The library moved. Choose its folder again.');
     if (typeof relative !== 'string') throw Error('Invalid library path.');
     const parts = relative.split('/');
+    if (process.platform === 'win32' && !collections.includes(parts[0]) && /^(projects|resources)$/i.test(parts[0])) {
+      const collection = path.join(this.root, parts[0]);
+      if ((await fs.lstat(collection)).isDirectory()) parts[0] = this.relativePath(await fs.realpath(collection));
+    }
     if (!collections.includes(parts[0]) || parts.length < minimum) throw Error('Choose a location in a Project or Resource.');
     let file = this.root;
     for (const part of parts) {
@@ -88,9 +92,10 @@ class Library {
     return file;
   }
 
-  async entries(relative, minimum = 2) {
-    const entries = await fs.readdir(await this.resolve(relative, minimum), { withFileTypes: true });
-    return entries.filter(entry => {
+  async entries(relative, minimum = 2, timestamps = false) {
+    const directory = await this.resolve(relative, minimum);
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    const rows = entries.filter(entry => {
       try { validName(entry.name); } catch { return false; }
       return entry.isDirectory() || entry.isFile();
     }).map(entry => ({
@@ -98,12 +103,20 @@ class Library {
       kind: entry.isDirectory() ? 'folder' : /\.md$/i.test(entry.name) ? 'note' : 'file'
     })).sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') ||
       a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (timestamps) await Promise.all(rows.filter(e => e.kind !== 'folder').map(async e => {
+      const stat = await fs.stat(path.join(directory,e.name));
+      e.mtime = stat.mtimeMs; e.ctime = stat.birthtimeMs;
+    }));
+    return rows;
   }
 
   async home() {
     const [projects, resources] = await Promise.all(collections.map(name => this.entries(name, 1)));
     return { name: path.basename(this.root), session: this.session,
-      projects: projects.filter(e => e.kind === 'folder'), resources: resources.filter(e => e.kind === 'folder') };
+      projects: projects.filter(e => e.kind === 'folder'), resources: resources.filter(e => e.kind === 'folder').sort((a,b) => {
+        const rank = item => resourceNames.includes(item.name) ? resourceNames.indexOf(item.name) : resourceNames.length;
+        return rank(a) - rank(b);
+      }) };
   }
 
   async create(parent, name, kind, text = '') {
@@ -129,7 +142,27 @@ class Library {
   async notePath(relative) {
     const file = await this.resolve(relative, 3);
     if (!/\.md$/i.test(file) || !(await fs.stat(file)).isFile()) throw Error('Choose a Markdown document.');
-    return file;
+    return process.platform === 'win32' ? fs.realpath(file) : file;
+  }
+
+  async resolveLayout(layout) {
+    if (process.platform !== 'win32') return layout;
+    // Older layouts can contain the spelling from a hand-written link.
+    const paths = new Map();
+    for (const file of new Set(layout.panes.flatMap(pane => pane.tabs))) {
+      try { paths.set(file, this.relativePath(await this.notePath(file))); }
+      catch { paths.set(file, file); } // Unavailable documents keep their closable tabs.
+    }
+    for (const pane of layout.panes) {
+      if (pane.views) pane.views=Object.fromEntries(Object.entries(pane.views).map(([file,prefs])=>[paths.get(file) || file,prefs]));
+      pane.tabs = [...new Set(pane.tabs.map(file => paths.get(file)))];
+      pane.file = paths.get(pane.file) || pane.file;
+    }
+    return layout;
+  }
+
+  relativePath(file) {
+    return path.relative(this.root, file).split(path.sep).join('/');
   }
 
   async attachmentPath(relative) {
@@ -139,12 +172,13 @@ class Library {
   }
 
   async readNote(relative) {
-    const bytes = await fs.readFile(await this.notePath(relative));
+    const file = await this.notePath(relative);
+    const bytes = await fs.readFile(file);
     const bom = bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]));
     let text;
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { throw Error('This document must be UTF-8 to edit it safely.'); }
-    return { text, revision: digest(bytes), bom, newline: text.includes('\r\n') ? '\r\n' : '\n' };
+    return { path: this.relativePath(file), text, revision: digest(bytes), bom, newline: text.includes('\r\n') ? '\r\n' : '\n' };
   }
 
   saveNote(relative, text, revision) {

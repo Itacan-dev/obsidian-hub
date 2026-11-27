@@ -1,6 +1,6 @@
-# Itacan 0.2.0
+# Itacan 0.3.2
 
-Itacan brings Markdown documents, workspace tasks, Inbox and a daily Plan into one offline desktop window. Home opens your Projects, Resources and saved document layouts.
+Itacan brings Markdown documents, workspace tasks, Inbox, daily planning and progress reports into one offline desktop window. Home opens your Projects, Resources and saved document layouts.
 
 ## Open for development
 
@@ -8,23 +8,25 @@ Double-click **Open Itacan.app** in this folder in Finder, or **Open Itacan.cmd*
 
 On a fresh checkout, install dependencies once on the machine you are using, as described under **Run and build from source**. Keep the launcher in the Itacan folder. On macOS you can drag it to the Dock for one-click access.
 
-## Install and open a library
+## Open a library
 
-- **Mac with Apple silicon** — Extract `release/Itacan-0.2.0-darwin-arm64.zip` to a local disk. Move `Itacan.app` to Applications or your personal Applications folder and open it. This personal build uses an ad-hoc signature.
-- **Windows x64** — Extract `release/Itacan-0.2.0-win32-x64.zip` to a local disk. Keep the extracted folder together and open `Itacan.exe`. This personal build is unsigned.
-- Choose an empty folder to initialize a library, or select an existing Itacan library. To try sample content, copy [Field Library](<examples/Field Library>) somewhere writable and choose that copy. Open **Forest survey → Field notes.md** to try a local image, an equation and a link to a note in Research.
+Choose an empty folder to initialize a library, or select an existing Itacan library. To try sample content, copy [Field Library](<examples/Field Library>) somewhere writable and choose that copy. Open **Forest survey → Field notes.md** to try a local image, an equation and a link to a note in Research.
 
-Both packages include Electron, typography, the editor and the math renderer. Installed use is offline. The library name at the top right opens the folder picker. On the next launch, Home opens the last library used by that installation.
+Itacan opens maximized with the native title bar and Windows taskbar available. Use the title bar to restore, resize or minimize it. **F11** toggles fullscreen. After setup, development use is offline. The library name in the navigation bar opens the folder picker. On the next launch, Home opens the last library used by the development profile.
 
 ## Everyday use
 
-- **Documents and workspaces** — Create a project from Home. Open a workspace to create a folder or note. Use **Manage** beside an item to rename, move or delete it. A deletion goes to the operating system's Trash or Recycle Bin, with a library Trash fallback. While reading, the contextual tree opens neighboring notes, subfolders and supported attachments.
-- **Tabs and splits** — Open notes from the tree or an internal link. **Split view** opens another view of the active document. Click inside a pane to make it the destination for the next note. Both views share unsaved text. **Resume documents** on Home reopens the last layout. **Save layout** records tabs, active documents and modes under a name on Home.
+- **Documents and workspaces** — Open a Project or Resource from Home. The folder tree selects the directory shown alongside it. In the file list, click to select, double-click or press Enter to open, and use F2 to rename. New folders and notes are named in place. Create notes inside workspace folders. Right-click a row for file operations. Drag Project cards within their Home status group or use the ↕ handle shown when a top-level folder row is hovered or keyboard-focused to change its display order. Drag a folder name or selected file-list rows onto another folder to move them on disk. Dropping external files into a workspace folder copies them and preserves existing names by numbering collisions. Deletion uses the operating system's Trash or Recycle Bin, with a library Trash fallback.
+- **Tabs and splits** — Opening a note uses the active pane. The file menu opens a new tab or splits the current pane right or below. Drag a tab onto a tab strip to set its position, into the center of another pane to join it, or to any pane edge to split. You can also drag a note from the rail. Middle-click a note to open it alongside the current pane. Close any tab with its × or a middle-click. Ctrl+W closes the active tab and Ctrl+Tab cycles tabs. A tab's context menu also offers placement and close commands. Drag a divider or focus it and use the arrow keys to resize. Escape cancels a divider drag. Multiple views share the same draft and Save operation.
+- **Resume and presets** — **Workspace** returns to the folder browser. **Last File** resumes the document desk. Use **Presets → Save as new preset** to remember open tabs, the active pane, split sizes, explorer state and document positions. Use the ellipsis beside a preset to update or rename it. Drag a preset name or focus it and press Alt+Up or Alt+Down to change its order.
 - **Editing** — Save with **Save** or **⌘S / Ctrl+S**. Ordinary navigation retains drafts. Closing a document's last tab, replacing its layout, changing libraries or quitting offers Save, Discard and Cancel when needed. **Save a copy** preserves a draft after an external edit. For a clean reload from disk, close that document's tabs and reopen it. A forced quit can lose unsaved work.
 - **Markdown** — Read mode supports Markdown, TeX, relative note links, heading fragments, local raster images and relative wiki links such as `[[Sampling protocol#Method|Method]]`. Images and PDFs open in the operating system's associated viewer. Manually authored links use their literal paths. Adjust them yourself after reorganizing linked notes.
-- **Tasks** — Create a task from a workspace or Home. Choose a Project or Resource, an optional note or folder, steps, dates, times and importance. Completing a daily or weekly recurring task creates its next occurrence once and resets its steps. Reopen or edit a completed task using **Show tasks → Completed**.
-- **Quick Add and Inbox** — Send text or local files to Inbox. Text can become a task, create a note, or append to an existing note. The append includes the open note's current draft. Use Inbox to filter and sort captures, file attachments and remove items. Destination name collisions retain the original capture.
-- **Daily Plan** — Start today's plan, add tasks, notes, Projects or Resources, and use Up and Down to order them. Open an entry to work on its source. Save accompanying notes or close the dialog to keep them. **Finish plan** archives the entries and notes. Opening Home or Plan on a later day archives the previous day's active plan.
+- **Calendar** — Home shows the current and following weeks using start and due dates from unfinished library tasks. Select a dated entry to edit its task. **Today** returns to the current date. Scrolling near the end loads the following week. **Next week** also works from the keyboard.
+- **Tasks** — Create a task from a workspace or Home. Choose a Project or Resource, an optional note or folder, steps, dates, times and importance. Drag step handles to reorder them before saving. Completing a daily or weekly recurring task creates its next occurrence once and resets its steps. Expand **Completed** below the open tasks to reopen or edit one.
+- **Quick Add and Inbox** — Open Quick Add with Ctrl+Shift+Space on Windows. Type text, or choose, paste or drop files. Enter sends text to Inbox and keeps Quick Add open. Shift+Enter inserts a line break. Closing retains the draft. In Inbox, choose a row to edit or file it. Ctrl-click or Shift-click to select compatible items for a common destination. Destination collisions retain the unresolved captures.
+- **Daily Plan** — Use the Plan panel on Home. Choose tasks, documents and workspaces in one picker. Drag an entry or press Alt+Up or Alt+Down on its reorder control. Finish the plan to keep a snapshot. Hide the finished preview and choose **Show earlier plans** to read the history. Plan notes save as you type. The day boundary is the next midnight where the plan started. Reopening after that boundary archives it. History retains the original labels and routes and can open associated content that is still available.
+
+- **Progress** — Use **Log progress** to rate a Project or Resource from 0 to 4 and write a reflection. Add another workspace to the same report as needed. Expand **Recorded work** for evidence or **Current plan** to review that day's planning. On Home or in a workspace, choose a heatmap date to view or edit a report. History has Reports, Activity and Tasks tabs. Home's **Statistics** opens the period and workspace filters. When you close after reading or recording new work, you can report, continue working or close without reporting.
 
 ## Library and backup
 
@@ -45,7 +47,7 @@ Field Library/
     Inspiration/
 ```
 
-The work file appears on the first structured change. It stores tasks, text captures and attachment records, the active Plan, daily history, the last layout and named presets. Staged files live in **Inbox attachments** until filed or removed. **Trash** can retain deleted files if the system Trash is unavailable.
+The work file appears on the first structured change. It stores tasks, text captures and attachment records, the active Plan, finished plans, workspace/day reports, timestamped activity, explorer preferences, the last document layout and named presets. Report evidence preserves the work visible when the report was saved. A newer edit of that report refreshes its evidence. Earlier standalone libraries acquire these fields as needed. Staged files live in **Inbox attachments** until filed or removed. **Trash** can retain deleted files if the system Trash is unavailable.
 
 The marker identifies format `itacan-library`, version `1`. The first folder under Projects or Resources is the workspace. Its name and nested folders determine how it appears in the app. Notes are UTF-8 `.md` files. A note requires no frontmatter or generated ID. Ordinary saves retain a UTF-8 BOM and the document's LF or CRLF convention. Use relative links so the library can move. For a path containing spaces, write `[Protocol](<../Papers/Sampling protocol.md>)`.
 
@@ -63,13 +65,13 @@ npm start
 
 Initial development setup downloads dependencies and the Electron runtime. Subsequent `npm run build` uses installed dependencies. `npm start` builds and opens the app. Use a normal Terminal or PowerShell session. If an IDE sets `ELECTRON_RUN_AS_NODE`, clear that variable before starting. Development uses its own last-library setting. Select a copy of the sample library for development.
 
+In Windows PowerShell, use `npm.cmd` for these commands if the execution policy blocks `npm.ps1`. After setup, double-click **Open Itacan.cmd**. Quit and reopen it after a source edit to rebuild.
+
 ```sh
 npm test
 npm run test:desktop
-npm run package -- darwin arm64
-npm run package -- win32 x64
 ```
 
-Build the Mac archive on macOS. The two commands package the same application code and write ZIPs to `release/`. Packaging needs the matching Electron runtime archive on its first run. A cached archive is verified using checksums included with the pinned Electron npm package. Set `ELECTRON_CACHE` to reuse a specific archive cache. To run the desktop smoke test against an extracted package, set `ITACAN_TEST_EXECUTABLE` to its executable first. The test supplies its own temporary library and profile.
+The test supplies its own temporary library and profile.
 
 [Source and dependency map](docs/architecture.md) · [Manual UI guide](docs/ui.md) · [Verification results](docs/verification.md)

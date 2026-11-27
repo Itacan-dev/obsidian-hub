@@ -1,12 +1,16 @@
-.document { max-width: calc(940px + 2 * var(--gutter)); }
-.document-panel { overflow: hidden; }
-.document-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+.document-pane { display:grid; grid-template-rows:38px minmax(0,1fr); min-height:0; min-width:0; overflow:hidden; }
+.note-name { flex:1;text-align:center;min-width:4ch;font:600 14px var(--body); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.document-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: 2px 8px; overflow-x:auto; border-bottom: 1px solid var(--line); }
+.switcher, .document-tools .actions { flex:none; }
 .switcher { display: flex; gap: var(--s1); }
 .switcher .button { border-color: transparent; }
-.save-status { font-size: 12px; color: var(--muted); }
-.prose, .source { min-height: 280px; padding: var(--s5) clamp(20px, 5vw, 58px) var(--s7); }
+.save-status { min-width:6.5em; text-align:right; font-size: 12px; color: var(--muted); }
+.prose, .source { min-height:0; min-width:0; }
+.prose { overflow:auto; scrollbar-gutter:stable; padding:var(--s6) var(--s4); }
 .prose { line-height: 1.75; overflow-wrap: anywhere; }
+.prose > * {max-width:700px;margin-inline:auto;}
 .prose > * + * { margin-top: 1em; }
+.reading-title {font:600 26px/1.35 var(--body);}
 .prose h1 { font-size: 35px; }
 .prose h2 { font-size: 27px; }
 .prose img { display: block; max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--control-radius); }
@@ -16,6 +20,9 @@
 .prose table { border-collapse: collapse; }
 .prose th, .prose td { border: 1px solid var(--line); padding: var(--s2); }
 .prose eqn { display: block; }
-.source .cm-editor { min-height: 230px; outline: none; }
-.source .cm-scroller { font: 15px/1.65 var(--mono); }
-.source .cm-content { caret-color: var(--accent); }
+.source .cm-editor { height:100%; outline: none; }
+.source .cm-scroller { overflow:auto; scrollbar-gutter:stable; padding:var(--s2); font: 15px/1.65 var(--mono); }
+.document-tools .button {min-height:28px;padding:3px 8px;}
+.source .cm-content {width:100%;max-width:700px;margin-inline:auto; caret-color: var(--accent); }
+
+.source:has(.cm-content:focus-visible) .cm-scroller {box-shadow:inset 2px 0 var(--focus-ring);}

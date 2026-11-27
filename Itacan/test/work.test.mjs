@@ -104,11 +104,77 @@ test('a failed first write removes only the partially created note', async t => 
 test('a plan open at midnight can save its notes before the next day opens', async t => {
   const {store} = await fixture(t);
   const {plan} = await store.command('plan', 'start');
-  await store.transaction(state => { state.plan.day = '2000-01-01'; });
+  await store.transaction(state => { state.plan.day = '2000-01-01'; state.plan.endsAt=new Date(2000,0,2).toISOString(); });
   await store.command('plan', 'note', {planId:plan.id, note:'Late observation'});
   const reopened = await store.transaction();
   assert.equal(reopened.plan, null);
   assert.equal(reopened.history[0].note, 'Late observation');
   assert.equal(reopened.history[0].day, '2000-01-01');
+  assert.equal(reopened.history[0].finished,new Date(2000,0,2).toISOString());
   await assert.rejects(store.command('plan','note',{planId:plan.id,note:'stale'}), /ended/);
+});
+
+test('daily ratings, reflections and report evidence survive later task and file changes', async t => {
+  const { store, library } = await fixture(t);
+  const owner='Resources/Research', day=new Date().toLocaleDateString('sv-SE');
+  const file=await files.createItem(store,owner,'Evidence','note','First');
+  let {revision}=await library.readNote(file);
+  revision=await files.saveDocument(store,file,'Second',revision);
+  await files.saveDocument(store,file,'Third',revision);
+  let state=await store.command('task','save',{owner,title:'Record finding',due:day,repeat:'daily',done:true,steps:[{text:'Observe',done:true}]});
+  const task=state.tasks[0];
+  assert.equal(state.activity.filter(e=>e.action==='edited').length,1);
+  assert.equal(state.activity.find(e=>e.action==='task').taskId,task.id);
+  assert.equal(state.activity.find(e=>e.action==='step').stepId,task.steps[0].id);
+  const entry={owner,score:0,summary:'',expected:null};
+  const save=rows=>store.command('progress','save',{day,entries:rows});
+  state=await save([entry]);
+  const first=state.reports[0];
+  assert.equal(first.score,0);
+  assert.ok(first.evidence.some(e=>e.action==='step'));
+  await assert.rejects(save([{...entry,score:4}]), /changed/);
+  await assert.rejects(save([{...entry,expected:first.updated},entry]), /Duplicate/);
+  await store.command('task','toggle',{id:task.id});
+  await store.command('task','step',{id:task.id,index:0,done:false});
+  state=await store.command('task','toggle',{id:task.id});
+  assert.deepEqual(state.activity.filter(e=>e.action==='task').map(e=>!!e.reopened),[false,true]);
+  assert.deepEqual(state.activity.filter(e=>e.action==='step').map(e=>!!e.reopened),[true]);
+  const moved=await files.moveItem(store,file,'Resources/Knowledge','Method.md');
+  const edit=moved.state.activity.find(e=>e.action==='edited');
+  assert.equal(edit.owner,owner);
+  assert.equal(edit.path,'Resources/Knowledge/Method.md');
+  assert.equal(edit.title,'Evidence.md');
+  assert.deepEqual(moved.state.reports[0].evidence,first.evidence);
+  state=await save([{...entry,expected:first.updated,score:null,summary:'A reflection without a rating'}]);
+  assert.equal(state.reports[0].score,null);
+  assert.equal(state.reports[0].summary,'A reflection without a rating');
+  await save([{...entry,expected:state.reports[0].updated,score:null}]);
+  assert.equal((await new work.LibraryWork(library).transaction()).reports.length,0);
+  await assert.rejects(store.command('progress','save',{day:'2001-02-29',entries:[entry]}), /earlier date/);
+});
+
+test('previous days can be reported independently and a failed multi-workspace save is atomic', async t => {
+  const {store}=await fixture(t);
+  const entry={owner:'Resources/Research',score:2,summary:'Field observations',expected:null};
+  const save=entries=>store.command('progress','save',{day:'2020-02-29',entries});
+  await assert.rejects(save([entry,{...entry,owner:'Resources/Missing'}]));
+  assert.equal((await store.transaction()).reports,undefined);
+  const first=(await save([entry])).reports[0];
+  const revised=(await save([{...entry,expected:first.updated,summary:'Reviewed observations'}])).reports[0];
+  assert.equal(revised.created,first.created);
+  assert.equal(revised.day,'2020-02-29');
+  assert.deepEqual(revised.evidence,[]);
+});
+
+test('dropped files preserve colliding originals and roll back an incomplete import', async t=>{
+  const {root,store}=await fixture(t);
+  const parent='Resources/Research', folder=path.join(root,parent);
+  const copy={name:'Observation.md',bytes:Buffer.from('external')};
+  await fs.writeFile(path.join(folder,copy.name),'original');
+  const state=await files.importFiles(store,parent,[copy]);
+  assert.equal(await fs.readFile(path.join(folder,'Observation (2).md'),'utf8'),'external');
+  assert.equal(await fs.readFile(path.join(folder,copy.name),'utf8'),'original');
+  assert.equal(state.activity[0].path,parent+'/Observation (2).md');
+  await assert.rejects(files.importFiles(store,parent,[copy,folder]));
+  await assert.rejects(fs.access(path.join(folder,'Observation (3).md')));
 });

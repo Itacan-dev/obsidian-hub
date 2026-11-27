@@ -1,3 +1,30 @@
-.capture-form,.inbox,.inbox-list,.capture-card {display:grid;gap:var(--s3)}
-.capture-card {border-top:1px solid var(--line);padding:var(--s3) 0;justify-items:start}
-.capture-destinations {flex-wrap:wrap}
+.capture-form,.capture-editor,.inbox-sidebar,.inbox-detail,.inbox-list,.capture-files { display:grid;align-content:start;gap:var(--s3);min-width:0; }
+.capture-editor {align-content:start;}
+.capture-files,.inbox-list,.inbox-detail {overflow:auto;}
+
+.inbox {display:grid;grid-template-columns:minmax(0,.47fr) minmax(0,.53fr);flex:1;grid-template-rows:minmax(0,1fr);gap:var(--s4);}
+.inbox-sidebar {grid-template-rows:auto minmax(0,1fr);}
+.inbox-list {gap:2px;}
+.inbox-row {border:0;border-bottom:1px solid var(--line);text-align:left;background:transparent;padding:var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.capture-destinations {flex-wrap:wrap;}
+@media(max-width:680px){.inbox {grid-template-columns:1fr;grid-template-rows:minmax(100px,.65fr) minmax(0,1fr);gap:12px;}}
+.inbox-row small {display:block;}
+.inbox-row[aria-pressed=true] {background:var(--tint);color:var(--accent);}
+
+.dialog:has(.capture-form) {--dialog-width:560px;--dialog-height:427px;}
+.capture-editor textarea {height:90px;resize:none;}
+.capture-editor .capture-destinations {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}
+
+.capture-form {flex:1;grid-template-rows:minmax(0,1fr) auto;gap:8px;padding:16px 5px 5px;border-top:1px solid var(--line);position:relative;}
+.capture-form > [role=status] {position:absolute;bottom:4px;right:10px;pointer-events:none;}
+.capture-form > .button {min-height:44px;}
+.capture-editor .capture-destinations > .button {flex-direction:column;min-height:66px;}
+.dialog:has(.capture-form) footer > :first-child {margin-right:auto;}
+.capture-editor,.capture-files {overflow:auto;}
+.inbox-sidebar,.inbox-detail {min-height:0;}
+
+.dialog:has(.inbox) {--dialog-width:980px;--dialog-height:700px;}
+.dialog:has(.inbox) form {gap:16px;}
+.inbox {border-top:1px solid var(--line);padding-top:16px;}
+.inbox-detail {border-left:1px solid var(--line);padding-left:16px;}
+.inbox-sidebar > .actions {justify-content:space-between;}

@@ -1,16 +1,22 @@
-import { el, button, icon } from '../ui/elements.js';
+import { el, button, icon, dashboardDate } from '../ui/elements.js';
+import { inSavedOrder, reorderRows } from '../ui/reorder.js';
+import { confirmAction } from '../ui/forms.js';
 import { askName } from '../ui/dialog.js';
 
 import { taskPanel } from '../tasks/tasks.js';
+import { progressPanel } from '../progress/panel.js';
+import { calendarPanel } from './calendar.js';
 import { planPanel } from '../plan/plan.js';
-import { confirmAction } from '../ui/forms.js';
+import { contextSearch } from '../ui/context-search.js';
+import { onContext } from '../ui/menu.js';
 
 const resourceArt = { Knowledge: 'knowledge', Research: 'research', Explorations: 'explorations', Inspiration: 'inspiration' };
 function card(entry, image, open) {
   const control = el('button', 'collection-card');
+  control.title = entry.name;
   const picture = el('img');
   picture.src = '/assets/' + image + '.jpg';
-  picture.alt = '';
+  picture.alt = ''; picture.draggable=false;
   const caption = el('span', 'card-caption');
   caption.append(el('span', '', entry.name), icon('arrow'));
   control.append(picture, caption);
@@ -19,13 +25,16 @@ function card(entry, image, open) {
 }
 
 export function homeView(library, ctx) {
-  const { openFolder, chooseLibrary, refresh } = ctx;
+  const { chooseLibrary } = ctx;
+  const openFolder = path => ctx.openFolder(ctx.state.explorers?.[path]?.folder || path);
   const root = el('section', 'home view-width');
-  const hero = el('header', 'home-cover');
+  const hero = el('header', 'dashboard-heading');
   const now = new Date();
-  const date = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  hero.append(el('p', 'cover-date', date.format(now)),
-    el('h1', '', library ? (now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening') : 'Welcome to Itacan'));
+  const cover = el('div','dashboard-cover home-cover');
+  root.append(cover);
+  const greeting = el('div'), context = el('p','muted');
+  greeting.append(el('h1', '', library ? (now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening') : 'Welcome to Itacan'),context);
+  hero.append(greeting,dashboardDate(now));
   root.append(hero);
   if (!library) {
     const welcome = el('section', 'welcome panel');
@@ -35,36 +44,88 @@ export function homeView(library, ctx) {
     return { root };
   }
 
-  const projects = el('section', 'home-section');
+  const projects = el('section', 'home-section panel');
   const projectHeader = el('header', 'section-heading');
   projectHeader.append(el('h2', '', 'Projects'), button('New project', async () => {
     const name = await askName('New project');
     if (!name) return;
     await window.itacan.create(library.session, 'Projects', name, 'folder');
-    await refresh();
+    library.projects = (await window.itacan.home()).library.projects;
+    await ctx.reloadWork();
+    renderProjects();
   }, { symbol: 'plus' }));
   projects.append(projectHeader);
   const projectGrid = el('div', 'project-grid');
-  for (const project of library.projects) projectGrid.append(card(project, 'project', openFolder));
-  if (!library.projects.length) projectGrid.append(el('p', 'empty', 'Your projects will appear here.'));
-  projects.append(projectGrid);
-
+  const selectors = el('div','segmented-controls');
+  let status = 'Active';
+  for (const value of ['Active','Future','Shelved']) {
+    const control = button(value, () => { if(status===value)return;status = value; projectGrid.scrollLeft = 0; renderProjects(); });
+    control.dataset.status = value;
+    selectors.append(control);
+  }
+  reorderRows(projectGrid,'.collection-card',async (tile,index,rows)=>{
+    const order=rows.map(row=>row.dataset.path);
+    order.splice(index,0,order.splice(rows.indexOf(tile),1)[0]);
+    await ctx.update('workspace','project-order',{path:tile.dataset.path,status,order});
+    renderProjects();
+    projectGrid.querySelector('[data-path="'+CSS.escape(tile.dataset.path)+'"]')?.focus({preventScroll:true});
+  },true);
+  const cardActions = entry => [
+    {label:'Open',run:()=>openFolder(entry.path)},
+    {label:'Add to plan',run:()=>ctx.update('plan','add',{kind:'workspace',ref:entry.path})}
+  ];
+  function renderProjects() {
+    projectGrid.replaceChildren();
+    for (const control of selectors.children) {
+      const value = control.dataset.status;
+      const matching = library.projects.filter(p => (ctx.state.projectStatus?.[p.path] || 'Active') === value);
+      control.textContent = value+' ('+matching.length+')';
+      control.setAttribute('aria-pressed',String(status === value));
+      if (value !== status) continue;
+      for (const p of inSavedOrder(matching,ctx.state.projectOrder?.[value])) {
+        const tile = card(p,'project',openFolder);
+        tile.draggable=true;tile.dataset.reorder='';tile.dataset.path=p.path;
+        onContext(tile, () => [...cardActions(p),...['Active','Future','Shelved'].filter(s => s !== value).map(s => ({
+          label:'Move to '+s, run:async () => { await ctx.update('workspace','status',{path:p.path,status:s}); renderProjects();selectors.querySelector('[aria-pressed=true]').focus({preventScroll:true}); }
+        })),{label:'Rename',run:async()=>{
+          const name=await askName('Rename workspace',p.name,'Rename');
+          if(name && name!==p.name && await ctx.changeFile(p.path,'Projects',name)) await ctx.refresh();
+        }},{label:'Delete',run:async()=>{
+          if(await confirmAction('Delete workspace?',p.name,'Delete') && await ctx.changeFile(p.path,'Projects',p.name,true)) await ctx.refresh();
+        }}]);
+        projectGrid.append(tile);
+      }
+      if (!matching.length) projectGrid.append(el('p','empty','No '+value.toLowerCase()+' projects.'));
+    }
+  }
+  renderProjects(); projectHeader.lastElementChild.before(selectors); projects.append(projectGrid);
   const resources = el('section', 'home-section');
   resources.append(el('h2', '', 'Resources'));
   const grid = el('div', 'resource-grid');
-  for (const resource of library.resources) grid.append(card(resource, resourceArt[resource.name] || 'research', openFolder));
-  resources.append(grid);
-  const desk = el('div','home-desk actions');
-  if (ctx.layout.panes.some(p => p.file)) desk.append(button('Resume documents', ctx.showDesk));
-  for (const preset of ctx.state.presets) {
-    desk.append(button(preset.name, () => ctx.restore(preset.layout)), button('Remove ' + preset.name, async () => {
-      if (!await confirmAction('Remove layout?',preset.name,'Remove')) return;
-      await ctx.update('layout','remove',{name:preset.name});
-      await refresh();
-    }, {variant:'quiet'}));
+  for (const resource of library.resources) {
+    const tile=card(resource, resourceArt[resource.name] || 'research', openFolder);
+    onContext(tile,()=>cardActions(resource));grid.append(tile);
   }
+  resources.append(grid);
   const tasks = taskPanel(ctx);
   const plan = planPanel(ctx);
-  root.append(desk, projects, resources, tasks.root, plan.root);
-  return { root, refresh() { tasks.refresh(); plan.refresh(); } };
+  const calendar=calendarPanel(ctx);
+  const panels=el('div','home-panels');
+  projects.append(resources);
+  const progress=progressPanel(ctx);
+  panels.append(calendar.root,plan.root,tasks.root,projects,progress.root);
+  root.append(contextSearch(ctx),panels);
+  function refreshContext() {
+    const today = new Date().toLocaleDateString('sv-SE');
+    const count = ctx.state.tasks.filter(t=>!t.done && !(t.start>today) && (ctx.state.projectStatus?.[t.owner] || 'Active')==='Active').length;
+    context.textContent = count ? 'You have '+count+' task'+(count===1?'':'s')+' to do.' : 'Your task list is empty — add something to work on.';
+  }
+  refreshContext();
+  return { root, mounted:calendar.goToToday, refresh(group, action, id) {
+    progress.refresh(group);
+    if (!group || group === 'task' || group === 'workspace' && action === 'status') {
+      tasks.refresh(id); calendar.refresh(); refreshContext();
+    }
+    if (!group || group === 'plan' || group === 'task' && ctx.state.plan?.entries.some(e => e.kind === 'task' && (!id || e.ref === id))) plan.refresh(group === 'task' ? id : undefined);
+  } };
 }
