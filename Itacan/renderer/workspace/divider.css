@@ -1,0 +1,11 @@
+.divider {
+  width: 8px;
+  align-self: stretch;
+  cursor: col-resize;
+  touch-action: none;
+  border-inline-start: 1px solid var(--line);
+}
+
+.divider:hover, .divider:focus-visible {
+  background: var(--tint);
+}

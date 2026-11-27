@@ -17,8 +17,13 @@ async function setPlaylist(state, {tracks}, library) {
   state.playlist=[...tracks];
 }
 
-function rewriteMusicRefs(state,from,to) {
+function rewriteMusicRefs(state, from, to) {
   if (!state.playlist) return;
-  state.playlist=state.playlist.flatMap(item=>item===from || item.startsWith(from+'/') ? to ? [to+item.slice(from.length)] : [] : [item]);
+  const tracks = [];
+  for (const track of state.playlist) {
+    if (track !== from && !track.startsWith(from + '/')) tracks.push(track);
+    else if (to) tracks.push(to + track.slice(from.length));
+  }
+  state.playlist = tracks;
 }
 module.exports = {audioTypes,audioPath,setPlaylist,rewriteMusicRefs};

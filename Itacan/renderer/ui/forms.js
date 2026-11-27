@@ -1,6 +1,7 @@
 import { el, button, report } from './elements.js';
 import { showDialog } from './dialog.js';
 import {workspaceName} from '../workspace/context.js';
+import './forms.css';
 
 export function field(parent, label, type = 'text', value = '', choices) {
   const wrap = el('label', 'field', label);

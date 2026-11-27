@@ -1,6 +1,7 @@
 import { el, button, report } from '../ui/elements.js';
 import { showDialog } from '../ui/dialog.js';
 import { fileCapturedText, fileAttachments } from './actions.js';
+import './capture.css';
 export { inbox } from './inbox.js';
 
 export function quickAdd(ctx) {

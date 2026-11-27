@@ -1,39 +1,18 @@
-import {workOperations} from './work-operations.js';
-import { progressEditor,localDay,observeWorkspace,pendingWorkspaces } from './progress/report.js';
+import './ui/shared.css';
+import { createShell } from './shell/shell.js';
+import { workOperations } from './work-operations.js';
+import { progressEditor, localDay, observeWorkspace, pendingWorkspaces } from './progress/report.js';
 import { homeView } from './home/home.js';
 import { workspaceView } from './workspace/workspace.js';
 import { Documents } from './document/buffers.js';
-import { quickAdd, inbox } from './capture/capture.js';
-import { presetMenu } from './workspace/presets.js';
-import { button, report } from './ui/elements.js';
-import './ui/shared.css';
-import './home/home.css';
-import './workspace/workspace.css';
-import './workspace/desk.css';
-import './document/document.css';
-import './tasks/tasks.css';
-import './capture/capture.css';
-import './plan/plan.css';
-import './progress/progress.css';
-
+import { quickAdd } from './capture/capture.js';
+import { report } from './shell/notice.js';
 import { recoveryView } from './workspace/recovery.js';
 import preferences from '../contracts/preferences.cjs';
 import { settingsDialog, applyPreferences, matchCommand } from './settings/settings.js';
-import { musicButton } from './music/music.js';
-import { oathControl, confirmBreak } from './oath/oath.js';
+import { confirmBreak } from './oath/oath.js';
 
 const api = window.itacan;
-const frame = document.querySelector('#application');
-const view = document.querySelector('#view');
-const libraryButton = document.querySelector('#library-button');
-const bar = document.querySelector('#navigation');
-const tools = document.querySelector('#capture-bar');
-const inboxButton = button('Inbox', () => inbox(ctx));
-function captureCount() {
-  const count = state?.inbox.length || 0;
-  inboxButton.textContent = count ? 'Inbox (' + count + ')' : 'Inbox';
-  inboxButton.setAttribute('aria-label','Inbox');
-}
 let library, state, documents, layout, screen;
 let navigating = false;
 let recovering = false;
@@ -51,7 +30,7 @@ const ctx = {
     state = next;
     if (group === 'settings' || !group) applyPreferences(state.settings,library.session);
     screen?.refresh?.(group, action, id);
-    captureCount(); oathButton.refresh(); music.refresh();
+    shell.refreshTools();
     if (!wasActive && state.oath?.status === 'active') {
       layout = null;
       setTimeout(()=>ctx.openFolder(state.oath?.owner || state.lastFolder),0);
@@ -83,12 +62,17 @@ const ctx = {
   showDesk: () => navigate({ kind: 'desk' }),
   restore: async preset => {
     const restored = await api.resolveLayout(library.session, preset.layout);
-    if ((restored.workspace && !allowed(restored.workspace)) || restored.panes.some(p=>p.tabs.some(file=>!allowed(file)))) throw Error('This preset includes content outside the active Oath.');
+    const outsideWorkspace = restored.workspace && !allowed(restored.workspace);
+    const outsideDocument = restored.panes.some(pane => pane.tabs.some(file => !allowed(file)));
+    if (outsideWorkspace || outsideDocument) throw Error('This preset includes content outside the active Oath.');
     const retained = new Set(restored.panes.flatMap(p => p.tabs));
     const closing = [...documents.open.values()].filter(b => !retained.has(b.path));
     if (!await documents.allowClose(closing)) return;
     const explorer = restored.explorer;
-    if (explorer && restored.folder) await ctx.workspaces.saveExplorer({...explorer,path:restored.workspace || restored.folder.split('/').slice(0,2).join('/')});
+    if (explorer && restored.folder) {
+      const path = restored.workspace || restored.folder.split('/').slice(0, 2).join('/');
+      await ctx.workspaces.saveExplorer({ ...explorer, path });
+    }
     delete restored.explorer;
     layout = restored;
     if (screen?.syncDesk) { screen.dispose(); screen = null; }
@@ -107,77 +91,134 @@ const ctx = {
     if (trash && !await documents.allowClose(affected)) return false;
     state = await api.moveItem(library.session, from, parent, name, trash);
     documents.relocate(from, trash ? '' : parent + '/' + name);
-    if (screen?.syncDesk) {screen.dispose();screen=null;}
+    if (screen?.syncDesk) {
+      screen.dispose();
+      screen = null;
+    }
     if (state.lastLayout) layout = null;
     library = (await api.home()).library;
     return true;
   }
 };
-const oathButton = oathControl(ctx);
-const music = musicButton(ctx);
-const settingsButton = button('Settings',()=>settingsDialog(ctx));
-api.onNotice(report);
-api.onWorkChanged(id=>{ if (library?.session===id) ctx.reloadWork().catch(report); });
-function allowed(path) {
-  const oath = state?.oath;
-  return oath?.status !== 'active' || ctx.workspaces.contextFor(path,oath.owner) === oath.owner;
-}
-tools.append(oathButton.root,button('Log progress',async()=>{
-  await ctx.reloadWork();
-  return progressEditor(ctx,localDay(),null,{current:mode==='home'?null:screen?.owner || ctx.layout?.workspace || ctx.workspaces.lastWorkspace()});
-}),button('Quick Add', () => quickAdd(ctx)), inboxButton,music.root,settingsButton);
 let mode;
-const homeButton = button('Home', ctx.refresh);
-const workspaceButton = button('Workspace', () => {
-  const desk = ctx.layout;
-  const folder = mode === 'desk' ? desk?.folder : state?.lastFolder;
-  return folder ? ctx.openFolder(folder,{workspace:mode==='desk'?desk?.workspace:state.lastWorkspace}) : report('Open a Project or Resource first.');
-});
+
 function lastDesk() {
-  if (mode === 'folder') return state?.workspaceLayouts?.[screen?.owner];
-  return ctx.layout;
+  return mode === 'folder' ? ctx.presets.lastLayout(screen?.owner) : ctx.layout;
 }
-const fileButton = button('Last File',async ()=>{
-  if (mode === 'folder' && lastDesk()) layout=structuredClone(lastDesk());
-  await ctx.showDesk();
+
+const shell = createShell(ctx, {
+  openWorkspace() {
+    const desk = ctx.layout;
+    const folder = mode === 'desk' ? desk?.folder : state?.lastFolder;
+    if (!folder) return report('Open a Project or Resource first.');
+    const workspace = mode === 'desk' ? desk.workspace : state.lastWorkspace;
+    return ctx.openFolder(folder, { workspace });
+  },
+  async resumeDesk() {
+    if (mode === 'folder' && lastDesk()) layout = structuredClone(lastDesk());
+    await ctx.showDesk();
+  },
+  async logProgress() {
+    await ctx.reloadWork();
+    const current = mode === 'home' ? null : screen?.owner || ctx.layout?.workspace || ctx.workspaces.lastWorkspace();
+    return progressEditor(ctx, localDay(), null, { current });
+  }
 });
-const presets = button('Presets', () => presetMenu(ctx, presets, mode === 'desk'));
-bar.querySelector('#routes').append(homeButton, workspaceButton, fileButton, presets);
+const { frame, view } = shell;
+
 function navigation(kind) {
   mode = kind;
-  const desk = ctx.layout;
-  for (const [control, current, available] of [
-    [homeButton, kind === 'home', true],
-    [workspaceButton, kind === 'folder', library],
-    [fileButton, kind === 'desk', lastDesk()?.panes[lastDesk().active]?.file]
-  ]) {
-    control.disabled = current || !available;
-    if (current) control.setAttribute('aria-current', 'page');
-    else control.removeAttribute('aria-current');
-  }
-  presets.disabled = !library;
-  tools.hidden = !library || recovering;
-  if (recovering) { homeButton.disabled=true; workspaceButton.disabled=true; fileButton.disabled=true; presets.disabled=true; }
-  captureCount(); oathButton.refresh(); music.refresh();
-  libraryButton.textContent = library?.name || 'Choose library';
-  libraryButton.title = 'Choose library folder';
+  const desk = lastDesk();
+  shell.refreshNavigation(kind, desk?.panes[desk.active]?.file, recovering);
 }
+
+api.onNotice(report);
+api.onWorkChanged(id => {
+  if (library?.session === id) ctx.reloadWork().catch(report);
+});
+
+function allowed(path) {
+  const oath = state?.oath;
+  return oath?.status !== 'active' || ctx.workspaces.contextFor(path, oath.owner) === oath.owner;
+}
+
+async function rememberDesk() {
+  if (!screen?.snapshot) return;
+  const captured = screen.snapshot();
+  if (JSON.stringify(captured) !== JSON.stringify(state.lastLayout)) {
+    await ctx.presets.remember({ layout: captured });
+  }
+}
+
+async function loadLibrary(selected) {
+  const changed = selected?.session !== library?.session;
+  library = selected;
+  if (!library) return;
+  try {
+    state = await api.work(library.session);
+    recovering = false;
+  } catch (error) {
+    recovering = true;
+    if (changed) {
+      state = null;
+      documents = null;
+      layout = null;
+    }
+    screen?.dispose?.();
+    screen = recoveryView(library, error, ctx.chooseLibrary);
+    shell.mount(screen);
+    navigation('recovery');
+    return;
+  }
+  applyPreferences(state.settings, library.session);
+  if (changed || !documents) {
+    ctx.fileClipboard = null;
+    documents = new Documents(library.session, () => state?.settings?.saveMode !== 'manual');
+    layout = null;
+  }
+}
+
+async function openDocumentTab(route, addTab) {
+  const buffer = await documents.get(route.path);
+  const owner = ctx.workspaces.contextFor(buffer.path, route.workspace || screen?.owner || layout.workspace);
+  layout.workspace = owner;
+  const preferred = state.settings?.editorMode || preferences.defaults.editorMode;
+  route.editing ??= preferred === 'live' ? 'live' : preferred === 'source';
+
+  // Replacing the last view of a dirty document needs the normal close decision.
+  const pane = layout.panes[layout.active];
+  const previous = pane.file;
+  const replaces = route.placement === 'replace' && previous && !pane.tabs.includes(buffer.path)
+    && !layout.panes.some(other => other !== pane && other.tabs.includes(previous));
+  const closing = replaces && documents.open.get(previous);
+  if (closing && !await documents.allowClose([closing])) return false;
+
+  if (addTab(layout, buffer.path, route.editing, route.placement)) {
+    const lastFolder = state.lastFolder;
+    const sameWorkspace = lastFolder === owner || lastFolder?.startsWith(owner + '/');
+    layout.folder = state.explorers?.[owner]?.folder || (sameWorkspace ? lastFolder : owner);
+    if (layout.folder !== lastFolder) {
+      await ctx.workspaces.visit({ path: layout.folder, workspace: owner });
+    }
+    await ctx.presets.remember({ layout });
+    if (closing) documents.open.delete(previous);
+  }
+  return true;
+}
+
 async function navigate(route) {
   if (navigating) return;
   navigating = true;
   const previousFocus = document.activeElement;
   frame.inert = true;
   try {
-    document.querySelector('#message').hidden = true;
+    shell.clearNotice();
     if (state?.oath?.status === 'active' && (route.kind === 'home' || route.path && !allowed(route.path))) {
       report('Your active Oath is scoped to '+state.oath.owner+'.');
       route = {kind:'folder',path:state.oath.owner,workspace:state.oath.owner};
     }
     let next;
-    if(screen?.snapshot && ['home','folder','choose'].includes(route.kind)) {
-      const captured=screen.snapshot();
-      if (JSON.stringify(captured)!==JSON.stringify(state.lastLayout)) await ctx.presets.remember({layout:captured});
-    }
+    if (['home', 'folder', 'choose'].includes(route.kind)) await rememberDesk();
     if (route.kind === 'choose' || route.kind === 'home' || route.kind === 'desk' && !ctx.layout?.panes.some(p => p.file)) {
       let selected;
       if (route.kind === 'choose') {
@@ -190,29 +231,8 @@ async function navigate(route) {
         selected = result.library;
         if (result.message) report(result.message);
       }
-      const changed = selected?.session !== library?.session;
-      library = selected;
-      if (library) {
-        try {
-          state = await api.work(library.session);
-          recovering = false;
-        } catch(error) {
-          recovering = true;
-          if (changed) {state = null; documents = null; layout = null;}
-          screen?.dispose?.();
-          screen = recoveryView(library,error,ctx.chooseLibrary);
-          screen.navigationHost.append(bar);
-          view.replaceChildren(screen.root);
-          navigation('recovery');
-          return true;
-        }
-        applyPreferences(state.settings,library.session);
-        if (changed || !documents) {
-          ctx.fileClipboard = null;
-          documents = new Documents(library.session,()=>state?.settings?.saveMode !== 'manual');
-          layout = null;
-        }
-      }
+      await loadLibrary(selected);
+      if (recovering) return true;
       route = { kind: 'home' };
       next = homeView(library, ctx);
     } else if (route.kind === 'folder') {
@@ -226,8 +246,7 @@ async function navigate(route) {
         state=await api.work(library.session);
         next = await workspaceView(library, route.path, ctx, route);
       }
-    }
-    else {
+    } else {
       const { addTab, deskView } = await import('./workspace/desk.js');
       if (!layout) {
         layout = state.lastLayout ? await api.resolveLayout(library.session, state.lastLayout) :
@@ -238,28 +257,12 @@ async function navigate(route) {
       }
       if (state.oath?.status === 'active' && layout.panes.some(p=>p.tabs.some(path=>!allowed(path)))) {
         layout = {active:0,panes:[{file:'',tabs:[],edit:false}],workspace:state.oath.owner,folder:state.oath.owner};
-        if (screen?.syncDesk) {screen.dispose();screen=null;}
-      }
-      if (route.kind === 'note') {
-        const buffer = await documents.get(route.path);
-        const owner = ctx.workspaces.contextFor(buffer.path,route.workspace || screen?.owner || layout.workspace);
-        layout.workspace = owner;
-        const preferred = state.settings?.editorMode || preferences.defaults.editorMode;
-        route.editing ??= preferred === 'source' ? true : preferred === 'live' ? 'live' : false;
-        const pane = layout.panes[layout.active];
-        const previous = pane.file;
-        const replaces = route.placement === 'replace' && previous && !pane.tabs.includes(buffer.path)
-          && !layout.panes.some(other => other !== pane && other.tabs.includes(previous));
-        const closing = replaces && documents.open.get(previous);
-        if (closing && !await documents.allowClose([closing])) return false;
-        if (addTab(layout, buffer.path, route.editing, route.placement)) {
-          const previousFolder=state.lastFolder===owner || state.lastFolder?.startsWith(owner+'/') ? state.lastFolder : owner;
-          layout.folder = state.explorers?.[owner]?.folder || previousFolder;
-          if (layout.folder !== state.lastFolder) await ctx.workspaces.visit({path:layout.folder,workspace:owner});
-          await ctx.presets.remember({ layout });
-          if (closing) documents.open.delete(previous);
+        if (screen?.syncDesk) {
+          screen.dispose();
+          screen = null;
         }
       }
+      if (route.kind === 'note' && !await openDocumentTab(route, addTab)) return false;
       if (screen?.syncDesk) {
         await screen.syncDesk(route.anchor);
         ctx.observeWorkspace(layout.panes[layout.active].file);
@@ -274,10 +277,7 @@ async function navigate(route) {
     if (!sameScreen) {
       screen?.dispose?.();
       screen = next;
-      const cover=next.root.querySelector('.dashboard-cover');
-      if (cover) cover.after(bar);
-      else next.navigationHost.append(bar);
-      view.replaceChildren(next.root);
+      shell.mount(next);
       view.scrollTop = 0;
     }
     if (route.kind!=='home') ctx.observeWorkspace(route.path);
@@ -287,19 +287,26 @@ async function navigate(route) {
     else view.focus({preventScroll:true});
     next.mounted?.(route, sameScreen && !previousFocus?.isConnected);
     return true;
-  } catch (error) { report(error); return false; }
-  finally { navigating = false; frame.inert = false; }
+  } catch (error) {
+    report(error);
+    return false;
+  } finally {
+    navigating = false;
+    frame.inert = false;
+  }
 }
-libraryButton.onclick = ctx.chooseLibrary;
 
 document.addEventListener('keydown',event=>{
   if (navigating || !library || recovering || document.querySelector('dialog[open]')) return;
   const command = matchCommand(event,state?.settings);
   if (!command) return;
   const handlers = {
-    settings:()=>settingsDialog(ctx),quickAdd:()=>quickAdd(ctx),
-    save:()=>screen?.save?.(),closeTab:()=>screen?.closeTab?.(),
-    nextTab:()=>screen?.cycleTab?.(1),previousTab:()=>screen?.cycleTab?.(-1)
+    settings: () => settingsDialog(ctx),
+    quickAdd: () => quickAdd(ctx),
+    save: () => screen?.save?.(),
+    closeTab: () => screen?.closeTab?.(),
+    nextTab: () => screen?.cycleTab?.(1),
+    previousTab: () => screen?.cycleTab?.(-1)
   };
   if (handlers[command]) {
     event.preventDefault();
@@ -313,10 +320,7 @@ api.onRequestClose(async () => {
   try {
     if (['active','rest'].includes(state?.oath?.status) && !await confirmBreak(ctx)) return api.answerClose(false);
     if (documents && !await documents.allowClose()) return api.answerClose(false);
-    if (screen?.snapshot) {
-      const captured=screen.snapshot();
-      if(JSON.stringify(captured)!==JSON.stringify(state.lastLayout))await ctx.presets.remember({layout:captured});
-    }
+    await rememberDesk();
     if (library && !recovering) {
       state=await api.work(library.session);
       const day=localDay();
@@ -324,8 +328,13 @@ api.onRequestClose(async () => {
       if (pending.length && !await progressEditor(ctx,day,null,{pending})) return api.answerClose(false);
     }
     await api.answerClose(true);
-  } catch(error){report(error);await api.answerClose(false);}
-  finally { navigating = false; frame.inert = false; }
+  } catch (error) {
+    report(error);
+    await api.answerClose(false);
+  } finally {
+    navigating = false;
+    frame.inert = false;
+  }
 });
 // Refresh a day-bound dashboard at local midnight or after the machine wakes.
 let shownDay=localDay();

@@ -1,0 +1,152 @@
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+
+export async function createTaskAndFileCaptures(session, { freshLibrary, tmp }) {
+  const {
+    page, button, dialogButton, menuItem, bounds, dialog, nameDialog, capture,
+    chooseNativePath, measure, screenshot
+  } = session;
+  await button('Add task').click();
+  await page.getByLabel('Title', { exact: true }).fill('Review results');
+  await dialogButton('Projects/Experiment').click();
+  assert.equal(await dialog().getByLabel('Workspace', { exact: true }).inputValue(), 'Projects/Experiment');
+  await dialogButton('Run one').click();
+  await dialogButton('Results.md').click();
+  await dialogButton('Choose').click();
+  await dialog().getByText('Add steps', { exact: true }).click();
+  await dialogButton('Add step').click();
+  const taskActions = await bounds('dialog[open] footer');
+  await page.getByLabel('Step text').fill('Check baseline');
+  assert.deepEqual(await bounds('dialog[open] footer'), taskActions);
+  await dialogButton('Due date').click();
+  await page.locator('input[type=date]:visible').fill('2028-06-11');
+  await dialogButton('Apply').click();
+  await dialogButton('Due date').click();
+  await screenshot('task-properties');
+  await page.locator('.task-property-fields:visible').getByText('Cancel').click();
+  await dialogButton('Repeat task').click();
+  await page.getByLabel('Repeat frequency').selectOption('weekly');
+  await dialogButton('Apply').click();
+  await dialogButton('Set importance').click();
+  await dialog().getByRole('combobox').selectOption({ label: 'Must do' });
+  await dialogButton('Apply').click();
+  await dialogButton('Add task').click();
+  await button('Review results').waitFor();
+  await measure('openQuickAdd', async () => {
+    await button('Quick Add').click();
+    await page.getByLabel('Capture text').waitFor();
+  });
+  const draft = page.getByLabel('Capture text');
+  assert.equal(await draft.evaluate(n => n === document.activeElement), true);
+  await draft.fill('Collect sample');
+  assert.equal(await dialogButton('Choose files').isDisabled(), true);
+  await dialogButton('Create task…').click();
+  await dialogButton('Cancel').click();
+  assert.equal(await draft.inputValue(), 'Collect sample');
+  await page.keyboard.press('Escape');
+  await button('Quick Add').click();
+  assert.equal(await draft.inputValue(), 'Collect sample');
+  await capture('Collect sample');
+  await capture('Local abstract');
+  await dialogButton('Close dialog').click();
+  await button('Inbox').click();
+  await dialogButton('Texts').click();
+  await dialogButton('Sort by').click();
+  await menuItem('Oldest first').click();
+  await dialogButton('Collect sample').click();
+  await dialogButton('Create task…').click();
+  await dialogButton('Add task').click();
+  await dialog().getByLabel('Captured text').fill('Edited abstract');
+  await dialogButton('Create note…').click();
+  await dialogButton('Experiment').click();
+  await nameDialog('Abstract', 'Create note');
+  await dialog().getByText('No captures to show.').waitFor();
+  await dialogButton('Close').click();
+  assert.equal(await readFile(path.join(freshLibrary, 'Projects/Experiment/Abstract.md'), 'utf8'), 'Edited abstract');
+  const attachment = path.join(tmp, 'Dataset.pdf');
+  await writeFile(attachment, 'sample bytes');
+  await button('Quick Add').click();
+  await chooseNativePath(attachment, 'Choose files');
+  await dialogButton('Choose more files').waitFor();
+  assert.equal(await draft.isVisible(), false);
+  await dialogButton('Close dialog').click();
+  await button('Quick Add').click();
+  await dialogButton('Remove Dataset.pdf').waitFor();
+  await screenshot('quick-add-files');
+  await dialogButton('Send to Inbox').click();
+  await dialogButton('Choose files').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.capture-form').inert);
+  await page.locator('.capture-form').evaluate(body => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['dropped bytes'], 'Dropped.txt'));
+    body.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await dialogButton('Remove Dropped.txt').waitFor();
+  await dialogButton('Add files to…').click();
+  await dialogButton('Experiment').click();
+  await dialogButton('Choose').click();
+  await dialogButton('Choose files').waitFor();
+  assert.equal(await readFile(path.join(freshLibrary, 'Projects/Experiment/Dropped.txt'), 'utf8'), 'dropped bytes');
+  await dialogButton('Close dialog').click();
+  await button('Inbox').click();
+  await dialogButton('Files').click();
+  await dialogButton('Add file to…').click();
+  await dialogButton('Experiment').click();
+  await dialogButton('Choose').click();
+  await dialog().getByText('No captures to show.').waitFor();
+  await dialogButton('Close').click();
+  assert.equal(await readFile(path.join(freshLibrary, 'Projects/Experiment/Dataset.pdf'), 'utf8'), 'sample bytes');
+}
+
+export async function findMoveAndAppendCaptures(session, { freshLibrary }) {
+  const {
+    page, button, dialogButton, chooseMenuAction, fileRow, heading, dialog,
+    capture, screenshot
+  } = session;
+  const search = page.getByRole('combobox', { name: 'Search Itacan' });
+  await search.fill('Edited abstract');
+  await page.getByRole('option', { name: /Abstract.md/ }).waitFor();
+  await search.press('ArrowDown');
+  await search.press('Enter');
+  await heading('Abstract').waitFor();
+  await button('Home').click();
+  await button('Experiment').click();
+  await page.locator('.file-tree').getByRole('button', { name: 'Experiment', exact: true }).click();
+  await chooseMenuAction(fileRow('Abstract.md'), 'Move');
+  await dialogButton('Literature').click();
+  await dialogButton('Choose').click();
+  await fileRow('Abstract.md').waitFor({ state: 'hidden' });
+  const moved = path.join(freshLibrary, 'Resources/Literature/Abstract.md');
+  await button('Quick Add').click();
+  await capture('Follow-up A');
+  await capture('Follow-up B');
+  await dialogButton('Close dialog').click();
+  await button('Inbox').click();
+  await dialogButton('Follow-up A').click();
+  await dialogButton('Follow-up B').click({ modifiers: ['Shift'] });
+  await dialog().getByText('2 texts selected').waitFor();
+  await screenshot('inbox-selection');
+  await dialogButton('Add 2 texts to note…').click();
+  await dialogButton('Literature').click();
+  await dialogButton('Abstract.md').click();
+  await dialogButton('Add to note').click();
+  await dialog().getByText('No captures to show.').waitFor();
+  await dialogButton('Close').click();
+  assert.equal(await readFile(moved, 'utf8'), 'Edited abstract\n\nFollow-up A\n\nFollow-up B');
+  await button('Quick Add').click();
+  await page.getByLabel('Capture text').fill('Opening line');
+  await dialogButton('Add to note…').click();
+  await dialogButton('Literature').click();
+  await dialogButton('Abstract.md').click();
+  await dialog().getByLabel('Position').selectOption({ label: 'Start of note' });
+  await dialogButton('Add to note').click();
+  await dialogButton('Close dialog').click();
+  assert.match(await readFile(moved, 'utf8'), /^Opening line\n\nEdited abstract/);
+  await button('Home').click();
+  await button('Literature').click();
+  await chooseMenuAction(fileRow('Abstract.md'), 'Delete');
+  await dialogButton('Delete').click();
+  await fileRow('Abstract.md').waitFor({ state: 'hidden' });
+  await assert.rejects(readFile(moved), { code: 'ENOENT' });
+}

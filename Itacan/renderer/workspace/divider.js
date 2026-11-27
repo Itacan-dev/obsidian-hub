@@ -1,3 +1,4 @@
+import './divider.css';
 import { el, report } from '../ui/elements.js';
 export function resizeDivider(label, value, change, commit = () => {}, options = {}) {
   const grip = el('div','divider');

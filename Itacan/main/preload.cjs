@@ -9,17 +9,33 @@ function droppedFiles(files) {
   return Promise.all(files.map(async file=>webUtils.getPathForFile(file) ||
     {name:file.name,bytes:new Uint8Array(await file.arrayBuffer())}));
 }
+async function streamNoteMatches(id, request, onMatches) {
+  let listener;
+  const finished = new Promise((resolve, reject) => {
+    listener = (_event, session, token, matches) => {
+      if (session !== id || token !== request.token) return;
+      if (matches === null) {
+        resolve();
+      } else {
+        try { onMatches(matches); }
+        catch (error) { reject(error); }
+      }
+    };
+    ipcRenderer.on('search-matches', listener);
+  });
+  try {
+    await Promise.all([call('search', id, { ...request, phase: 'content', stream: true }), finished]);
+  } finally {
+    ipcRenderer.removeListener('search-matches', listener);
+  }
+}
 contextBridge.exposeInMainWorld('itacan', {
   statisticsNotes: id => call('statistics-notes',id),
   work: id => call('work-read', id),
   ...Object.fromEntries(['task','workspace','oath','roadmap','music','settings','progress','layout','plan','capture','inbox'].map(
     group=>[group,(id,action,data)=>call(group+'-operation',id,action,data)])),
   search:(id,request)=>call('search',id,request),
-  onSearchMatches:(id,token,handler)=>{
-    const listener=(_event,session,query,matches)=>{if(id===session && token===query) handler(matches);};
-    ipcRenderer.on('search-matches',listener);
-    return ()=>ipcRenderer.removeListener('search-matches',listener);
-  },
+  streamNoteMatches,
   cancelSearch:(id,token)=>call('cancel-search',id,token),
   documentPath:(id,file)=>call('document-path',id,file),
   getDraft:(id,file)=>call('get-draft',id,file),

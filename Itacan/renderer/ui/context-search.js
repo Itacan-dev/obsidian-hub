@@ -1,6 +1,7 @@
 import { el, button, report } from './elements.js';
 import { taskEditor } from '../tasks/tasks.js';
 import { workspaceName } from '../workspace/context.js';
+import './context-search.css';
 
 export function contextSearch(ctx, scope, currentFolder) {
   const region = el('div','context-search');
@@ -60,8 +61,8 @@ export function contextSearch(ctx, scope, currentFolder) {
     const roots=folderOnly ? [currentFolder()] : scope ? [scope,...ctx.workspaces.attachments(scope)] : allowed;
     const inside=(path,folders)=>!folders || folders.some(folder=>path===folder || path?.startsWith(folder+'/'));
     const visible=path=>inside(path,roots) && inside(path,allowed);
-    const request=phase=>window.itacan.search(session,{scope,query,token:key,phase,folders:roots,stream:phase==='content'});
-    const names=await request('names');
+    const request = {scope, query, token:key, folders:roots};
+    const names = await window.itacan.search(session, {...request, phase:'names'});
     if(stale())return;
     results.replaceChildren();
     const groups=new Map();
@@ -106,12 +107,11 @@ export function contextSearch(ctx, scope, currentFolder) {
       if(line>=0)noteHit({path:buffer.path,name:buffer.path.split('/').at(-1),line:line+1,snippet:lines[line].slice(0,180)});
     }
     if(groups.size)reveal();
-    const unsubscribe=window.itacan.onSearchMatches(session,key,items=>{
+    await window.itacan.streamNoteMatches(session,request,items=>{
       if(stale())return;
       for(const item of items)if(!overlay.has(item.path) && visible(item.path))noteHit(item);
       if(groups.size)reveal();
     });
-    try { await request('content'); } finally { unsubscribe(); }
     if(stale())return;
     if(!groups.size)results.append(el('p','empty','No matches in this scope.'));
     reveal();

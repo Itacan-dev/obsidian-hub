@@ -3,11 +3,9 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,rm,copyFile,rename,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createRequire} from 'node:module';
-import {_electron} from 'playwright-core';
+import { launchElectron, setPickerPath } from './desktop/window.mjs';
 import {samplePdf} from './sample-pdf.mjs';
 
-const require=createRequire(import.meta.url);
 const directory=await mkdtemp(path.join(tmpdir(),'itacan-commitment-desktop-'));
 const library=path.join(directory,'Library');
 const profile=path.join(directory,'Profile');
@@ -16,8 +14,7 @@ const disk=async()=>JSON.parse(await readFile(workfile,'utf8'));
 let desktop;
 try {
   await mkdir(library);
-  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
-  desktop=await _electron.launch({executablePath:require('electron'),env,args:['--user-data-dir='+profile,path.resolve('build/app')]});
+  desktop = await launchElectron(profile);
   const page=await desktop.firstWindow();
   const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
@@ -26,7 +23,7 @@ try {
   const btn=name=>page.getByRole('button',{name,exact:true});
   const dlg=()=>page.getByRole('dialog').last();
   const db=name=>dlg().getByRole('button',{name,exact:true});
-  await desktop.evaluate(({dialog},selected)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[selected]});},library);
+  await setPickerPath(desktop, library);
   await btn('Choose a folder').click();
   await btn('New project').waitFor();
   const papers=path.join(library,'Resources','Literature','Papers');

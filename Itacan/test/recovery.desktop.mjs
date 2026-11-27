@@ -2,28 +2,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { createRequire } from 'node:module';
-import { _electron } from 'playwright-core';
+import { launchElectron, setPickerPath } from './desktop/window.mjs';
 import storage from '../main/library.cjs';
 
 // One ordinary research Project and one damaged metadata copy. All files and
 // both profiles are under the same new temporary test directory.
 const tmp = await fs.mkdtemp(path.join(tmpdir(),'itacan-recovery-desktop-'));
 const root = path.join(tmp,'Library');
-const env = {...process.env};
-delete env.ELECTRON_RUN_AS_NODE;
 let app, page;
 const errors=[];
 async function launch(profile) {
-  app = await _electron.launch({executablePath:createRequire(import.meta.url)('electron'),
-    env,args:['--user-data-dir='+path.join(tmp,profile),path.resolve('build/app')]});
+  app = await launchElectron(path.join(tmp, profile));
   page = await app.firstWindow();
   page.setDefaultTimeout(10000);
   page.on('pageerror',error=>errors.push(error.message));
   await page.context().setOffline(true);
-  await app.evaluate(({dialog},directory)=>{
-    dialog.showOpenDialog=async()=>({filePaths:[directory],canceled:false});
-  },root);
+  await setPickerPath(app, root);
 }
 async function stop() {
   if (!app) return;

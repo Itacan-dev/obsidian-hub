@@ -1,3 +1,4 @@
+import './media.css';
 import {button,el,report} from '../ui/elements.js';
 
 export function mediaView(record,position) {

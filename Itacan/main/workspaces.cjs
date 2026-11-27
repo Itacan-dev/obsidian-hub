@@ -42,8 +42,27 @@ function rewriteWorkspaceRefs(state, from, to) {
     }
     state.sharedFolders = next;
   }
-  for (const cover of Object.values(state.settings?.covers || {})) {
-    if (cover.path) cover.path = moved(cover.path);
+  for (const [status, order] of Object.entries(state.projectOrder || {})) {
+    state.projectOrder[status] = order.map(moved).filter(Boolean);
+  }
+  if (state.explorers) {
+    const explorers = {};
+    for (const [path, view] of Object.entries(state.explorers)) {
+      const owner = moved(path);
+      if (!owner) continue;
+      const next = { ...view, folder: moved(view.folder), expanded: view.expanded.map(moved).filter(Boolean) };
+      if (view.order) {
+        next.order = view.order.map(moved).filter(folder => folder && folder.slice(0, folder.lastIndexOf('/')) === owner);
+      }
+      explorers[owner] = next;
+    }
+    state.explorers = explorers;
+  }
+  if (state.lastFolder) state.lastFolder = moved(state.lastFolder);
+  if (state.projectStatus?.[from]) {
+    const status = state.projectStatus[from];
+    delete state.projectStatus[from];
+    if (to) state.projectStatus[to] = status;
   }
 }
 async function relinkDestination(library, {from,to}) {

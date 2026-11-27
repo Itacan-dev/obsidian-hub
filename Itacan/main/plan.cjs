@@ -84,4 +84,29 @@ async function planAction(state, action, data, library) {
     if (to >= 0 && to < plan.entries.length) plan.entries.splice(to, 0, plan.entries.splice(index, 1)[0]);
   } else throw Error('Unknown Plan action.');
 }
-module.exports = { today, expired, finish, planAction };
+
+function rewritePlanRefs(state, moved) {
+  for (const entry of state.plan?.entries || []) {
+    if (entry.kind === 'task' || entry.missing) continue;
+    const path = moved(entry.ref);
+    if (path) {
+      entry.ref = path;
+      entry.label = path.split('/').at(-1);
+    } else {
+      entry.missing = true;
+    }
+  }
+
+  // A finished Plan keeps its original label and route alongside the live reference.
+  for (const plan of state.history) {
+    for (const entry of plan.entries) {
+      if (entry.kind === 'task' || entry.missing) continue;
+      entry.route ||= entry.ref;
+      const path = moved(entry.ref);
+      if (path) entry.ref = path;
+      else entry.missing = true;
+    }
+  }
+}
+
+module.exports = { rewritePlanRefs, today, expired, finish, planAction };

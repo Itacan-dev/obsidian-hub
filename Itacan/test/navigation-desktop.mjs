@@ -2,17 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import { _electron } from 'playwright-core';
+import { launchElectron, setPickerPath } from './desktop/window.mjs';
 import libraryModule from '../main/library.cjs';
 import workModule from '../main/work.cjs';
 
-const require = createRequire(import.meta.url);
 const temporary = await fs.mkdtemp(path.join(tmpdir(),'itacan-navigation-'));
 const initial = path.join(temporary,'Research library'), moved = path.join(temporary,'Moved library');
 const project='Projects/Fieldwork', papers='Resources/Literature/Papers';
 const archived=papers+'/Archive/Methods.md';
-const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
 let app,page;
 const errors=[];
 const button = name => page.getByRole('button',{name,exact:true});
@@ -21,14 +18,13 @@ const choose = name => dialog().getByRole('button',{name,exact:true});
 const item = name => page.getByRole('menuitem',{name,exact:true});
 const row = name => page.getByRole('option').filter({has:page.getByText(name,{exact:true})});
 async function launch(profile,library,sample=false) {
-  app=await _electron.launch({executablePath:require('electron'),env,
-    args:['--user-data-dir='+path.join(temporary,profile),path.resolve('build/app')]});
+  app = await launchElectron(path.join(temporary, profile));
   page=await app.firstWindow();
   page.setDefaultTimeout(6000);
   page.on('pageerror',error=>errors.push(error.message));
   page.on('request',request=>{if (/^https?:/.test(request.url())) errors.push(request.url());});
   await page.context().setOffline(true);
-  await app.evaluate(({dialog},library)=>{dialog.showOpenDialog=async()=>({filePaths:[library],canceled:false});},library);
+  await setPickerPath(app, library);
   if(sample){
     await button('Library guide').click();await choose('Done').click();
     assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Library guide');
@@ -189,7 +185,8 @@ try {
   }
   assert.ok(sizes[0].columns<sizes[1].columns,JSON.stringify(sizes));
   await button('Forest survey').click();await row('Field notes.md').dblclick();
-  await page.getByRole('heading',{name:'Field notes',exact:true}).waitFor();
+  // The copied sample can already have this note open in another saved pane.
+  await page.locator('.selected-pane').getByRole('heading', { name: 'Field notes', exact: true }).waitFor();
   assert.deepEqual(errors,[]);
   await quit();
   console.log('Verified relocated shared folders, mixed preferences, local audio, screen geometry, portable covers, sample-copy onboarding and keyboard focus. Layouts:',JSON.stringify(sizes));

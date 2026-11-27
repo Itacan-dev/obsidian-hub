@@ -1,35 +1,132 @@
-.daily-plan { display: grid; gap: var(--s4); }
-.daily-plan .actions { flex-wrap: wrap; }
-.plan-list { padding-left: var(--s5); margin: 0; }
-.plan-list li, .plan-history { border-top: 1px solid var(--line); padding: var(--s2) 0; }
-.plan-list li > .actions { display: inline-flex; margin-left: var(--s2); }
-.plan-preview { margin: 0; padding-left: var(--s5); }
-.plan-preview .empty { list-style: none; padding: var(--s2) 0; }
-.plan-entry {display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;}
-.plan-entry small {overflow-wrap:anywhere;}
-.entry-controls {margin-left:auto;opacity:0;}
-.plan-entry:hover .entry-controls,.plan-entry:focus-within .entry-controls {opacity:1;}
-.plan-picker {display:grid;gap:var(--s3);}
-.plan-collection {min-height:0;overflow:auto;scrollbar-gutter:stable;}
-.plan-picker .picker-list {align-content:start;min-height:12vh;}
-.plan-picker .picker-list .button:has(small) {display:grid;justify-items:start;gap:0;}
-.plan-review {max-height:24vh;overflow:auto;}
+.daily-plan {
+  display: grid;
+  gap: var(--s4);
+}
+.daily-plan .actions {
+  flex-wrap: wrap;
+}
+.plan-list {
+  padding-left: var(--s5);
+  margin: 0;
+}
+.plan-list li, .plan-history {
+  border-top: 1px solid var(--line);
+  padding: var(--s2) 0;
+}
+.plan-list li > .actions {
+  display: inline-flex;
+  margin-left: var(--s2);
+}
+.plan-preview {
+  margin: 0;
+  padding-left: var(--s5);
+}
+.plan-preview .empty {
+  list-style: none;
+  padding: var(--s2) 0;
+}
+.plan-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+}
+.plan-entry small {
+  overflow-wrap: anywhere;
+}
+.entry-controls {
+  margin-left: auto;
+  opacity: 0;
+}
+.plan-entry:hover .entry-controls,.plan-entry:focus-within .entry-controls {
+  opacity: 1;
+}
+.plan-picker {
+  display: grid;
+  gap: var(--s3);
+}
+.plan-collection {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.plan-picker .picker-list {
+  align-content: start;
+  min-height: 12vh;
+}
+.plan-picker .picker-list .button:has(small) {
+  display: grid;
+  justify-items: start;
+  gap: 0;
+}
+.plan-review {
+  max-height: 24vh;
+  overflow: auto;
+}
 
-.dialog:has(.daily-plan:not(.historical-plan)) {--dialog-height:554px;}
-.dialog:has(.plan-picker) {--dialog-height:680px;}
-.daily-plan > textarea {height:56px;min-height:48px;max-height:180px;resize:vertical;}
-.daily-plan {gap:12px;}
-.dialog:has(.daily-plan,.plan-picker) {--dialog-limit:min(680px,calc(100dvh - 48px));}
-.daily-plan {flex:1;grid-template-rows:auto minmax(72px,1fr) auto;}
-.plan-picker {flex:1;display:flex;flex-direction:column;}
-.plan-picker > :not(.picker-list) {flex:none;}
-.plan-picker .picker-list {flex:1;max-height:none;min-height:70px;}
-.plan-picker .actions {flex-wrap:nowrap;overflow-x:auto;}
+.dialog:has(.daily-plan:not(.historical-plan)) {
+  --dialog-height: 554px;
+}
+.dialog:has(.plan-picker) {
+  --dialog-height: 680px;
+}
+.daily-plan > textarea {
+  height: 56px;
+  min-height: 48px;
+  max-height: 180px;
+  resize: vertical;
+}
+.daily-plan {
+  gap: 12px;
+}
+.dialog:has(.daily-plan,.plan-picker) {
+  --dialog-limit: min(680px,calc(100dvh - 48px));
+}
+.daily-plan {
+  flex: 1;
+  grid-template-rows: auto minmax(72px,1fr) auto;
+}
+.plan-picker {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.plan-picker > :not(.picker-list) {
+  flex: none;
+}
+.plan-picker .picker-list {
+  flex: 1;
+  max-height: none;
+  min-height: 70px;
+}
+.plan-picker .actions {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
 
-.plan-excerpt {flex:none;max-height:3em;overflow:auto;color:var(--muted);}
-.plan-footer {flex:none;justify-content:flex-end;}
-.historical-plan {display:flex;flex-direction:column;overflow:auto;}
+.plan-excerpt {
+  flex: none;
+  max-height: 3em;
+  overflow: auto;
+  color: var(--muted);
+}
+.plan-footer {
+  flex: none;
+  justify-content: flex-end;
+}
+.historical-plan {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
 
-.plan-history-note {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.plan-history-note {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-.plan-picker > .actions:empty {display:none;}
+.plan-picker > .actions:empty {
+  display: none;
+}

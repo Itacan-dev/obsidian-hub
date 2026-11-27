@@ -1,4 +1,5 @@
-import { el, button, icon, dashboardDate, report } from '../ui/elements.js';
+import { dashboardDate } from '../ui/dashboard.js';
+import { el, button, icon, report } from '../ui/elements.js';
 import { inSavedOrder, reorderRows } from '../ui/reorder.js';
 import { confirmAction } from '../ui/forms.js';
 import { askName, showDialog } from '../ui/dialog.js';
@@ -11,9 +12,11 @@ import { contextSearch } from '../ui/context-search.js';
 import { onContext } from '../ui/menu.js';
 import { launchShortcuts } from '../settings/settings.js';
 
-const resourceArt = { Knowledge: 'knowledge', Literature: 'research', Explorations: 'explorations', Inspiration: 'inspiration' };
+import { resourceArt } from './artwork.js';
+import './home.css';
+
 function libraryGuide() {
-  const body = el('section','settings-fields');
+  const body = el('section','library-guide');
   body.append(el('h3','','Open or create'),el('p','','Choose an empty folder to start, or choose the folder containing itacan-library.json to open existing work. Projects hold your own work. Resources hold material you can reuse in Projects.'),
     el('h3','','Try the Field Library'),el('p','','Choose Try Field Library and select a location for your copy. Open Forest survey → Field notes.md to read a sample note with an image and an equation.'),
     el('h3','','Move and recover'),el('p','','Save your documents, close Itacan, then copy the whole library folder. Choose its new location when you reopen. Keep a separate backup and use one writer when the folder is synchronized.'));

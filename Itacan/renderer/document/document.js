@@ -1,8 +1,24 @@
+import './document.css';
 import { el, button, report } from '../ui/elements.js';
 import { confirmAction } from '../ui/forms.js';
 import { askName } from '../ui/dialog.js';
 import { renderPreview, scrollToHeading } from './preview.js';
 import { makeEditor, applyChanges, setPresentation } from './editor.js';
+
+const saveLabels = {
+  conflict: 'Disk conflict or save failure',
+  recovered: 'Recovered draft',
+  saving: 'Saving…',
+  dirty: 'Unsaved changes',
+  saved: 'Saved'
+};
+
+function saveState(buffer) {
+  if (buffer.failed) return 'conflict';
+  if (buffer.recovered) return 'recovered';
+  if (buffer.pending) return 'saving';
+  return buffer.dirty ? 'dirty' : 'saved';
+}
 
 export function documentView(buffer, pane, { openNote, anchor, position, changedMode, pickCopyFolder }) {
   const root = el('section', 'document-pane panel');
@@ -72,7 +88,9 @@ export function documentView(buffer, pane, { openNote, anchor, position, changed
       displayed = buffer.text;
     }
     save.disabled = !buffer.dirty;
-    status.textContent = buffer.failed ? 'Disk conflict or save failure' : buffer.recovered ? 'Recovered draft' : buffer.pending ? 'Saving…' : buffer.dirty ? 'Unsaved changes' : 'Saved';
+    const state = saveState(buffer);
+    status.dataset.state = state;
+    status.textContent = saveLabels[state];
     copy.hidden = !buffer.failed;
     reload.hidden = !buffer.failed;
   }

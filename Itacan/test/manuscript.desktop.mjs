@@ -1,6 +1,5 @@
 // Exercise editing and undo in two live panes on a long offline manuscript.
-import { _electron } from 'playwright-core';
-import { createRequire } from 'node:module';
+import { launchElectron, setPickerPath } from './desktop/window.mjs';
 import { mkdtemp, mkdir, writeFile, readFile, rm, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,14 +21,12 @@ try {
   await writeFile(note,text);
   const appCopy=path.join(tmp,'app');
   await cp('build/app',appCopy,{recursive:true});
-  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
-  app=await _electron.launch({executablePath:createRequire(import.meta.url)('electron'),env,
-    args:['--user-data-dir='+path.join(tmp,'profile'),appCopy]});
+  app = await launchElectron(path.join(tmp, 'profile'), appCopy);
   const page=await app.firstWindow();page.setDefaultTimeout(20000);
   await page.context().setOffline(true);
   const errors=[];
   page.on('pageerror',err=>errors.push(err.message));
-  await app.evaluate(({dialog},dir)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[dir]});},root);
+  await setPickerPath(app, root);
   const btn=name=>page.getByRole('button',{name,exact:true});
   await btn('Choose a folder').click();
   await btn('Measurements').click();

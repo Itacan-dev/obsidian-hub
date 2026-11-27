@@ -131,4 +131,11 @@ function rememberWindowBounds(app,win) {
     } catch(error){console.warn('Window preferences:',error.message);}
   });
 }
-module.exports = { setPreferences, installDeviceShortcuts, readWindowBounds, rememberWindowBounds };
+
+function rewriteCoverRefs(state, moved) {
+  for (const cover of Object.values(state.settings?.covers || {})) {
+    if (cover.path) cover.path = moved(cover.path);
+  }
+}
+
+module.exports = { rewriteCoverRefs, setPreferences, installDeviceShortcuts, readWindowBounds, rememberWindowBounds };

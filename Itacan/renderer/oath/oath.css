@@ -1,6 +1,27 @@
-.oath-control.active { background: var(--accent); color: white; }
-.oath-form { display: grid; gap: 10px; }
-.oath-form [hidden] { display: none; }
-.oath-tasks { display: grid; align-content: start; gap: 5px; max-height: 13rem; overflow: auto; padding: 8px; }
-.oath-tasks label { display: flex; gap: 8px; align-items: baseline; }
-.oath-pledge { font-style: italic; }
+.oath-control.active {
+  background: var(--accent);
+  color: white;
+}
+.oath-form {
+  display: grid;
+  gap: 10px;
+}
+.oath-form [hidden] {
+  display: none;
+}
+.oath-tasks {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  max-height: 13rem;
+  overflow: auto;
+  padding: 8px;
+}
+.oath-tasks label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.oath-pledge {
+  font-style: italic;
+}

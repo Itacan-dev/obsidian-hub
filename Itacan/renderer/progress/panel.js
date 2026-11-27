@@ -1,6 +1,7 @@
 import {el,button} from '../ui/elements.js';
 import {dailyReport,progressEditor,localDay,eventLabel} from './report.js';
 import {taskEditor} from '../tasks/tasks.js';
+import './progress.css';
 
 function momentum(scores) {
   const positive=scores.filter(s=>s>0).sort((a,b)=>b-a);
@@ -88,11 +89,38 @@ export function progressPanel(ctx,owner) {
     e.preventDefault();const cells=[...days.querySelectorAll('button:enabled')];
     cells[Math.max(0,Math.min(cells.length-1,cells.indexOf(e.target)+offsets[e.key]))]?.focus();
   };
-  function renderHistory(){
-    for(const b of selectors.children)b.setAttribute('aria-pressed',String(b.textContent===tab));
-    const fragment=document.createDocumentFragment();
-    const rows=tab==='Oaths'?ctx.oaths.history():tab==='Reports'?[...ctx.progress.reports()].sort((a,b)=>b.day.localeCompare(a.day)||b.updated.localeCompare(a.updated)):
-      ctx.progress.activity().filter(e=>!e.reopened && (tab==='Tasks')===['task','step'].includes(e.action));
+  function historyRows() {
+    if (tab === 'Oaths') return ctx.oaths.history();
+    if (tab === 'Reports') {
+      return [...ctx.progress.reports()].sort((a, b) =>
+        b.day.localeCompare(a.day) || b.updated.localeCompare(a.updated));
+    }
+    return ctx.progress.activity().filter(event => {
+      const isTask = event.action === 'task' || event.action === 'step';
+      return !event.reopened && isTask === (tab === 'Tasks');
+    });
+  }
+
+  function openHistoryItem(record) {
+    if (tab === 'Reports') {
+      return record.removed ? dailyReport(ctx, record.day) : progressEditor(ctx, record.day, record.owner);
+    }
+    if (record.taskId) {
+      const task = ctx.tasks.find(record.taskId);
+      if (task) return taskEditor(ctx, task);
+    } else if (record.action.startsWith('project-')) {
+      return ctx.openFolder(record.owner);
+    } else {
+      return ctx.openNote(record.path);
+    }
+  }
+
+  function renderHistory() {
+    for (const control of selectors.children) {
+      control.setAttribute('aria-pressed', String(control.textContent === tab));
+    }
+    const fragment = document.createDocumentFragment();
+    const rows = historyRows();
     const visible=rows.filter(r=>matches(r) && (tab!=='Oaths' || r.day?.startsWith(year+'-')));
     if(tab==='Oaths' && visible.length){
       const sessions=visible.filter(r=>r.startedAt || ['fulfilled','broken','interrupted'].includes(r.status));
@@ -111,11 +139,17 @@ export function progressPanel(ctx,owner) {
         row.append(details);fragment.append(row);continue;
       }
       const text=tab==='Reports'?r.summary || 'No reflection':eventLabel(r);
-      const open=tab==='Reports'?()=>r.removed?dailyReport(ctx,r.day):progressEditor(ctx,r.day,r.owner):
-        r.taskId?()=>{const task=ctx.tasks.find(r.taskId);return task && taskEditor(ctx,task);}:
-        ()=>r.action.startsWith('project-')?ctx.openFolder(r.owner):ctx.openNote(r.path);
-      const available=tab==='Reports' || (!r.removed && (r.taskId?!!ctx.tasks.find(r.taskId):r.action.startsWith('project-') || /\.md$/i.test(r.path)));
-      row.append(available?button(text,open,{variant:'quiet'}):el('span','',text),el('small','muted',[r.owner,r.day,tab==='Reports'?(r.score==null?'Unrated':r.score+'/4'):new Date(r.at).toLocaleTimeString()].join(' · ')));
+      const available = tab === 'Reports' || (!r.removed && (r.taskId
+        ? !!ctx.tasks.find(r.taskId) : r.action.startsWith('project-') || /\.md$/i.test(r.path)));
+      const label = available ? button(text, () => openHistoryItem(r), { variant: 'quiet' }) : el('span', '', text);
+      const metadata = el('small', 'progress-metadata muted');
+      const detail = tab === 'Reports'
+        ? (r.score == null ? 'Unrated' : r.score + '/4')
+        : new Date(r.at).toLocaleTimeString();
+      metadata.append(el('span', 'progress-workspace', r.owner), ' · ',
+        el('span', 'progress-day', r.day), ' · ',
+        el('span', tab === 'Reports' ? 'progress-rating' : 'progress-time', detail));
+      row.append(label, metadata);
       fragment.append(row);
     }
     if(visible.length>historyLimit)fragment.append(button('Show more',()=>{
@@ -127,8 +161,11 @@ export function progressPanel(ctx,owner) {
     body.replaceChildren(fragment);
   }
   function refresh(group){
-    if (!group || group==='progress')calendar();
-    if (!group || group==='progress' && tab==='Reports' || group==='task' && ['Tasks','Oaths'].includes(tab) || group==='oath' && tab==='Oaths' || group==='files' && tab==='Activity')renderHistory();
+    if (!group || group === 'progress') calendar();
+    const changedTab = (group === 'progress' && tab === 'Reports')
+      || (group === 'task' && ['Tasks', 'Oaths'].includes(tab))
+      || (group === 'files' && tab === 'Activity');
+    if (!group || group === 'oath' || changedTab) renderHistory();
   }
   refresh();return {root,refresh};
 }

@@ -1,4 +1,5 @@
 import { el, button, report } from './elements.js';
+import './menu.css';
 
 // Native popover handles outside clicks and Escape for both toolbar and row menus.
 export function menu(anchor, items, event) {

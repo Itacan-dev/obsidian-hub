@@ -1,46 +1,186 @@
-.progress-panel {padding:var(--s4);gap:var(--s2);overflow:hidden;}
-.progress-years {justify-content:center;}
-.progress-years .button {padding:2px 8px;min-height:24px;}
-.heatmap {--heat-row:8px;display:grid;grid-template-columns:auto minmax(300px,1fr);column-gap:4px;overflow-x:auto;flex:none;}
-.heat-months {grid-column:2;display:grid;gap:1px;color:var(--muted);}
-.heat-weekdays,.heat-days {display:grid;grid-template-rows:repeat(7,var(--heat-row));gap:1px;padding-block:2px;}
-.heat-weekdays {grid-column:1;color:var(--muted);align-items:center;}
-.heat-weekdays small {line-height:1;}
-.heat-days {grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);}
-.heat-day {border:0;padding:0;border-radius:1px;background:#e2e7de;}
-.heat-day[data-level="1"] {background:#bbd5aa;}
-.heat-day[data-level="2"] {background:#87b489;}
-.heat-day[data-level="3"] {background:#518762;}
-.heat-day[data-level="4"] {background:#315c4b;}
-.heat-day:disabled {opacity:.4;}
-.progress-row {display:grid;gap:2px;border-top:1px solid var(--line);padding:var(--s2) 0;overflow-wrap:anywhere;}
-.progress-row .button {white-space:normal;text-align:left;justify-content:start;}
-.report-body,.report-cards,.report-card,.statistics,.report-picker {display:grid;align-content:start;gap:var(--s3);}
+.progress-panel {
+  padding: var(--s4);
+  gap: var(--s2);
+  overflow: hidden;
+}
+.progress-years {
+  justify-content: center;
+}
+.progress-years .button {
+  padding: 2px 8px;
+  min-height: 24px;
+}
+/* Daily heatmap */
+.heatmap {
+  --heat-row: 8px;
+  display: grid;
+  grid-template-columns: auto minmax(300px,1fr);
+  column-gap: 4px;
+  overflow-x: auto;
+  flex: none;
+}
+.heat-months {
+  grid-column: 2;
+  display: grid;
+  gap: 1px;
+  color: var(--muted);
+}
+.heat-weekdays,.heat-days {
+  display: grid;
+  grid-template-rows: repeat(7,var(--heat-row));
+  gap: 1px;
+  padding-block: 2px;
+}
+.heat-weekdays {
+  grid-column: 1;
+  color: var(--muted);
+  align-items: center;
+}
+.heat-weekdays small {
+  line-height: 1;
+}
+.heat-days {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0,1fr);
+}
+.heat-day {
+  border: 0;
+  padding: 0;
+  border-radius: 1px;
+  background: #e2e7de;
+}
+.heat-day[data-level="1"] {
+  background: #bbd5aa;
+}
+.heat-day[data-level="2"] {
+  background: #87b489;
+}
+.heat-day[data-level="3"] {
+  background: #518762;
+}
+.heat-day[data-level="4"] {
+  background: #315c4b;
+}
+.heat-day:disabled {
+  opacity: .4;
+}
+.progress-row {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--line);
+  padding: var(--s2) 0;
+  overflow-wrap: anywhere;
+}
+.progress-row .button {
+  white-space: normal;
+  text-align: left;
+  justify-content: start;
+}
+.report-body,.report-cards,.report-card,.statistics,.report-picker {
+  display: grid;
+  align-content: start;
+  gap: var(--s3);
+}
 
-.report-card {padding:16px;}
-.report-card > :not(summary) {margin-top:10px;}
-.report-card > summary {cursor:pointer;}
-.report-card summary small {float:right;}
-.dialog:has(.report-body) {--dialog-width:720px;}
-.dialog:has(.report-picker) {--dialog-width:740px;}
-.report-card .field textarea {height:60px;min-height:60px;}
-.dialog:has(.statistics) {--dialog-width:980px;}
-.statistics {display:flex;flex-direction:column;}
-.statistics-filters {display:flex;align-items:end;justify-content:space-between;flex-wrap:wrap;gap:var(--s2);}
-.statistics-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3);align-content:start;}
-.stat-card {padding:var(--s3);min-width:0;}
-.stat-bars {display:flex;gap:1px;height:70px;align-items:end;border-bottom:1px solid var(--line);}
-.stat-bin {height:100%;flex:1;min-width:0;display:flex;flex-direction:column-reverse;justify-content:start;}
-.stat-bin i {background:var(--accent);}
-.stat-bin .series-1 {background:#89a8b9;}
-.stat-ring {width:64px;aspect-ratio:1;border-radius:50%;background:conic-gradient(var(--accent) var(--share),#89a8b9 0);mask:radial-gradient(circle,transparent 45%,black 46%);}
+/* Daily report */
+.report-card {
+  padding: 16px;
+}
+.report-card > :not(summary) {
+  margin-top: 10px;
+}
+.report-card > summary {
+  cursor: pointer;
+}
+.report-card summary small {
+  float: right;
+}
+.dialog:has(.report-body) {
+  --dialog-width: 720px;
+}
+.dialog:has(.report-picker) {
+  --dialog-width: 740px;
+}
+.report-card .field textarea {
+  height: 60px;
+  min-height: 60px;
+}
+/* Statistics dialog */
+.dialog:has(.statistics) {
+  --dialog-width: 980px;
+}
+.statistics {
+  display: flex;
+  flex-direction: column;
+}
+.statistics-filters {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: var(--s3);
+  align-content: start;
+}
+.stat-card {
+  padding: var(--s3);
+  min-width: 0;
+}
+.stat-bars {
+  display: flex;
+  gap: 1px;
+  height: 70px;
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+}
+.stat-bin {
+  height: 100%;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: start;
+}
+.stat-bin i {
+  background: var(--accent);
+}
+.stat-bin .series-1 {
+  background: #89a8b9;
+}
+.stat-ring {
+  width: 64px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--share),#89a8b9 0);
+  mask: radial-gradient(circle,transparent 45%,black 46%);
+}
 
-.report-reflection {overflow-wrap:anywhere;}
-.report-reflection img {max-width:100%;height:auto;}
+.report-reflection {
+  overflow-wrap: anywhere;
+}
+.report-reflection img {
+  max-width: 100%;
+  height: auto;
+}
 
-.stat-card.wide {grid-column:1 / -1;}
-.statistics {flex:1;}
-.statistics-grid {flex:1;}
-.statistics-filters select {width:24ch;max-width:100%;}
-.statistics {container:statistics / inline-size;}
+.stat-card.wide {
+  grid-column: 1 / -1;
+}
+.statistics {
+  flex: 1;
+}
+.statistics-grid {
+  flex: 1;
+}
+.statistics-filters select {
+  width: 24ch;
+  max-width: 100%;
+}
+.statistics {
+  container: statistics / inline-size;
+}
 @container statistics (max-width:720px) {.statistics-grid {grid-template-columns:minmax(0,1fr);}}

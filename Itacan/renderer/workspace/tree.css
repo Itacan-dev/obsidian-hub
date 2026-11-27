@@ -1,0 +1,51 @@
+.tree-line {
+  display: flex;
+  align-items: center;
+}
+
+.tree-line [data-reorder] {
+  margin-inline-start: auto;
+  opacity: 0;
+}
+
+.tree-line:is(:hover,:focus-within) [data-reorder] {
+  opacity: 1;
+}
+
+.file-tree [aria-current] {
+  font-weight: 700;
+  background: var(--tint);
+}
+
+.file-tree > :not(.tree-rows) {
+  flex: none;
+}
+
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  padding: var(--s2);
+  min-height: 0;
+  overflow: auto;
+}
+
+.tree-rows {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.file-tree .button {
+  display: flex;
+  max-width: 100%;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+}
+
+.tree-children {
+  padding-left: var(--s2);
+  border-left: 1px solid var(--line);
+}

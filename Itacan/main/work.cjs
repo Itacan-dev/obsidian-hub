@@ -1,97 +1,41 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { atomicReplace } = require('./library.cjs');
-const { taskAction } = require('./tasks.cjs');
+const { taskAction, rewriteTaskRefs } = require('./tasks.cjs');
 const { saveReports, recordTaskChanges, moveProgress } = require('./progress.cjs');
-const { today, expired, finish, planAction } = require('./plan.cjs');
+const { today, expired, finish, planAction, rewritePlanRefs } = require('./plan.cjs');
 
 const { setPlaylist, rewriteMusicRefs } = require('./music.cjs');
 const { protectFormat } = require('./library-format.cjs');
 const { validateStoredWork } = require('./work-format.cjs');
-const { workspaceContext } = require('../contracts/workspace.cjs');
 const { recoverMove, serialize } = require('./recovery.cjs');
 const { oathAction, advanceOath, moveOath } = require('./oath.cjs');
 const { roadmapAction, moveRoadmaps } = require('./project-planning.cjs');
-const { setPreferences } = require('./settings.cjs');
+const { setPreferences, rewriteCoverRefs } = require('./settings.cjs');
 const { workspaceAction, relinkDestination, rewriteWorkspaceRefs } = require('./workspaces.cjs');
-const { updateLayout } = require('./presets.cjs');
+const { updateLayout, rewriteLayoutRefs } = require('./presets.cjs');
 const { captureAction, inboxAction, fileCapturesAsTasks } = require('./capture-state.cjs');
 
 function empty() {
   return { version: 1, tasks: [], inbox: [], plan: null, history: [], presets: [], lastLayout: null };
 }
 function rewriteRefs(state, from, to) {
-  function rewrite(value) {
-    if (value !== from && !value?.startsWith(from + '/')) return value;
-    return to ? to + value.slice(from.length) : '';
+  function moved(path) {
+    if (path !== from && !path?.startsWith(from + '/')) return path;
+    return to ? to + path.slice(from.length) : '';
   }
-  moveProgress(state,from,to);
-  rewriteMusicRefs(state,from,to);
-  moveOath(state,from,to);
-  moveRoadmaps(state,from,to);
-  rewriteWorkspaceRefs(state,from,to);
-  for (const cover of Object.values(state.settings?.covers || {})) {
-    if (cover.path) cover.path = rewrite(cover.path);
-  }
-  if (state.workspaceLayouts) state.workspaceLayouts = Object.fromEntries(
-    Object.entries(state.workspaceLayouts).filter(([key])=>rewrite(key)).map(([key,value])=>[rewrite(key),value]));
-  for(const [status,order] of Object.entries(state.projectOrder || {}))
-    state.projectOrder[status]=order.map(rewrite).filter(Boolean);
-  if (state.explorers) {
-    const views = {};
-    for (const [path,view] of Object.entries(state.explorers)) {
-      if (rewrite(path)) {
-        views[rewrite(path)] = {...view,folder:rewrite(view.folder),expanded:view.expanded.map(rewrite).filter(Boolean)};
-        if(view.order) views[rewrite(path)].order=view.order.map(rewrite).filter(p=>p && p.slice(0,p.lastIndexOf('/'))===rewrite(path));
-      }
-    }
-    state.explorers = views;
-  }
-  if (state.lastFolder) state.lastFolder = rewrite(state.lastFolder);
-  if (state.projectStatus?.[from]) {
-    const status = state.projectStatus[from];
-    delete state.projectStatus[from];
-    if (to) state.projectStatus[to] = status;
-  }
-  for (const task of state.tasks) {
-    if (task.owner && !rewrite(task.owner)) task.missingOwner = task.owner;
-    task.owner = rewrite(task.owner);
-    if (task.location && rewrite(task.location) !== task.location) {
-      if (!rewrite(task.location)) task.missingLocation = task.location;
-      task.location = rewrite(task.location);
-      if (task.location) task.owner = workspaceContext(state,task.location,task.owner);
-    }
-  }
-  for (const entry of state.plan?.entries || []) {
-    if (entry.kind === 'task' || entry.missing) continue;
-    const ref = rewrite(entry.ref);
-    if (!ref) entry.missing = true;
-    else { entry.ref = ref; entry.label = ref.split('/').at(-1); }
-  }
-  for (const plan of state.history) for (const entry of plan.entries) {
-    if (entry.kind === 'task' || entry.missing) continue;
-    entry.route ||= entry.ref;
-    const ref = rewrite(entry.ref);
-    if (ref) entry.ref = ref; else entry.missing = true;
-  }
-  for (const layout of new Set([state.lastLayout, ...Object.values(state.workspaceLayouts || {}), ...state.presets.map(p => p.layout)].filter(Boolean))) {
-    if (layout.workspace) layout.workspace = rewrite(layout.workspace);
-    if (layout.explorer) {
-      if(layout.explorer.order) layout.explorer.order=layout.explorer.order.map(rewrite).filter(Boolean);
-      layout.explorer.folder = rewrite(layout.explorer.folder);
-      layout.explorer.expanded = layout.explorer.expanded.map(rewrite).filter(Boolean);
-    }
-    if (layout.folder) layout.folder = rewrite(layout.folder);
-    if (layout.expanded) layout.expanded = layout.expanded.map(rewrite).filter(Boolean);
-    for (const pane of layout.panes) {
-      if (pane.views) pane.views=Object.fromEntries(Object.entries(pane.views).filter(([file])=>rewrite(file)).map(([file,prefs])=>[rewrite(file),prefs]));
-      pane.tabs = pane.tabs.map(rewrite).filter(Boolean);
-      pane.file = rewrite(pane.file) || pane.tabs[0] || '';
-    }
-    layout.panes = layout.panes.filter(p => p.file);
-    if (!layout.panes.length) layout.panes.push({ file: '', tabs: [], edit: false });
-    layout.active = Math.min(layout.active, layout.panes.length - 1);
-  }
+
+  moveProgress(state, from, to);
+  rewriteMusicRefs(state, from, to);
+  // The Oath verifies its current scope before any attached folders change.
+  moveOath(state, from, to);
+  moveRoadmaps(state, from, to);
+  rewriteWorkspaceRefs(state, from, to);
+  rewriteCoverRefs(state, moved);
+  // Task ownership uses the Project's updated Resource attachments.
+  rewriteTaskRefs(state, moved);
+  rewritePlanRefs(state, moved);
+  rewriteLayoutRefs(state, moved);
 }
 
 // Coordinated task changes share one commit with dependent progress, Oath and capture records.
@@ -124,33 +68,45 @@ class LibraryWork {
       state.history ??= [];
       state.presets ??= [];
       return { raw, state };
-    } catch (error) { if (error.code === 'ENOENT') return { raw: null, state: empty() }; throw error; }
+    } catch (error) {
+      if (error.code === 'ENOENT') return { raw: null, state: empty() };
+      throw error;
+    }
   }
   transaction(change) {
     const run = async () => {
       await recoverMove(this.library);
       const { state, raw } = await this.load();
-      const oathChanged = advanceOath(state,{recover:this.firstRead});
-      const expiredPreview = state.finishedPreview && state.history.find(p=>p.id===state.finishedPreview)?.day !== today();
+      const oathChanged = advanceOath(state, { recover: this.firstRead });
+      const expiredPreview = state.finishedPreview &&
+        state.history.find(plan => plan.id === state.finishedPreview)?.day !== today();
       const rollover = !change && expired(state.plan);
-      if (expiredPreview) state.finishedPreview=null;
-      if (!change && !rollover && !expiredPreview && !oathChanged) { this.firstRead = false; this.latest = state; return state; }
+      if (expiredPreview) state.finishedPreview = null;
+      if (!change && !rollover && !expiredPreview && !oathChanged) {
+        this.firstRead = false;
+        this.latest = state;
+        return state;
+      }
       if (state.revision === Number.MAX_SAFE_INTEGER) throw Error('Library revision exhausted. Preserve the work file for recovery.');
       if (rollover) finish(state);
-      await protectFormat(this.library,raw,atomicReplace);
+      await protectFormat(this.library, raw, atomicReplace);
       let rollback;
       try {
-        rollback = await change?.(state,raw);
-        let next = serialize(state);
-        if (next !== (raw ?? JSON.stringify(empty(), null, 2) + '\n')) {
+        rollback = await change?.(state, raw);
+        if (serialize(state) !== (raw ?? serialize(empty()))) {
           state.revision = (state.revision || 0) + 1;
-          next = serialize(state);
-          await atomicReplace(this.file, next, undefined, async () => {
-            const current = await fs.readFile(this.file, 'utf8').catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
+          await atomicReplace(this.file, serialize(state), undefined, async () => {
+            const current = await fs.readFile(this.file, 'utf8').catch(error => {
+              if (error.code === 'ENOENT') return null;
+              throw error;
+            });
             if (raw !== current) throw Error('Library data changed on disk. Reopen this view and retry.');
           });
         }
-      } catch (error) { if (typeof rollback === 'function') await rollback(); throw error; }
+      } catch (error) {
+        if (typeof rollback === 'function') await rollback();
+        throw error;
+      }
       this.firstRead = false;
       this.latest = state;
       return state;

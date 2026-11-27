@@ -1,0 +1,44 @@
+.view-width {
+  --content-width: 1700px;
+  --dashboard-gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dashboard-gap);
+  container: dashboard / inline-size;
+  max-width: calc(var(--content-width) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: var(--s4) var(--gutter) var(--dashboard-gap);
+}
+
+.context-label {
+  font: 600 11px/1.5 var(--body);
+  text-transform: uppercase;
+  letter-spacing: .13em;
+  color: var(--muted);
+  margin-bottom: var(--s2);
+}
+
+.dashboard-date {
+  text-align: right;
+}
+
+.dashboard-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 54px;
+  padding: 0;
+}
+
+.dashboard-heading h1 {
+  font-size: clamp(26px,3vw,29px);
+}
+
+.dashboard-cover {
+  flex: none;
+  background-size: cover;
+  background-position: center;
+  min-height: var(--cover-height);
+  border-radius: var(--panel-radius);
+}

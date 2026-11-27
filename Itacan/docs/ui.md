@@ -1,37 +1,34 @@
-# Changing the interface
+# Editing the Itacan interface
 
-Open `renderer/`. The directory names match the visible screens. Each feature's JavaScript builds its layout in reading order. Its CSS controls the placement and width of those elements.
+Start in `renderer/` and open the folder named for the surface you see on screen. Its JavaScript creates the elements in reading order. Its CSS sets their appearance and geometry. The app shell places navigation and the bottom toolbar around those screens.
 
-| Change | Edit |
-| --- | --- |
-| Accent, paper color, foreground, typeface, spacing or radii | The named properties in `ui/shared.css` under `:root`. |
-| Every standard button, input or focus outline | `.button`, `.field input` or `:focus-visible` in `ui/shared.css`. The primary and quiet button variants share the base rule. |
-| Standard icon size or stroke | `.icon` in shared CSS. The named stroke paths live in `ui/elements.js`. Decorative icons are hidden from assistive technology. |
-| Dialog header, close control, actions or keyboard behavior | `showDialog` in `ui/dialog.js`. The native HTML dialog handles focus trapping and Escape. Use `askName` for a single required name. |
-| Home cover, card layout or order | `home/home.js` for composition, `home/home.css` for sizing, `assets/` for bundled art. |
-| Workspace Files toolbar or rows | `workspace/workspace.js` and `workspace/workspace.css`. |
-| Note width, reading typography or editor toolbar | `document/document.css` for appearance and `document/document.js` for placement and behavior. |
-| Task editor fields, recurrence controls, filters or task rows | `tasks/tasks.js` and `tasks/tasks.css`. Home, workspaces, capture and Plan use the same task editor. |
-| Quick Add and Inbox | `capture/capture.js` and `capture/inbox.js` own the dialogs. Both use `capture/actions.js` for destinations and `capture/capture.css` for layout. |
-| Plan entries, notes, order and history | `plan/plan.js`, `plan/picker.js` and `plan/plan.css`. |
-| Progress on Home or a workspace | `home/home.css` (`.home-panels`) and `workspace/workspace.css` (`.workspace-summary`) set the allocation. `progress/panel.js` and `progress/progress.css` set heatmap cells, year navigation and history placement. |
-| Daily report and Statistics windows | `progress/report.js` and `progress/statistics.js` build their contents. Change card spacing, chart heights, dialog heights and Statistics columns in `progress/progress.css`. Rating descriptions live beside the rating controls. |
-| Tabs, split panes or contextual file tree | `workspace/desk.js` owns tab actions. `workspace/splits.js` places pane hosts around shared dividers. `workspace/desk.css` sets the responsive rail width, the 70/30 Files and Tasks split, tab height, pane minima and split overflow. `workspace/tree.js` owns folder navigation. |
-| Sortable cards, folders, steps, Plan entries and presets | `ui/reorder.js` handles insertion and keyboard order. Each feature supplies its own save action. Change the focus, selection and insertion styles in `ui/shared.css`. |
-| File and tab drops | `workspace/file-drag.js` handles folder targets. `workspace/pane-drop.js` determines tab insertion and pane edges. `workspace/desk.css` paints the pane previews and per-tab close controls. |
-| Fields, file destination pickers and confirmation prompts | `ui/forms.js`. The picker reads only the folder being browsed. |
-| Navigation bar or capture footer | `index.html` and the `navigation` function in `app.js`. |
+## Where to edit
 
-The shared canvas cap, cover height, row heights and gaps live under `:root` in `ui/shared.css`. Home and Workspace each own their grid spans and container breakpoints. The agenda lives in `home/calendar.js`. Workspace owns the folder tree’s default fraction and pane minima. The document rail formula lives in `workspace/desk.css`. Double-click either explorer divider to restore its responsive default. The read and edit text limits live together in `document/document.css`. Maximized startup and the native View menu live in `main/app.cjs`.
+| Visible change | Composition and behavior | Appearance |
+| --- | --- | --- |
+| Global palette, accent presets, typefaces, text sizes, spacing or radii | Settings applies the selected preferences as attributes on the document root. | [UI tokens](../renderer/ui/tokens.css) defines the light and dark palettes, accent colors, fonts, density and reduced-motion rules. |
+| Standard buttons, focus outlines, headings, panels or drag indicators | [DOM and button helpers](../renderer/ui/elements.js). Edit SVG paths in [icons.js](../renderer/ui/icons.js). | [Shared controls](../renderer/ui/shared.css) includes button variants, icon dimensions and strokes, focus and insertion states. |
+| Main navigation, library selector, notices or bottom toolbar | [Shell](../renderer/shell/shell.js) creates the controls and places the same navigation bar in the dashboard or rail. [Notices](../renderer/shell/notice.js) routes feedback to the open dialog or global alert. | [Shell CSS](../renderer/shell/shell.css). The narrower arrangement inside the document rail belongs to [desk-rail.css](../renderer/workspace/desk-rail.css). |
+| Home greeting, Resource cards, cover or dashboard proportions | [Home](../renderer/home/home.js) composes the panels. [Artwork](../renderer/home/artwork.js) maps Resources to images and selects the period-specific cover. [Calendar](../renderer/home/calendar.js) builds the agenda. | [Home CSS](../renderer/home/home.css) owns the cover height, upper and lower row heights, grid breakpoints and cards. Change the shared dashboard canvas or heading in [dashboard.css](../renderer/ui/dashboard.css). |
+| Project or Resource Full view | [Workspace](../renderer/workspace/workspace.js) places Files, Tasks and Progress. [File browser](../renderer/workspace/file-browser.js) builds the explorer and breadcrumbs, [file list](../renderer/workspace/file-list.js) builds rows and selection, and [file actions](../renderer/workspace/file-actions.js) defines the menus and commands. | [Workspace CSS](../renderer/workspace/workspace.css) sets panel allocation and responsive layout. [File browser CSS](../renderer/workspace/file-browser.css) sets columns and toolbar layout. [Tree CSS](../renderer/workspace/tree.css) sets folder-row styling in both explorers. |
+| Document tabs, panes or contextual rail | [Desk](../renderer/workspace/desk.js) mounts pane views. [Tabs](../renderer/workspace/desk-tabs.js) owns tab controls, transfer and placement. [Rail](../renderer/workspace/desk-rail.js) composes the contextual tree and task list. [Splits](../renderer/workspace/splits.js) owns the split tree. | [Desk CSS](../renderer/workspace/desk.css) defines rail-width limits and pane geometry. [Tab CSS](../renderer/workspace/desk-tabs.css), [rail CSS](../renderer/workspace/desk-rail.css) and [divider CSS](../renderer/workspace/divider.css) control their respective surfaces. |
+| Document toolbar, saving state, text width, Live Preview or local media | [Document](../renderer/document/document.js) composes the toolbar and reading/editing area. [Live Preview](../renderer/document/live-preview.js) defines editor decorations. [Media](../renderer/document/media.js) builds PDF and image viewers. | [Document CSS](../renderer/document/document.css) controls the toolbar and reading widths. [Live Preview CSS](../renderer/document/live-preview.css) and [media CSS](../renderer/document/media.css) control inline widgets and local viewers. |
+| Tasks and their editor | [Tasks](../renderer/tasks/tasks.js) creates list groups, rows and step controls. [Task editor](../renderer/tasks/task-editor.js) builds the form and property pickers used from all entry points. | [Tasks CSS](../renderer/tasks/tasks.css). Workspace name, importance and each date have separate inline elements under `.task-metadata`. |
+| Quick Add and Inbox | [Quick Add](../renderer/capture/capture.js), [Inbox](../renderer/capture/inbox.js) and [filing actions](../renderer/capture/actions.js). | [Capture CSS](../renderer/capture/capture.css). |
+| Daily Plan or Project roadmap | [Daily Plan](../renderer/plan/plan.js), [item picker](../renderer/plan/picker.js) and [Project planning](../renderer/plan/project.js). | [Plan CSS](../renderer/plan/plan.css) controls the preview, editor, picker, history and dialog sizes. |
+| Oath setup, active session or toolbar control | [Oath](../renderer/oath/oath.js) creates the pledge, selected work, rest and Break controls. | [Oath CSS](../renderer/oath/oath.css). The toolbar position belongs to the shell and completed Oaths appear in Progress history. |
+| Progress, reports and Statistics | [Progress panel](../renderer/progress/panel.js) owns the heatmap and history. [Report](../renderer/progress/report.js) and [Statistics](../renderer/progress/statistics.js) own their dialogs. | [Progress CSS](../renderer/progress/progress.css) controls cells, rows, charts and dialog layout. Home and Workspace set the space allocated to the panel. |
+| Settings and launch shortcuts | [Settings](../renderer/settings/settings.js) builds the preference sections, keybinding fields and launch menu. | [Settings CSS](../renderer/settings/settings.css) controls the dialog layout, covers and link fields. Palette values live in the UI tokens. |
+| Music player, transport and playlist | [Music](../renderer/music/music.js) creates the track list, playback controls and sliders. The audio element continues playing when the dialog closes. | [Music CSS](../renderer/music/music.css) owns the player layout. Buttons and fields use the common control styles. |
 
-## Adding a control
+## Shared components
 
-Use a native button, give it a visible action label, and append it where the feature needs it. The shared helper applies standard styles, the optional icon and error reporting.
+- **Dialogs** use [dialog.js](../renderer/ui/dialog.js) and [dialog.css](../renderer/ui/dialog.css) for the native dialog, header, action row, errors, Escape and focus return. A feature can set `--dialog-width` or `--dialog-height` in its own CSS.
+- **Fields and destination pickers** use [forms.js](../renderer/ui/forms.js) and [forms.css](../renderer/ui/forms.css). The shared picker browses one folder at a time.
+- **Context menus** use [menu.js](../renderer/ui/menu.js) and [menu.css](../renderer/ui/menu.css). Features supply their actions.
+- **Context search** uses [context-search.js](../renderer/ui/context-search.js) and [context-search.css](../renderer/ui/context-search.css). The hosting screen determines its position.
+- **Reordering** uses [reorder.js](../renderer/ui/reorder.js) for insertion and keyboard order. Features decide what to save.
 
-```js
-actions.append(button('New folder', () => create('folder'), { symbol: 'folder' }));
-```
+Keep a visual rule beside the component that needs it. Shared tokens and controls are appropriate when multiple surfaces should change together. For example, changing the standard button radius belongs in the tokens, resizing the Home task panel belongs in Home, and changing the task metadata inside that panel belongs in Tasks.
 
-For a dialog, pass a title, an optional description, the feature's form content and its actions to `showDialog`. Set the intended width and, for fixed work areas, height in the feature stylesheet through `--dialog-width` and `--dialog-height`. An action can validate and save before dismissal. Failures appear in the dialog and leave its inputs available. The feature owns the result and decides what to save. A layout adjustment belongs in feature CSS. A shared style change belongs in the common stylesheet.
-
-Run `npm start` and open the sample library to inspect Home, the folder listing and a document. Try Tab, Escape, the Save shortcut, a narrow window and the disabled Save state. Restart the development app after editing source to rebuild the renderer.
+Feature modules import their own CSS. The build checks that every stylesheet under `renderer/` reaches the `app.css` loaded by [index.html](../renderer/index.html), including styles for the lazy document desk. Run `npm run build` from `Itacan/` to check the bundle and `npm run test:desktop` to exercise the screens with disposable libraries.

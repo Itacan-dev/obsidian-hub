@@ -4,6 +4,7 @@ import { confirmAction } from '../ui/forms.js';
 import { taskRow,taskEditor,replaceTaskRow } from '../tasks/tasks.js';
 import { reorderRows,reorderHandle } from '../ui/reorder.js';
 import { planPicker } from './picker.js';
+import './plan.css';
 
 async function openEntry(ctx,entry){
   if(entry.kind==='task'){

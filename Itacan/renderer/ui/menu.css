@@ -1,0 +1,27 @@
+.action-menu {
+  position: fixed;
+  margin: 0;
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 6px 20px #0002;
+  max-height: 75vh;
+  overflow: auto;
+}
+
+.action-menu:popover-open {
+  display: grid;
+  gap: var(--s1);
+}
+
+.action-menu .button {
+  justify-content: flex-start;
+}
+
+.menu-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s1);
+}

@@ -1,3 +1,4 @@
+import './tree.css';
 import { el, button, report } from '../ui/elements.js';
 import { inSavedOrder,reorderRows,reorderHandle } from '../ui/reorder.js';
 import { onContext } from '../ui/menu.js';

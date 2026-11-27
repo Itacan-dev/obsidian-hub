@@ -1,4 +1,5 @@
-import { button, el, isoWeek } from '../ui/elements.js';
+import { isoWeek } from '../ui/dashboard.js';
+import { button, el } from '../ui/elements.js';
 import { taskEditor } from '../tasks/tasks.js';
 
 // Home's agenda uses dates already owned by library tasks.

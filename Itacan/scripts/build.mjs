@@ -21,6 +21,14 @@ const result = await build({
   loader: { '.woff2': 'file', '.woff': 'file', '.ttf': 'file' },
   external: ['/assets/*'], minify: true, metafile: true, legalComments: 'eof', logLevel: 'warning'
 });
+// index.html loads this stylesheet for every screen, including the lazy document desk.
+const styles = result.metafile.outputs[out + '/public/app.css'].inputs;
+for (const file of await readdir('renderer', { recursive: true })) {
+  const source = 'renderer/' + file.replaceAll('\\', '/');
+  if (source.endsWith('.css') && !Object.hasOwn(styles, source)) {
+    throw new Error('Renderer stylesheet missing from app.css: ' + source);
+  }
+}
 // Carry license texts for the packages actually bundled, including the local fonts.
 const packages = new Set();
 for (const input of Object.keys(result.metafile.inputs)) {

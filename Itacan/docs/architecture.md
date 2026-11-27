@@ -4,27 +4,30 @@ Itacan opens on Home. Workspaces own folders and notes. The document desk shows 
 
 | Location | Responsibility |
 | --- | --- |
-| `renderer/app.js` and `index.html` | Library session, navigation, document desk, app bar and quit guard. After a task or capture write, only the current feature panels refresh. |
+| `renderer/app.js` | Application composition root. Selects and loads the library, routes Home, Workspace and document requests, preserves the desk and guards window close. |
+| `renderer/shell/` | Owns the navigation bar, library selector, global tools, notices and scrolling viewport. The router supplies actions and the current screen. |
 | `renderer/workspace/` | Folder management, contextual tree, tabs, split views and layout controls. The tree reads one expanded directory at a time. Tab switches preserve the other pane's editor. |
 | `renderer/document/` | Markdown source, Live Preview and Read share one text buffer and undo history per open path. Selections and scroll offsets belong to the pane. Local PDF and image tabs use the same desk and store page, zoom or pan in the layout. |
 | `renderer/home/` | Dashboard greeting, offline task agenda, project status selectors, resource cards and panels from Tasks, Plan and Progress. |
 | `renderer/tasks/`, `renderer/capture/`, `renderer/plan/` | Task editor and lists, Quick Add and Inbox destinations, and the ordered daily Plan and history. Each directory owns its window composition and layout. |
 | `renderer/progress/panel.js` | Scoped Home/workspace calendar, multi-workspace daily intensity and paged history. Opens reports, live sources and Statistics. |
 | `renderer/progress/report.js`, `statistics.js` | Report editor, daily viewer, evidence, workspace selection and Statistics. Reports use Plan’s existing presentation. Statistics reads current note metadata on opening and applies filters to that snapshot. |
-| `renderer/workspace/desk.js`, `splits.js`, `divider.js`, `presets.js` | Tab placement and transfer, a tree of horizontal/vertical split proportions, keyboard and pointer resizing, and preset commands. The desk snapshots view positions from the document component. |
+| `renderer/workspace/desk.js`, `splits.js`, `divider.js`, `presets.js` | Desk composition, a tree of split proportions, resizing and preset commands. The desk delegates tab placement and transfer to `desk-tabs.js` and contextual controls to `desk-rail.js`. The desk snapshots view positions from the document component. |
 | `renderer/ui/` | Buttons, icons, fields, filters, hierarchical destination picker, native dialogs, feedback and shared CSS. |
-| `main/preload.cjs`, `main/app.cjs` | Named IPC operations, session checks, native file picker, OS Trash and app lifecycle. |
+| `main/preload.cjs`, `main/app.cjs` | Electron bootstrap and the narrow renderer bridge. `library-ipc.cjs` registers IPC, validates sessions and dispatches library operations. `protocol.cjs` serves app assets and scoped local media. `window.cjs` owns native menus, close handling, bounds and Oath fullscreen. |
 | `main/library.cjs`, `main/files.cjs` | Validated paths, UTF-8 Markdown, atomic saves, ordinary folder operations, move reference updates, staged captures and filing. |
 | `main/tasks.cjs`, `main/plan.cjs` | Task dates, steps and recurrence, and Plan entry validation, ordering and history snapshots. |
 | `main/progress.cjs` | Stores reports by local day and workspace, records file activity and task/step transitions, and reads surviving note metadata for Statistics. File operations and the shared task command call these functions. |
 | `renderer/work-operations.js`, `contracts/work-commands.d.ts` | Named feature operations and their input contracts. The renderer calls the relevant domain when changing tasks, Plans, Oaths, workspaces, presets, progress or settings. |
-| `main/work.cjs`, `main/work-format.cjs` | Validate persisted records and serialize changes for one library. A task completion, Oath outcome and progress evidence can share one commit. Each replacement checks for intervening changes. |
+| `main/work.cjs`, `main/work-format.cjs` | Validate persisted records and serialize changes for one library. A task completion, Oath outcome and progress evidence can share one commit. Each replacement checks for intervening changes. Managed moves call reference-rewrite operations in the owning domain modules in one ordered transaction. |
 | `main/workspaces.cjs`, `main/presets.cjs`, `main/capture-state.cjs` | Workspace context and Resource attachments, mixed layouts and Last File, and the Quick Add and Inbox lifecycle. |
 | `main/oath.cjs`, `main/project-planning.cjs` | Regular Oath scheduling, rest, terminal outcomes, scope and history, plus Project phases and milestones. |
 | `main/recovery.cjs`, `main/library-format.cjs`, `main/drafts.cjs` | Recover interrupted moves and filing, protect old metadata during an upgrade, and store unsaved drafts in the device profile. |
 | `main/search.cjs`, `renderer/ui/context-search.js` | Search filenames and Markdown within the selected scope, stream matching lines from bounded reads, overlay dirty buffers, and cancel superseded queries. |
 | `main/settings.cjs`, `main/music.cjs` | Portable preferences and playlist order, device-specific shortcuts and window bounds, and local audio paths. |
-| `scripts/`, `test/` | Source bundling, filesystem tests and the offline desktop workflow. |
+| `scripts/`, `test/` | Source bundling, filesystem tests and native workflows. `test/desktop.mjs` runs one integrated workday across restarts. Its fixture, window helpers and workflow steps live in `test/desktop/`. |
+
+The [visual editing map](ui.md) pairs each screen with its composition and CSS. Feature modules import their styles. The build checks the loaded stylesheet against the renderer source tree.
 
 ## Dependencies
 

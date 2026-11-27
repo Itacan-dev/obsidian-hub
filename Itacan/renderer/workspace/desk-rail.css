@@ -1,0 +1,116 @@
+.rail-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  width: var(--full-rail);
+}
+
+.rail-create:not(:empty) {
+  display: grid;
+  gap: var(--s1);
+}
+
+.desk-rail {
+  container: rail / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+}
+
+.rail-heading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 26px;
+}
+
+.rail-heading .button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-navigation {
+  position: relative;
+}
+
+.rail-navigation #navigation {
+  justify-content: center;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.rail-navigation #routes {
+  margin: 0;
+  max-width: 100%;
+  gap: 6px;
+}
+
+.rail-navigation #routes .button {
+  min-width: 0;
+  padding: 5px 8px;
+}
+
+.rail-navigation #library-button {
+  position: absolute;
+  bottom: calc(100% + 16px);
+  left: 0;
+  max-width: 23%;
+  padding: 3px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-panels {
+  display: grid;
+  grid-template-rows: minmax(0,7fr) minmax(0,3fr);
+  gap: var(--panel-gap);
+  flex: 1;
+  min-height: 0;
+}
+
+.rail-panels .work-panel {
+  margin: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.rail-panels h2 {
+  font-size: 22px;
+}
+
+.rail-toggle {
+  position: absolute;
+  top: 6px;
+  left: calc(var(--rail-size) - 32px);
+  width: 26px;
+  min-height: 26px;
+  padding: 0;
+  z-index: 2;
+}
+
+.closed-rail .rail-toggle {
+  left: 3px;
+  transform: rotate(180deg);
+}
+
+@container rail (max-width:340px) {
+  .rail-navigation #routes {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .rail-navigation #library-button {
+    position: static;
+    max-width: 100%;
+  }
+  .rail-navigation #navigation {
+    flex-direction: column;
+    gap: 2px;
+  }
+}

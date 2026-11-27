@@ -1,0 +1,59 @@
+.field {
+  display: grid;
+  gap: var(--s2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dialog:has(.path-picker) {
+  --dialog-width: 560px;
+}
+
+.dialog-body.path-picker {
+  display: flex;
+  flex-direction: column;
+}
+
+.path-picker > :not(.picker-list) {
+  flex: none;
+}
+
+.path-picker .picker-list {
+  max-height: min(420px,52dvh);
+  overflow: auto;
+}
+
+.dialog .picker-list {
+  align-content: start;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
+
+.field :is(input,select,textarea), .text-input {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  padding: var(--s2) var(--s3);
+}
+
+.field textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.path-picker, .picker-list {
+  display: grid;
+  gap: var(--s2);
+}
+
+.picker-list {
+  max-height: 42vh;
+  overflow: auto;
+}
+
+.picker-list .button {
+  justify-content: flex-start;
+}

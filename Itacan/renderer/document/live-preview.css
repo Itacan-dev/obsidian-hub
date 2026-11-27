@@ -1,0 +1,9 @@
+.live-image {
+  max-width: 100%;
+  max-height: 16rem;
+  vertical-align: middle;
+}
+
+.live-heading {
+  font: 600 1.35em/1.4 var(--body);
+}

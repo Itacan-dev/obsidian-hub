@@ -1,0 +1,5 @@
+.music-player,.music-playlist {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+}

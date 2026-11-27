@@ -1,0 +1,91 @@
+@import '@fontsource/instrument-sans/latin-400.css';
+@import '@fontsource/instrument-sans/latin-600.css';
+@import '@fontsource/baskervville/latin-400.css';
+:root {
+  color-scheme: light;
+  --paper: #f7f6f0;
+  --surface: #fffefa;
+  --ink: #242d29;
+  --muted: #626c65;
+  --line: #d6dbd1;
+  --accent-base: #315c4b;
+  --accent-hover-base: #214635;
+  --accent: var(--accent-base);
+  --accent-hover: var(--accent-hover-base);
+  --tint: #e8eee6;
+  --on-accent: #fff;
+  --focus-ring: #547563;
+  --drop-line: var(--accent);
+  --warning: #763e25;
+  --body: 'Instrument Sans', system-ui, sans-serif;
+  --display: 'Baskervville', Georgia, serif;
+  --mono: ui-monospace, Consolas, monospace;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --control-radius: 7px;
+  --panel-radius: 13px;
+  --panel-gap: 12px;
+  --gutter: clamp(16px, 2.5vw, 32px);
+  font: 15px/1.5 var(--body);
+  color: var(--ink);
+  background: var(--paper);
+}
+
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --paper: #19221f;
+  --surface: #232e2a;
+  --ink: #f1f1e8;
+  --muted: #bcc7bd;
+  --line: #4d5b53;
+  --tint: #36443c;
+  --warning: #ffbf96;
+  --focus-ring: #aedcc2;
+  --on-accent: #17201c;
+}
+
+:root[data-density=Compact] {
+  --s3: 9px;
+  --s4: 12px;
+  --s5: 18px;
+  --panel-gap: 9px;
+}
+
+:root[data-motion=Reduced] *, :root[data-motion=Reduced] *::before, :root[data-motion=Reduced] *::after {
+  animation-duration: .01ms!important;
+  transition-duration: .01ms!important;
+  scroll-behavior: auto!important;
+}
+
+:root[data-accent=Blue] {
+  --accent-base: #315c86;
+  --accent-hover-base: #23496e;
+}
+
+:root[data-accent=Plum] {
+  --accent-base: #784f76;
+  --accent-hover-base: #5b385a;
+}
+
+:root[data-accent=Amber] {
+  --accent-base: #846027;
+  --accent-hover-base: #674a1e;
+}
+
+:root[data-theme=dark] {
+  --accent: color-mix(in srgb,var(--accent-base) 35%,white);
+  --accent-hover: color-mix(in srgb,var(--accent-hover-base) 22%,white);
+}
+
+:root[data-text-size=Large] {
+  font-size: 17px;
+}
+
+:root[data-text-size="Extra large"] {
+  font-size: 19px;
+}

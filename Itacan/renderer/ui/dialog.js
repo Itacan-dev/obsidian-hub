@@ -1,4 +1,5 @@
 import { el, button, icon } from './elements.js';
+import './dialog.css';
 
 // Native dialog supplies focus trapping, Escape and focus return. Each caller owns its fields.
 export function showDialog({ title, description, content, actions, footerControls = [], headerControls, wide = false, beforeClose }) {

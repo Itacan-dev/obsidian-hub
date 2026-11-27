@@ -1,5 +1,11 @@
 # Itacan verification
 
+## UI maintainability refactor on Windows x64
+
+Compared the refactor with commit `0365163` across 14 desktop screenshots, including wide and narrow Home, Workspace, the document desk, Settings, Music, Oath, Quick Add and Inbox. The Workspace and task-properties acceptance screenshots matched pixel for pixel. Small raster differences remained on other surfaces. All 1,533 sampled dimensions and computed style values matched at 1140 × 780 across Workspace Files, the desk rail, Markdown reading and editing, and the image viewer.
+
+The development entry point opened Home in a fresh profile. The build included all 26 renderer stylesheets in the loaded application CSS. All 33 automated tests and five offline Electron workflows passed. The run also reproduced a pre-existing race where a search completion reply could arrive before the last result batch. The preload now waits for the ordered end of the stream. Regression tests cover late delivery and cleanup on a rejected query.
+
 ## 0.4.0-internal.1 on Windows x64 · 27 November 2026
 
 The internal build runs from the standalone Electron checkout. The Windows checks use disposable libraries and profiles, with network access disabled in the desktop workflows and test-supplied native picker results.

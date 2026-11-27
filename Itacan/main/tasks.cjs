@@ -1,6 +1,6 @@
 const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
-const {workspaceIncludes,taskInWorkspace} = require('../contracts/workspace.cjs');
+const {workspaceIncludes,taskInWorkspace,workspaceContext} = require('../contracts/workspace.cjs');
 
 function date(value) {
   if (!value) return '';
@@ -120,4 +120,19 @@ async function taskAction(state, action, data, library) {
   }
   state.tasks = state.tasks.filter(t => t.id !== task.id);
 }
-module.exports = { taskAction, findTask };
+
+function rewriteTaskRefs(state, moved) {
+  for (const task of state.tasks) {
+    const owner = moved(task.owner);
+    if (task.owner && !owner) task.missingOwner = task.owner;
+    task.owner = owner;
+
+    const location = moved(task.location);
+    if (!task.location || task.location === location) continue;
+    if (!location) task.missingLocation = task.location;
+    task.location = location;
+    if (location) task.owner = workspaceContext(state, location, owner);
+  }
+}
+
+module.exports = { rewriteTaskRefs, taskAction, findTask };
